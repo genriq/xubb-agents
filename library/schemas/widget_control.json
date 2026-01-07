@@ -1,0 +1,16 @@
+{
+  "id": "widget_control",
+  "description": "Protocol Envelope for Widget Controllers (Hands). Maps ui_actions to the data sidecar.",
+  "instruction": "\nIMPORTANT: You are a Widget Controller. You must output a JSON object with a 'ui_actions' array.\n\nOUTPUT FORMAT ENVELOPE:\n{\n  \"ui_actions\": [\n    {\n      \"target_widget\": \"goals_widget\" | \"sentiment_meter\" | \"...\",\n      \"action\": \"update\" | \"set\" | \"...\",\n      \"payload\": { ...Object matching the specific widget schema... }\n    }\n  ],\n  \"insight\": { ...Optional voice... },\n  \"state_snapshot\": { ...Optional memory... }\n}\n",
+  "mapping": {
+    "root_key": "insight",
+    "check_field": null,
+    "content_field": "content",
+    "type_field": "type",
+    "confidence_field": "confidence",
+    "state_field": "state_snapshot",
+    "is_state_at_root": true,
+    "data_field": "ui_actions",
+    "data_key": "ui_actions"
+  }
+}

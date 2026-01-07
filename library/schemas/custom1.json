@@ -1,0 +1,14 @@
+{
+  "id": "custom1",
+  "description": "Example custom schema demonstrating mapping.",
+  "instruction": "\nIMPORTANT: Return a JSON object with this format:\n\n{\n  \"sales_tip\": \"Your advice text...\",\n  \"risk_category\": \"warning\",\n  \"confidence_score\": 0.9,\n  \"blackboard\": { \"phase\": \"negotiation\" }\n}\n",
+  "mapping": {
+    "root_key": null,
+    "check_field": "sales_tip",
+    "content_field": "sales_tip",
+    "type_field": "risk_category",
+    "confidence_field": "confidence_score",
+    "state_field": "blackboard",
+    "metadata_field": null
+  }
+}
