@@ -1,0 +1,14 @@
+{
+  "id": "default",
+  "description": "Legacy flat schema used by simple agents.",
+  "instruction": "\nIMPORTANT: You must return a valid JSON object.\n\nOUTPUT FORMAT:\n{\n    \"has_insight\": boolean,\n    \"type\": \"suggestion\" | \"warning\" | \"fact\",\n    \"message\": \"Your advice here\",\n    \"memory_updates\": { \"key\": \"value\" } // Optional: updates to your long-term memory\n}\n",
+  "mapping": {
+    "root_key": null,
+    "check_field": "has_insight",
+    "content_field": "message",
+    "type_field": "type",
+    "confidence_field": "confidence",
+    "state_field": "memory_updates",
+    "metadata_field": "metadata"
+  }
+}

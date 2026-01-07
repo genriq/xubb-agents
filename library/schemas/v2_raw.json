@@ -1,0 +1,15 @@
+{
+  "id": "v2_raw",
+  "description": "Structured schema with separated insight and state.",
+  "instruction": "\nIMPORTANT: You are in RAW MODE. You must output a valid JSON object strictly adhering to this schema:\n\n{\n  \"insight\": {\n    \"type\": \"warning\" | \"opportunity\" | \"suggestion\" | \"fact\",\n    \"content\": \"Short, punchy text for the HUD.\",\n    \"confidence\": 0.0 to 1.0,\n    \"expiry\": 15,\n    \"metadata\": { \"key\": \"value\" }\n  },\n  \"state_snapshot\": {\n    \"key\": \"value\" \n    // Optional: Updates to persistent blackboard state (Zone B)\n  }\n}\n",
+  "mapping": {
+    "root_key": "insight",
+    "check_field": null,
+    "content_field": "content",
+    "type_field": "type",
+    "confidence_field": "confidence",
+    "state_field": "state_snapshot",
+    "metadata_field": "metadata",
+    "is_state_at_root": true
+  }
+}

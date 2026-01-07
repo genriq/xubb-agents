@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xubb Agent MRI (Debugger)</title>
+    <!-- Vue.js 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        [v-cloak] { display: none; }
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+        .json-key { color: #a5b4fc; }
+        .json-string { color: #86efac; }
+        .json-number { color: #fca5a5; }
+        .json-boolean { color: #93c5fd; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 h-screen overflow-hidden font-sans">
+
+<div id="app" v-cloak class="h-full flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center shadow-md z-10">
+        <div class="flex items-center gap-3">
+            <div class="bg-indigo-600 p-2 rounded-lg">
+                <i class="fa-solid fa-brain text-white text-xl"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-xl tracking-wide text-white">Xubb Agent MRI</h1>
+                <p class="text-xs text-slate-400">Execution Trace Visualizer</p>
+            </div>
+        </div>
+
+        <div class="flex gap-4">
+            <!-- Mode Toggle -->
+            <div class="bg-slate-700 rounded-lg p-1 flex text-sm">
+                <button @click="mode = 'paste'" :class="{'bg-indigo-600 text-white': mode === 'paste', 'text-slate-400 hover:text-white': mode !== 'paste'}" class="px-3 py-1 rounded transition-colors">
+                    <i class="fa-solid fa-paste mr-1"></i> Paste Logs
+                </button>
+                <button @click="mode = 'live'" :class="{'bg-indigo-600 text-white': mode === 'live', 'text-slate-400 hover:text-white': mode !== 'live'}" class="px-3 py-1 rounded transition-colors">
+                    <i class="fa-solid fa-satellite-dish mr-1"></i> Live (WS)
+                </button>
+            </div>
+
+            <!-- Stats -->
+            <div class="flex gap-4 text-sm px-4 border-l border-slate-600">
+                <div class="text-center">
+                    <div class="text-slate-400 text-xs uppercase">Turns</div>
+                    <div class="font-bold text-white">{{ traces.length }}</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-slate-400 text-xs uppercase">Avg Latency</div>
+                    <div class="font-bold text-emerald-400">{{ avgLatency }}ms</div>
+                </div>
+            </div>
+            
+            <button @click="clearTraces" class="text-slate-400 hover:text-red-400 transition-colors" title="Clear All">
+                <i class="fa-solid fa-trash"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex overflow-hidden">
+        
+        <!-- Sidebar: Turn Timeline -->
+        <div class="w-1/4 min-w-[300px] max-w-[400px] bg-slate-800 border-r border-slate-700 flex flex-col">
+            <div class="p-3 border-b border-slate-700 bg-slate-800 sticky top-0 z-10">
+                <input v-model="search" type="text" placeholder="Search transcripts..." class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 transition-colors">
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-2 space-y-2">
+                <div v-if="filteredTraces.length === 0" class="text-center py-10 text-slate-500">
+                    <p>No traces found.</p>
+                    <p class="text-xs mt-2" v-if="mode === 'paste'">Paste JSON logs to begin.</p>
+                </div>
+
+                <div v-for="trace in filteredTraces" :key="trace.id" 
+                     @click="selectTrace(trace)"
+                     class="p-3 rounded-lg cursor-pointer transition-all border border-transparent hover:border-slate-600 group relative"
+                     :class="{'bg-slate-700 border-indigo-500 shadow-lg': selectedTrace === trace, 'bg-slate-800 hover:bg-slate-750': selectedTrace !== trace}">
+                    
+                    <!-- Time & Trigger -->
+                    <div class="flex justify-between items-start mb-1">
+                        <span class="text-xs font-mono text-slate-500">{{ formatTime(trace.timestamp_start) }}</span>
+                        <span class="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded" 
+                              :class="triggerClass(trace.trigger)">
+                            {{ trace.trigger }}
+                        </span>
+                    </div>
+
+                    <!-- Transcript Preview -->
+                    <div class="text-sm text-slate-200 line-clamp-2 mb-2 font-medium">
+                        "{{ trace.input_preview }}"
+                    </div>
+
+                    <!-- Agent Badges -->
+                    <div class="flex flex-wrap gap-1">
+                        <div v-for="step in trace.steps" :key="step.agent" 
+                             class="w-2 h-2 rounded-full"
+                             :class="statusColor(step.status)"
+                             :title="step.agent + ': ' + step.status">
+                        </div>
+                    </div>
+                    
+                    <!-- Latency -->
+                    <div class="absolute bottom-3 right-3 text-xs font-mono text-slate-500">
+                        {{ trace.total_latency_ms }}ms
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Paste Area (Overlay if empty in paste mode) -->
+            <div v-if="mode === 'paste' && traces.length === 0" class="absolute inset-0 bg-slate-800/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 z-20">
+                <textarea v-model="pasteInput" placeholder="Paste 'TURN_TRACE: {...}' lines here..." class="w-full h-64 bg-slate-900 border border-slate-600 rounded p-4 font-mono text-xs focus:outline-none focus:border-indigo-500"></textarea>
+                <button @click="processPaste" class="mt-4 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-full font-bold shadow-lg transition-transform hover:scale-105">
+                    Visualize
+                </button>
+            </div>
+        </div>
+
+        <!-- Detail Panel -->
+        <div class="flex-1 bg-slate-900 overflow-y-auto flex flex-col relative" v-if="selectedTrace">
+            
+            <!-- Hero Section: Transcript -->
+            <div class="bg-gradient-to-r from-slate-800 to-slate-900 p-8 border-b border-slate-700">
+                <div class="max-w-4xl mx-auto">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="text-xs uppercase tracking-widest text-slate-500">Transcript Input</div>
+                        <div v-if="selectedTrace.speaker" class="bg-indigo-900 text-indigo-200 px-2 py-1 rounded text-xs font-bold uppercase tracking-wider">
+                            <i class="fa-solid fa-user mr-1"></i> {{ selectedTrace.speaker }}
+                        </div>
+                    </div>
+                    
+                    <!-- NEW: Expandable Transcript History -->
+                    <div class="mb-4">
+                        <div @click="showFullTranscript = !showFullTranscript" class="cursor-pointer flex items-center gap-2 text-xs text-indigo-400 mb-2 hover:text-indigo-300">
+                            <i :class="showFullTranscript ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'"></i>
+                            {{ showFullTranscript ? 'Hide Context History' : 'Show Context History (' + (selectedTrace.transcript_history ? selectedTrace.transcript_history.length : 0) + ' turns)' }}
+                        </div>
+                        
+                        <div v-if="showFullTranscript && selectedTrace.transcript_history" class="bg-slate-800/80 rounded p-4 mb-4 border border-slate-700 max-h-60 overflow-y-auto">
+                            <div v-for="(seg, idx) in selectedTrace.transcript_history" :key="idx" class="mb-2 last:mb-0">
+                                <span class="text-[10px] font-bold uppercase w-16 inline-block opacity-70" :class="seg.speaker === 'USER' ? 'text-blue-400' : 'text-emerald-400'">{{ seg.speaker }}</span>
+                                <span class="text-slate-300 text-sm">{{ seg.text }}</span>
+                            </div>
+                        </div>
+
+                        <!-- Current Input (Headline) -->
+                        <div class="text-2xl font-light text-white leading-relaxed">
+                            "{{ selectedTrace.input_preview }}"
+                        </div>
+                    </div>
+                    
+                    <!-- New Context Metadata Grid -->
+                    <div class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                         <div v-if="selectedTrace.trigger_metadata && Object.keys(selectedTrace.trigger_metadata).length > 0" class="bg-slate-800 p-2 rounded border border-slate-700">
+                            <div class="uppercase text-slate-500 mb-1 font-bold">Trigger Info</div>
+                            <pre class="text-indigo-300 font-mono">{{ JSON.stringify(selectedTrace.trigger_metadata, null, 1).replace(/{|}|"/g, '') }}</pre>
+                         </div>
+                         <div v-if="selectedTrace.user_context" class="bg-slate-800 p-2 rounded border border-slate-700 col-span-2">
+                            <div class="uppercase text-slate-500 mb-1 font-bold">User Context</div>
+                            <div class="text-slate-300 truncate" :title="selectedTrace.user_context">{{ selectedTrace.user_context }}</div>
+                         </div>
+                         <div v-if="selectedTrace.language_directive" class="bg-slate-800 p-2 rounded border border-slate-700">
+                            <div class="uppercase text-slate-500 mb-1 font-bold">Language</div>
+                            <div class="text-purple-300">{{ selectedTrace.language_directive }}</div>
+                         </div>
+                    </div>
+
+                    <!-- New: Initial Shared State & RAG Grid -->
+                    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        <div v-if="selectedTrace.initial_shared_state && Object.keys(selectedTrace.initial_shared_state).length > 0" class="bg-slate-800 p-2 rounded border border-slate-700">
+                            <div class="uppercase text-slate-500 mb-1 font-bold">Initial State</div>
+                            <pre class="text-indigo-300 font-mono scrollbar-hide overflow-y-auto max-h-24">{{ JSON.stringify(selectedTrace.initial_shared_state, null, 1).replace(/{|}|"/g, '') }}</pre>
+                        </div>
+                         <div v-if="selectedTrace.rag_docs && selectedTrace.rag_docs.length > 0" class="bg-slate-800 p-2 rounded border border-slate-700">
+                            <div class="uppercase text-slate-500 mb-1 font-bold">RAG Documents</div>
+                            <ul class="list-disc list-inside text-slate-300 max-h-24 overflow-y-auto scrollbar-hide">
+                                <li v-for="(doc, i) in selectedTrace.rag_docs" :key="i" class="truncate">{{ doc }}</li>
+                            </ul>
+                         </div>
+                    </div>
+
+                    <div class="mt-4 flex gap-6 text-sm text-slate-400">
+                        <div><i class="fa-regular fa-clock mr-2"></i> Latency: <span class="text-emerald-400">{{ selectedTrace.total_latency_ms }}ms</span></div>
+                        <div><i class="fa-solid fa-fingerprint mr-2"></i> ID: <span class="font-mono">{{ selectedTrace.session_id }}</span></div>
+                        <div><i class="fa-solid fa-bolt mr-2"></i> Trigger: <span class="text-indigo-400 uppercase">{{ selectedTrace.trigger }}</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agents Grid -->
+            <div class="p-8 max-w-6xl mx-auto w-full">
+                
+                <!-- NEW: Shared State Changes Section -->
+                <div v-if="selectedTrace.final_state_updates && Object.keys(selectedTrace.final_state_updates).length > 0" class="mb-8 bg-slate-800/50 rounded-xl border border-slate-700 p-6">
+                    <h3 class="text-md font-bold mb-4 flex items-center gap-2 text-indigo-300">
+                        <i class="fa-solid fa-pen-to-square"></i> State Updates
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div v-for="(val, key) in selectedTrace.final_state_updates" :key="key" class="bg-slate-900 p-3 rounded border border-slate-700">
+                            <div class="text-xs text-slate-500 font-mono mb-1">{{ key }}</div>
+                            <div class="text-sm font-mono text-emerald-400 truncate" :title="JSON.stringify(val)">{{ typeof val === 'object' ? JSON.stringify(val) : val }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 class="text-lg font-bold mb-6 flex items-center gap-2">
+                    <i class="fa-solid fa-users-gear text-indigo-400"></i> Agent Activity
+                </h3>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div v-for="step in selectedTrace.steps" :key="step.agent" 
+                         class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden hover:border-slate-600 transition-colors">
+                        
+                        <!-- Agent Header -->
+                        <div class="p-4 flex justify-between items-center bg-slate-800/50 border-b border-slate-700">
+                            <div class="flex items-center gap-3">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center bg-slate-700 text-indigo-400">
+                                    <i class="fa-solid fa-robot"></i>
+                                </div>
+                                <div>
+                                    <div class="font-bold text-white">{{ step.agent }}</div>
+                                    <div class="text-xs text-slate-400">{{ step.latency_ms }}ms</div>
+                                </div>
+                            </div>
+                            <div class="px-2 py-1 rounded text-xs font-bold uppercase" :class="statusBadge(step.status)">
+                                {{ step.status }}
+                            </div>
+                        </div>
+
+                        <!-- Agent Content -->
+                        <div class="p-4 space-y-4">
+                            <!-- Insights -->
+                            <div v-if="step.insights && step.insights.length > 0">
+                                <div v-for="(insight, idx) in step.insights" :key="idx" 
+                                     class="p-3 rounded bg-slate-750 border-l-4 mb-2" 
+                                     :class="insightTypeBorder(insight.type)">
+                                    <div class="flex justify-between items-start mb-1">
+                                        <span class="text-[10px] uppercase font-bold tracking-wider" :class="insightTypeColor(insight.type)">
+                                            {{ insight.type }}
+                                        </span>
+                                        <span class="text-xs text-slate-500 font-mono">Conf: {{ insight.confidence }}</span>
+                                    </div>
+                                    <div class="text-sm text-slate-200">{{ insight.content }}</div>
+                                    
+                                    <!-- Metadata Tag -->
+                                    <div v-if="insight.metadata && Object.keys(insight.metadata).length > 0" class="mt-2 pt-2 border-t border-slate-700">
+                                        <div class="text-[10px] text-slate-500 uppercase mb-1">Metadata</div>
+                                        <pre class="text-xs font-mono text-indigo-300" v-html="formatJson(insight.metadata)"></pre>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else-if="step.status === 'success'" class="text-sm text-slate-500 italic text-center py-2">
+                                Agent ran but produced no insights.
+                            </div>
+                            <div v-else-if="step.status === 'error'" class="text-sm text-red-400 bg-red-900/20 p-3 rounded border border-red-900/50">
+                                <i class="fa-solid fa-circle-exclamation mr-1"></i> {{ step.error }}
+                            </div>
+
+                            <!-- State Updates -->
+                            <div v-if="step.state_updates && step.state_updates.length > 0" class="mt-3">
+                                <div class="text-[10px] text-slate-500 uppercase mb-1 flex items-center gap-1">
+                                    <i class="fa-solid fa-database"></i> State Updates
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <span v-for="key in step.state_updates" :key="key" class="bg-slate-900 text-slate-300 px-2 py-1 rounded text-xs font-mono border border-slate-700">
+                                        {{ key }}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Sidecar Data (e.g. UI Actions) -->
+                            <div v-if="step.data && Object.keys(step.data).length > 0" class="mt-3">
+                                <div class="text-[10px] text-pink-400 uppercase mb-1 flex items-center gap-1 font-bold">
+                                    <i class="fa-solid fa-hand-sparkles"></i> Sidecar Data
+                                </div>
+                                <div class="bg-pink-900/20 border border-pink-900/50 rounded p-2 text-xs font-mono text-pink-200 whitespace-pre-wrap">{{ JSON.stringify(step.data, null, 2) }}</div>
+                            </div>
+
+                            <!-- Debug Info (Prompts & Response) -->
+                            <div v-if="step.debug_info" class="mt-4 pt-3 border-t border-slate-700 space-y-2">
+                                <!-- Raw Prompt -->
+                                <details v-if="step.debug_info.prompt_messages" class="group">
+                                    <summary class="list-none flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-500 hover:text-indigo-400 transition-colors">
+                                        <i class="fa-solid fa-terminal"></i> Show Raw Prompt
+                                        <span class="ml-auto opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-chevron-down"></i></span>
+                                    </summary>
+                                    <div class="mt-2 bg-slate-950 rounded p-3 text-[10px] font-mono border border-slate-800 overflow-x-auto max-h-60 overflow-y-auto">
+                                        <div v-for="(msg, i) in step.debug_info.prompt_messages" :key="i" class="mb-3 last:mb-0">
+                                            <div class="text-indigo-400 font-bold uppercase mb-1">[{{ msg.role }}]</div>
+                                            <div class="whitespace-pre-wrap text-slate-300">{{ msg.content }}</div>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- Raw Response -->
+                                <details v-if="step.debug_info.llm_output" class="group">
+                                    <summary class="list-none flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-500 hover:text-emerald-400 transition-colors">
+                                        <i class="fa-solid fa-code"></i> Show Raw Response
+                                        <span class="ml-auto opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-chevron-down"></i></span>
+                                    </summary>
+                                    <div class="mt-2 bg-slate-950 rounded p-3 text-[10px] font-mono border border-slate-800 overflow-x-auto">
+                                        <pre class="text-emerald-300 whitespace-pre-wrap">{{ JSON.stringify(step.debug_info.llm_output, null, 2) }}</pre>
+                                    </div>
+                                </details>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Empty State -->
+        <div v-else class="flex-1 bg-slate-900 flex flex-col items-center justify-center text-slate-600">
+            <i class="fa-solid fa-microscope text-6xl mb-4 opacity-50"></i>
+            <p class="text-lg font-medium">Select a trace to inspect</p>
+        </div>
+
+    </div>
+    
+    <!-- WebSocket Config Modal -->
+    <div v-if="mode === 'live' && showWsConfig" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+        <div class="bg-slate-800 p-6 rounded-lg w-96 shadow-2xl border border-slate-600">
+            <h3 class="text-lg font-bold text-white mb-4">Live Connection</h3>
+            <div class="mb-4">
+                <label class="block text-xs text-slate-400 mb-1">WebSocket URL</label>
+                <input v-model="wsUrl" type="text" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
+            </div>
+            <div class="flex gap-2">
+                <button @click="connectWs" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded font-medium">Connect</button>
+                <button @click="mode = 'paste'; showWsConfig = false" class="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const { createApp } = Vue
+
+    createApp({
+        data() {
+            return {
+                mode: 'paste', // 'paste' | 'live'
+                pasteInput: '',
+                wsUrl: 'ws://localhost:8000/ws/debug',
+                ws: null,
+                showWsConfig: false,
+                search: '',
+                traces: [], // Array of parsed Trace objects
+                selectedTrace: null,
+                showFullTranscript: false // Toggle for history
+            }
+        },
+        computed: {
+            filteredTraces() {
+                if (!this.search) return this.traces;
+                const q = this.search.toLowerCase();
+                return this.traces.filter(t => 
+                    t.input_preview.toLowerCase().includes(q) || 
+                    t.trigger.toLowerCase().includes(q)
+                );
+            },
+            avgLatency() {
+                if (this.traces.length === 0) return 0;
+                const total = this.traces.reduce((sum, t) => sum + (t.total_latency_ms || 0), 0);
+                return Math.round(total / this.traces.length);
+            }
+        },
+        watch: {
+            mode(newMode) {
+                if (newMode === 'live' && !this.ws) {
+                    this.showWsConfig = true;
+                }
+            }
+        },
+        methods: {
+            processPaste() {
+                const lines = this.pasteInput.split('\n');
+                let count = 0;
+                lines.forEach(line => {
+                    // Extract JSON from "TURN_TRACE: { ... }" logs
+                    const match = line.match(/TURN_TRACE:\s*({.*})/);
+                    if (match) {
+                        try {
+                            const json = JSON.parse(match[1]);
+                            // Add simplistic ID if missing
+                            if (!json.id) json.id = Math.random().toString(36).substr(2, 9);
+                            this.traces.unshift(json); // Newest first
+                            count++;
+                        } catch (e) {
+                            console.error("Failed to parse line", e);
+                        }
+                    } else if (line.trim().startsWith('{')) {
+                         // Try parsing raw JSON line
+                         try {
+                            const json = JSON.parse(line);
+                            this.traces.unshift(json);
+                            count++;
+                         } catch (e) {}
+                    }
+                });
+                this.pasteInput = ''; // Clear
+                if (count > 0 && !this.selectedTrace) {
+                    this.selectedTrace = this.traces[0];
+                }
+            },
+            connectWs() {
+                try {
+                    this.ws = new WebSocket(this.wsUrl);
+                    this.ws.onopen = () => {
+                        this.showWsConfig = false;
+                        console.log("Connected to Debug WS");
+                    };
+                    this.ws.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            // Expecting data in format: { type: "TURN_TRACE", payload: {...} } or just raw payload
+                            const trace = data.payload || data; 
+                            this.traces.unshift(trace);
+                            // Keep max 100
+                            if (this.traces.length > 100) this.traces.pop();
+                        } catch (e) { console.error(e); }
+                    };
+                    this.ws.onclose = () => {
+                        this.ws = null;
+                        this.mode = 'paste'; // Fallback
+                        alert("WebSocket disconnected");
+                    };
+                } catch (e) {
+                    alert("Connection failed: " + e.message);
+                }
+            },
+            clearTraces() {
+                this.traces = [];
+                this.selectedTrace = null;
+            },
+            selectTrace(trace) {
+                this.selectedTrace = trace;
+            },
+            formatTime(ts) {
+                // If ts is 0 or missing, use a counter or just placeholder
+                if (!ts) return "---";
+                return new Date(ts * 1000).toLocaleTimeString();
+            },
+            formatJson(obj) {
+                // Simple syntax highlighting
+                const json = JSON.stringify(obj, null, 2);
+                return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                    let cls = 'json-number';
+                    if (/^"/.test(match)) {
+                        if (/:$/.test(match)) {
+                            cls = 'json-key';
+                        } else {
+                            cls = 'json-string';
+                        }
+                    } else if (/true|false/.test(match)) {
+                        cls = 'json-boolean';
+                    } else if (/null/.test(match)) {
+                        cls = 'json-null';
+                    }
+                    return '<span class="' + cls + '">' + match + '</span>';
+                });
+            },
+            // Stylers
+            triggerClass(type) {
+                const map = {
+                    'turn_based': 'bg-blue-900 text-blue-300',
+                    'keyword': 'bg-purple-900 text-purple-300',
+                    'silence': 'bg-amber-900 text-amber-300',
+                    'interval': 'bg-slate-700 text-slate-400'
+                };
+                return map[type] || 'bg-slate-700';
+            },
+            statusColor(status) {
+                return status === 'success' ? 'bg-emerald-500' : 
+                       status === 'error' ? 'bg-red-500' : 'bg-slate-600';
+            },
+            statusBadge(status) {
+                return status === 'success' ? 'bg-emerald-900 text-emerald-300' : 
+                       status === 'error' ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-500';
+            },
+            insightTypeBorder(type) {
+                const map = {
+                    'warning': 'border-red-500',
+                    'opportunity': 'border-emerald-500',
+                    'suggestion': 'border-blue-500',
+                    'fact': 'border-slate-500',
+                    'praise': 'border-pink-500'
+                };
+                return map[type.toLowerCase()] || 'border-slate-500';
+            },
+            insightTypeColor(type) {
+                const map = {
+                    'warning': 'text-red-400',
+                    'opportunity': 'text-emerald-400',
+                    'suggestion': 'text-blue-400',
+                    'fact': 'text-slate-400',
+                    'praise': 'text-pink-400'
+                };
+                return map[type.toLowerCase()] || 'text-slate-400';
+            }
+        }
+    }).mount('#app')
+</script>
+</body>
+</html>
