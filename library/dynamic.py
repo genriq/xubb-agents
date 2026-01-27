@@ -1,14 +1,21 @@
 import os
 import json
+import time
 from jinja2 import Template
 from ..core.agent import BaseAgent, AgentConfig
-from ..core.models import AgentContext, AgentResponse, InsightType, TriggerType
+from ..core.models import AgentContext, AgentResponse, InsightType, TriggerType, Event, Fact
 
 class DynamicAgent(BaseAgent):
     """
     An agent that loads its persona and configuration from a dictionary (DB/JSON).
     Supports persistent memory via 'private_state'.
     Uses 'schemas/' directory for pluggable output formats.
+    
+    V2 additions:
+    - trigger_conditions: Preconditions evaluated by engine
+    - subscribed_events: Events that trigger this agent
+    - Blackboard access in Jinja2 templates via {{ blackboard }}
+    - Parses v2 response fields: events, variable_updates, queue_pushes, facts, memory_updates
     """
     def __init__(self, config_dict: dict):
         # Parse Trigger Config
@@ -26,6 +33,8 @@ class DynamicAgent(BaseAgent):
             trigger_types.append(TriggerType.SILENCE)
         elif trigger_mode == "interval":
             trigger_types.append(TriggerType.INTERVAL)
+        elif trigger_mode == "event":
+            trigger_types.append(TriggerType.EVENT)
         else:
             # Support multiple modes
             if isinstance(trigger_mode, list):
@@ -38,6 +47,8 @@ class DynamicAgent(BaseAgent):
                         trigger_types.append(TriggerType.SILENCE)
                     elif mode == "interval":
                         trigger_types.append(TriggerType.INTERVAL)
+                    elif mode == "event":
+                        trigger_types.append(TriggerType.EVENT)
             else:
                 trigger_types = [TriggerType.TURN_BASED]  # Default
         
@@ -48,6 +59,9 @@ class DynamicAgent(BaseAgent):
         
         # Parse silence threshold
         silence_threshold = trigger_conf.get("silence_threshold")
+        
+        # V2: Parse subscribed events
+        subscribed_events = trigger_conf.get("subscribed_events", [])
         
         # Parse priority
         priority = trigger_conf.get("priority", config_dict.get("priority", 0))
@@ -64,6 +78,9 @@ class DynamicAgent(BaseAgent):
         # Parse output format (default, v2_raw, or custom filename)
         output_format = config_dict.get("output_format", "default")
         
+        # V2: Parse trigger conditions
+        trigger_conditions = config_dict.get("trigger_conditions")
+        
         super().__init__(AgentConfig(
             name=name, 
             id=agent_id, 
@@ -73,7 +90,10 @@ class DynamicAgent(BaseAgent):
             trigger_keywords=trigger_keywords,
             silence_threshold=silence_threshold,
             priority=priority,
-            output_format=output_format
+            output_format=output_format,
+            # V2 additions
+            trigger_conditions=trigger_conditions,
+            subscribed_events=subscribed_events
         ))
         
         self.system_prompt = config_dict.get("text", "")
@@ -160,19 +180,21 @@ class DynamicAgent(BaseAgent):
         # We serialize the private state to JSON
         current_memory = json.dumps(self.private_state, indent=2)
         
-        # 14/10 Upgrade: Jinja2 Rendering of System Prompt
-        # This allows prompts to access {{ state.phase }}, {{ context.user_context }}, etc.
+        # Jinja2 Rendering of System Prompt
+        # This allows prompts to access {{ state.phase }}, {{ blackboard.variables }}, etc.
         # We fail gracefully if Jinja2 crashes to keep the agent alive.
         rendered_system_prompt = self.system_prompt
         try:
             template = Template(self.system_prompt)
-            # We inject both the raw shared_state (as object) and a flattened version for convenience if needed.
-            # Best practice: Use {{ state.key }}
             rendered_system_prompt = template.render(
-                state=context.shared_state,      # Access blackboard via {{ state.my_key }}
-                memory=self.private_state,       # Access private via {{ memory.my_key }}
-                context=context,                 # Access full context via {{ context }}
-                user_context=context.user_context # Shortcut
+                # V1 compatibility
+                state=context.shared_state,      # Access via {{ state.my_key }}
+                memory=self.private_state,       # Access via {{ memory.my_key }}
+                context=context,                 # Access via {{ context }}
+                user_context=context.user_context, # Shortcut
+                # V2 additions
+                blackboard=context.blackboard,   # Access via {{ blackboard.variables.key }}
+                agent_id=self.config.id          # Access via {{ agent_id }}
             )
         except Exception as e:
             self.logger.warning(f"Jinja2 rendering failed for {self.config.name}: {e}. using raw prompt.")
@@ -338,6 +360,76 @@ class DynamicAgent(BaseAgent):
                 sidecar_payload = result.get(data_field)
                 if sidecar_payload:
                     response.data[data_key] = sidecar_payload
+            
+            # ================================================================
+            # V2: Extract new fields (events, variable_updates, queue_pushes, facts, memory_updates)
+            # ================================================================
+            
+            # 6. Events extraction
+            events_field = self.mapping.get("events_field", "events")
+            raw_events = result.get(events_field, [])
+            if raw_events and isinstance(raw_events, list):
+                current_time = time.time()  # Session-relative would need context
+                for evt in raw_events:
+                    if isinstance(evt, dict):
+                        event = Event(
+                            name=evt.get("name", ""),
+                            payload=evt.get("payload", {}),
+                            source_agent=self.config.id,
+                            timestamp=current_time,
+                            id=evt.get("id")
+                        )
+                        response.events.append(event)
+                    elif isinstance(evt, str):
+                        # Simple string event (legacy format)
+                        event = Event(
+                            name=evt,
+                            payload={},
+                            source_agent=self.config.id,
+                            timestamp=current_time
+                        )
+                        response.events.append(event)
+            
+            # 7. Variable updates (v2 style - replaces state_updates)
+            var_field = self.mapping.get("variable_updates_field", "variable_updates")
+            var_updates = result.get(var_field, {})
+            if var_updates and isinstance(var_updates, dict):
+                response.variable_updates.update(var_updates)
+            
+            # 8. Queue pushes
+            queue_field = self.mapping.get("queue_field", "queue_pushes")
+            queue_pushes = result.get(queue_field, {})
+            if queue_pushes and isinstance(queue_pushes, dict):
+                for queue_name, items in queue_pushes.items():
+                    if isinstance(items, list):
+                        if queue_name not in response.queue_pushes:
+                            response.queue_pushes[queue_name] = []
+                        response.queue_pushes[queue_name].extend(items)
+            
+            # 9. Facts extraction
+            facts_field = self.mapping.get("facts_field", "facts")
+            raw_facts = result.get(facts_field, [])
+            if raw_facts and isinstance(raw_facts, list):
+                current_time = time.time()
+                for f in raw_facts:
+                    if isinstance(f, dict):
+                        fact = Fact(
+                            type=f.get("type", "unknown"),
+                            key=f.get("key"),
+                            value=f.get("value"),
+                            confidence=f.get("confidence", 1.0),
+                            source_agent=self.config.id,
+                            timestamp=current_time
+                        )
+                        response.facts.append(fact)
+            
+            # 10. Memory updates (v2 style - agent-private state)
+            memory_field = self.mapping.get("memory_field", "memory_updates")
+            memory_updates = result.get(memory_field, {})
+            if memory_updates and isinstance(memory_updates, dict):
+                # Also update private_state for backward compatibility
+                self.private_state.update(memory_updates)
+                response.memory_updates.update(memory_updates)
 
         else:
             self.logger.warning(f"{self.config.name} received None result from LLM")

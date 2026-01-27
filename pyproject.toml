@@ -42,7 +42,10 @@ Documentation = "https://github.com/your-org/xubb-agents#readme"
 Repository = "https://github.com/your-org/xubb-agents"
 
 [tool.setuptools]
-packages = ["xubb_agents"]
+packages = ["xubb_agents", "xubb_agents.core", "xubb_agents.library", "xubb_agents.tools", "xubb_agents.utils"]
+
+[tool.setuptools.package-dir]
+xubb_agents = "."
 
 [tool.setuptools.package-data]
 "*" = ["*.md", "*.txt"]
