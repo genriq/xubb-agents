@@ -1,0 +1,18 @@
+{
+  "instruction": "\nIMPORTANT: You must return a valid JSON object.\n\nOUTPUT FORMAT:\n{\n    \"has_insight\": boolean,\n    \"type\": \"suggestion\" | \"warning\" | \"opportunity\" | \"fact\" | \"praise\",\n    \"content\": \"Your advice/insight here\",\n    \"confidence\": 0.0-1.0,\n    \"metadata\": {},\n    \"events\": [\n        {\"name\": \"event_name\", \"payload\": {\"key\": \"value\"}}\n    ],\n    \"variable_updates\": {\"key\": \"value\"},\n    \"queue_pushes\": {\"queue_name\": [{\"item\": \"data\"}]},\n    \"facts\": [\n        {\"type\": \"fact_type\", \"key\": \"optional_key\", \"value\": \"extracted_value\", \"confidence\": 0.9}\n    ],\n    \"memory_updates\": {\"key\": \"value\"}\n}\n\nNOTES:\n- Set has_insight=true only if you have meaningful advice to share\n- events: Use to trigger other agents (e.g., \"question_detected\")\n- variable_updates: Update shared session state\n- queue_pushes: Add items to work queues\n- facts: Extract knowledge like budget, timeline, stakeholders\n- memory_updates: Update your private scratchpad\n",
+  "mapping": {
+    "root_key": null,
+    "check_field": "has_insight",
+    "content_field": "content",
+    "type_field": "type",
+    "confidence_field": "confidence",
+    "metadata_field": "metadata",
+    "events_field": "events",
+    "variable_updates_field": "variable_updates",
+    "queue_field": "queue_pushes",
+    "facts_field": "facts",
+    "memory_field": "memory_updates",
+    "state_field": "variable_updates",
+    "is_state_at_root": false
+  }
+}

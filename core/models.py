@@ -1,6 +1,9 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from enum import Enum
+
+if TYPE_CHECKING:
+    from .blackboard import Blackboard
 
 class InsightType(str, Enum):
     SUGGESTION = "suggestion"
@@ -16,6 +19,40 @@ class TriggerType(str, Enum):
     KEYWORD = "keyword"  # Immediate: keyword detected
     SILENCE = "silence"  # Dead air: long silence detected
     INTERVAL = "interval"  # Time-based: periodic check
+    EVENT = "event"  # NEW v2: Triggered by Blackboard event
+
+
+# ============================================================================
+# V2 Models
+# ============================================================================
+
+class Event(BaseModel):
+    """A structured event emitted by an agent (v2).
+    
+    Events are broadcast signals used for agent coordination.
+    They are NOT deduplicated by default - multiple events with the
+    same name may coexist within a turn.
+    """
+    name: str = Field(..., description="Event name: 'question_detected', 'objection_raised'")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="Event data")
+    source_agent: str = Field(..., description="Which agent emitted it")
+    timestamp: float = Field(..., description="Seconds since session start")
+    id: Optional[str] = Field(default=None, description="Optional unique ID for tracing/deduplication")
+
+
+class Fact(BaseModel):
+    """An extracted piece of knowledge (v2).
+    
+    Facts are deduplicated by (type, key). If key is None, deduplication
+    is by type only. When duplicates exist: higher priority wins; if equal
+    priority, higher confidence wins; if still equal, later registration wins.
+    """
+    type: str = Field(..., description="Category: 'budget', 'timeline', 'stakeholder'")
+    key: Optional[str] = Field(default=None, description="Instance key: 'budget.primary', 'stakeholder.cfo'")
+    value: Any = Field(..., description="The extracted value")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Extraction confidence")
+    source_agent: str = Field(..., description="Which agent extracted it")
+    timestamp: float = Field(..., description="Seconds since session start")
 
 class TranscriptSegment(BaseModel):
     """A single piece of speech from the conversation."""
@@ -29,11 +66,11 @@ class AgentContext(BaseModel):
     session_id: str
     # The sliding window of conversation
     recent_segments: List[TranscriptSegment]
-    # Shared blackboard state
+    # Shared blackboard state (v1 compatibility)
     shared_state: Dict[str, Any] = Field(default_factory=dict)
     # Optional: Retrieved docs from RAG (list of text chunks)
     rag_docs: List[str] = Field(default_factory=list)
-    # What triggered this agent run
+    # What triggered this agent run (set by engine, not host)
     trigger_type: TriggerType = TriggerType.TURN_BASED
     # Optional metadata (e.g., keyword that matched, silence duration)
     trigger_metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -41,6 +78,16 @@ class AgentContext(BaseModel):
     language_directive: Optional[str] = None
     # Optional: User Profile / Context (Identity, Goal, Mic mapping)
     user_context: Optional[str] = None
+    
+    # ---- V2 Fields ----
+    # Structured Blackboard (v2) - typed containers for state
+    blackboard: Optional[Any] = Field(default=None, description="Blackboard instance (v2)")
+    # Execution metadata (read-only, set by engine)
+    turn_count: int = Field(default=0, description="Current turn number")
+    phase: int = Field(default=1, description="Execution phase (1=normal, 2=event-triggered)")
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 class AgentInsight(BaseModel):
     """A single piece of advice/feedback."""
@@ -58,12 +105,24 @@ class AgentInsight(BaseModel):
 class AgentResponse(BaseModel):
     """The result of a processing cycle."""
     insights: List[AgentInsight] = []
-    # Updates to the shared memory
+    # Updates to the shared memory (v1 compatibility)
     state_updates: Dict[str, Any] = {}
     
     # Generic Data Sidecar (For arbitrary payloads like ui_actions)
     data: Dict[str, Any] = Field(default_factory=dict)
     
     # Debug information (e.g. raw prompt messages) - Not for production use, purely for tracing
-    debug_info: Dict[str, Any] = Field(default_factory=dict, exclude=True) # Exclude from standard serialization if needed, but we want it in traces
+    debug_info: Dict[str, Any] = Field(default_factory=dict, exclude=True)
+    
+    # ---- V2 Fields ----
+    # Structured events for agent coordination
+    events: List[Event] = Field(default_factory=list, description="Events emitted by this agent")
+    # Variable updates (replaces state_updates in v2)
+    variable_updates: Dict[str, Any] = Field(default_factory=dict, description="Blackboard variable updates")
+    # Queue push operations
+    queue_pushes: Dict[str, List[Any]] = Field(default_factory=dict, description="Items to push to queues")
+    # Extracted facts
+    facts: List[Fact] = Field(default_factory=list, description="Facts extracted by this agent")
+    # Agent-private memory updates
+    memory_updates: Dict[str, Any] = Field(default_factory=dict, description="Updates to agent's private memory")
 

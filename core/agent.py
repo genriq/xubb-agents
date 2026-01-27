@@ -23,20 +23,43 @@ logger = logging.getLogger(__name__)
 # So, we will add an optional `callbacks` argument to `process` method.
 
 class AgentConfig:
-    def __init__(self, name: str, id: str = None, trigger_interval: Optional[int] = None, cooldown: int = 10, model: str = "gpt-4o-mini",
-                 trigger_types: List[TriggerType] = None, trigger_keywords: List[str] = None, silence_threshold: Optional[int] = None,
-                 priority: int = 0, output_format: str = "default"):
+    """Configuration for an agent.
+    
+    Responsibility Split (Engine vs Agent):
+    - Engine: Decides trigger eligibility, evaluates conditions
+    - Agent: Enforces cooldown, handles errors
+    
+    V2 additions:
+    - trigger_conditions: Preconditions evaluated by engine before running
+    - subscribed_events: Events that trigger this agent (for EVENT trigger type)
+    """
+    
+    def __init__(self, name: str, id: str = None, trigger_interval: Optional[int] = None,
+                 cooldown: int = 10, model: str = "gpt-4o-mini",
+                 trigger_types: List[TriggerType] = None,
+                 trigger_keywords: List[str] = None,
+                 silence_threshold: Optional[int] = None,
+                 priority: int = 0, output_format: str = "default",
+                 # V2 additions
+                 trigger_conditions: Optional[Dict[str, Any]] = None,
+                 subscribed_events: Optional[List[str]] = None):
         self.name = name
-        self.id = id or name.lower().replace(" ", "_") # Fallback ID
-        self.trigger_interval = trigger_interval # None means Event-Driven (e.g. on turn)
+        self.id = id or name.lower().replace(" ", "_")
+        self.trigger_interval = trigger_interval
         self.cooldown = cooldown
         self.model = model
-        # New trigger system
-        self.trigger_types = trigger_types or [TriggerType.TURN_BASED]  # Default: turn-based only
-        self.trigger_keywords = trigger_keywords or []  # Keywords that wake this agent
-        self.silence_threshold = silence_threshold  # Seconds of silence before triggering
-        self.priority = priority  # Higher priority agents can override lower ones in shared_state
+        # Trigger system
+        self.trigger_types = trigger_types or [TriggerType.TURN_BASED]
+        self.trigger_keywords = trigger_keywords or []
+        self.silence_threshold = silence_threshold
+        self.priority = priority
         self.output_format = output_format
+        
+        # V2: Trigger conditions (preconditions evaluated by engine)
+        self.trigger_conditions = trigger_conditions
+        
+        # V2: Event subscriptions (for EVENT trigger type)
+        self.subscribed_events = subscribed_events or []
 
 class BaseAgent(ABC):
     def __init__(self, config: AgentConfig):
@@ -48,16 +71,22 @@ class BaseAgent(ABC):
         self.llm = None 
 
     async def process(self, context: AgentContext, callbacks: List[Any] = None) -> Optional[AgentResponse]:
-        """
-        Main entry point. Handles checks before running logic.
+        """Main entry point. Handles checks before running logic.
+        
+        Responsibility Split (v2):
+        - Engine: Decides trigger eligibility (trigger type, conditions)
+        - Agent: Enforces cooldown, handles errors
+        
+        Note: The trigger type check is kept for backward compatibility,
+        but the engine already filters by trigger type before calling.
         """
         now = time.time()
         
-        # 1. Trigger Type Check: Does this agent respond to this trigger?
+        # 1. Trigger Type Check (kept for backward compatibility; engine already filters)
         if context.trigger_type not in self.config.trigger_types:
             return None
         
-        # 2. Cooldown Check
+        # 2. Cooldown Check (agent's responsibility)
         if (now - self.last_run_time) < self.config.cooldown:
             return None
         
