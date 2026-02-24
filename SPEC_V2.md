@@ -1236,8 +1236,10 @@ blackboard.variables["sys.session_id"] = context.session_id
   },
   
   "text": "Your system prompt here with {{ jinja2 }} templating",
-  
-  "output_format": "default | v2_raw | custom_schema_name"
+
+  "output_format": "default | v2_raw | custom_schema_name",
+
+  "include_context": true
 }
 ```
 
@@ -1258,6 +1260,7 @@ blackboard.variables["sys.session_id"] = context.session_id
 | `model_config.context_turns` | int | 6 | Transcript segments to include |
 | `text` | string | required | System prompt (Jinja2) |
 | `output_format` | string | "default" | Output schema name |
+| `include_context` | bool | true | Inject user profile & RAG docs into prompt. Set `false` for agents that don't need user/session context (e.g., widget trackers). Language directive is always injected regardless. |
 
 ### 9.3 Example Configurations
 

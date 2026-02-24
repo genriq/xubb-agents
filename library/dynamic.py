@@ -97,9 +97,10 @@ class DynamicAgent(BaseAgent):
         ))
         
         self.system_prompt = config_dict.get("text", "")
-        
+
         # Context Config
         self.context_turns = model_conf.get("context_turns", config_dict.get("context_turns", 6))
+        self.include_context = config_dict.get("include_context", True)
         
         # Assign model to self for easy access (or use self.config.model)
         self.model = model
@@ -200,12 +201,12 @@ class DynamicAgent(BaseAgent):
             self.logger.warning(f"Jinja2 rendering failed for {self.config.name}: {e}. using raw prompt.")
 
         
-        # 3. Inject RAG (if available)
+        # 3. Inject RAG (if available and include_context is enabled)
         rag_section = ""
-        if context.rag_docs:
+        if self.include_context and context.rag_docs:
             rag_text = "\n---\n".join(context.rag_docs)
             rag_section = f"\n[RELEVANT KNOWLEDGE/DOCS]\n{rag_text}\n"
-        
+
         # 4. Inject trigger context
         trigger_context = ""
         if context.trigger_type == TriggerType.KEYWORD and context.trigger_metadata.get("keyword"):
@@ -213,14 +214,14 @@ class DynamicAgent(BaseAgent):
         elif context.trigger_type == TriggerType.SILENCE and context.trigger_metadata.get("silence_duration"):
             trigger_context = f"\n[TRIGGER] You were activated after {context.trigger_metadata['silence_duration']:.1f} seconds of silence.\n"
 
-        # 5. Inject Language Directive
+        # 5. Inject Language Directive (always injected — language is not "context")
         language_section = ""
         if context.language_directive:
             language_section = f"\n{context.language_directive}\n"
 
-        # 6. Inject User Context (Cognitive Frame)
+        # 6. Inject User Context (Cognitive Frame — gated by include_context)
         user_context_section = ""
-        if context.user_context:
+        if self.include_context and context.user_context:
             user_context_section = f"{context.user_context}\n\n"
 
         full_system_prompt = f"""
