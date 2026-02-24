@@ -1,7 +1,7 @@
 # Xubb Prompt Engineering Guide
 
-**Version:** 2.2  
-**Last Updated:** January 31, 2026  
+**Version:** 2.4
+**Last Updated:** February 23, 2026
 **Status:** Production (xubb_agents v2.0 Compliant)
 
 This guide is the **definitive reference** for creating prompts within the Xubb ecosystem. It covers everything from standard text generation to interactive widgets, autonomous agents, and RAG-augmented analysis.
@@ -12,6 +12,8 @@ This guide is the **definitive reference** for creating prompts within the Xubb 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.4 | Feb 23, 2026 | Clarified `include_context` enforcement: `DynamicAgent` now gates user profile and RAG injection at prompt composition time. Documented which sections are always injected (language, trigger, schema) vs gated (user profile, RAG). |
+| 2.3 | Feb 23, 2026 | Unified widget event path (`ai:insight` only), added `topics` intercepted key, documented State Handler pattern and `widget_control` schema, added Goal Tracker and Topic Tracker widget examples, fixed sentiment data shape (`confidence` not `velocity`), removed deprecated `sentiment:update` references |
 | 2.2 | Jan 31, 2026 | **Critical fix:** Changed `message` → `content` in Agent Output Protocol to match v2.0 schema |
 | 2.1 | Jan 31, 2026 | Updated prompt types (added `app`, `system`), enhanced Agent Output Protocol with v2.0 fields, clarified variable injection vs Jinja2 |
 | 2.0 | Jan 2026 | Added v2.0 features: trigger_conditions, subscribed_events, Blackboard containers |
@@ -100,10 +102,19 @@ Identify which goals are now completed based on the transcript.
 > **Important:** Do NOT mix both systems in the same prompt. Use `{TRANSCRIPT}` for standard prompts, and `{{ state.* }}` for agents that need Blackboard access.
 
 ### Context Injection
-The system automatically prepends context if `include_context: true` is set in the prompt configuration. This includes:
+The `DynamicAgent` automatically prepends context into the system prompt when `include_context: true` (default). When `false`, these sections are **omitted from the prompt entirely**, saving tokens for agents that don't need them (e.g., widget trackers like Goals, Sentiment, Topics). The host still provides context in `AgentContext` — gating happens at prompt composition time.
+
+**Gated by `include_context`:**
 *   **User Profile (Cognitive Frame):** Identity, Core Goal, Expertise, and Audio/Mic context.
 *   **Session Metadata:** Name, Classification, Custom Context (e.g., "This is a job interview").
 *   **RAG Documents:** Relevant excerpts from attached files (PDFs, text) if RAG is enabled.
+
+**Always injected (regardless of `include_context`):**
+*   **Language Directive:** Language enforcement/translation constraints.
+*   **Trigger Context:** Keyword or silence metadata that activated the agent.
+*   **Schema Instruction:** JSON output format instruction from the schema definition.
+
+> **Session Context (`context_information`):** When a session has context set (e.g., "This is a job interview with Google"), it's injected into the agent's `user_context` parameter as a "CURRENT SESSION CONTEXT" override with an explicit rule: *if the session context conflicts with the global user profile, session context takes precedence*. Agents receive this automatically via `_build_user_context()` — no prompt changes needed. For non-agent paths (summaries, actions, Q&A), it's prepended directly as `CONTEXT/METADATA` in the prompt.
 
 **Example of Final Prompt Construction:**
 ```text
@@ -308,14 +319,39 @@ Agents must return a JSON object conforming to the **Agent Output Protocol**. Th
 
 #### Special Intercepted Keys
 
-The orchestrator automatically extracts certain keys from `variable_updates` for special handling:
+The orchestrator runs **State Handlers** on `state_updates` before merging to the Blackboard. These handlers persist widget data to dedicated DB tables for durability and sync. All widget data flows to the frontend via a single `ai:insight` socket event (unified event path — no per-widget events).
 
-| Key | Behavior |
-|-----|----------|
-| `sentiment` | Updates the Sentiment Widget; expects `{score, label, velocity}` |
-| `completed_goals` | Updates the Goals Widget; expects `string[]` |
+| Key | Widget | Handler | DB Table | Diffing |
+|-----|--------|---------|----------|---------|
+| `sentiment` | Sentiment Graph | `SentimentHandler` | `sentiment_history` | None (every point persisted) |
+| `completed_goals` | Goals Tracker | `GoalsHandler` | `goals_history` | Set diff: `new - old` = newly completed |
+| `topics` | Trending Topics | `TrendingTopicsHandler` | `trending_topics_history` | Order-preserving diff with normalized keys |
 
-**Example (Sentiment Agent):**
+**Data shape contracts:**
+
+- **`sentiment`** — `{score: float, label: string, confidence: float, timestamp?: int}`. The handler persists `score`, `label`, `confidence`, and `timestamp` (falls back to `time.time() * 1000` if missing/zero). The agent may include additional fields like `velocity` — these are ignored by the handler but still flow to the frontend via `state_snapshot`.
+
+- **`completed_goals`** — `string[]` (flat array of exact goal text). Cumulative: always include all previously completed goals. The handler diffs against the previous list to detect newly completed items and emit individual goal-completion events.
+
+- **`topics`** — `string[]` (full current list of trending topics, not incremental delta). The handler diffs against the previous list using normalized keys (`strip().lower()`) to detect new topics. First-detection-only: once a topic is recorded, re-appearances are ignored. DB enforces this via `UNIQUE(session_id, topic_key)` + `INSERT OR IGNORE`.
+
+> **Note:** For agents using the `widget_control` output format, these keys appear inside `state_snapshot` (not `variable_updates`). Both paths are merged into the same `state_updates` dict by the engine's schema mapper — handlers see no difference.
+
+**Example (Sentiment — widget_control format):**
+```json
+{
+  "ui_actions": [],
+  "state_snapshot": {
+    "sentiment": {
+      "score": 0.85,
+      "label": "Positive",
+      "confidence": 0.9
+    }
+  }
+}
+```
+
+**Example (Sentiment — default schema format):**
 ```json
 {
   "has_insight": false,
@@ -323,7 +359,7 @@ The orchestrator automatically extracts certain keys from `variable_updates` for
     "sentiment": {
       "score": 0.85,
       "label": "Positive",
-      "velocity": 0.1
+      "confidence": 0.9
     }
   }
 }
@@ -402,65 +438,162 @@ Some agents (like Sentiment Analysts or Goal Trackers) need to run constantly bu
 ### Design Pattern
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    PURE STATE AGENT FLOW                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Transcript ──► Agent LLM ──► { has_insight: false }            │
-│                     │              │                             │
-│                     │              ▼                             │
-│                     │         variable_updates ──► Blackboard   │
-│                     │              │                             │
-│                     │              ▼                             │
-│                     │         Frontend Widget (reactive)         │
-│                     │                                            │
-│                     └──► events ──► Trigger Other Agents        │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│              BACKGROUND MONITOR / WIDGET AGENT FLOW               │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  Transcript ──► Agent LLM ──► state_updates                      │
+│                                    │                              │
+│                          ┌─────────┴─────────┐                   │
+│                          ▼                   ▼                    │
+│                   State Handlers      Blackboard Merge            │
+│                   (DB persistence)    (agent_shared_state)        │
+│                          │                   │                    │
+│                          │                   ▼                    │
+│                          │            ai:insight event            │
+│                          │            (state_snapshot)            │
+│                          │                   │                    │
+│                          │                   ▼                    │
+│                          │           Frontend Listeners           │
+│                          │           (granular Zustand stores)    │
+│                          │                   │                    │
+│                          ▼                   ▼                    │
+│                   sentiment_history    SentimentWidget             │
+│                   goals_history        GoalsWidget                 │
+│                   trending_topics_     TopicsWidget                │
+│                     history                                       │
+│                                                                   │
+│  ALL widget data flows through ai:insight (unified event path).  │
+│  No per-widget socket events.                                     │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Implementation
 
 1. Set `has_insight: false` — no pop-up interruption
-2. Use `variable_updates` to write to Blackboard
-3. Optionally emit `events` to trigger downstream agents
-4. Optionally store `facts` for knowledge extraction
+2. Use `state_snapshot` (widget_control schema) or `variable_updates` (default schema) to write state
+3. The orchestrator runs **State Handlers** before merging — intercepted keys are persisted to dedicated DB tables
+4. The merged state is emitted via `ai:insight` socket event with `state_snapshot` payload
+5. Frontend granular stores (one per widget) consume only the keys they care about
+6. Optionally emit `events` to trigger downstream agents
+7. Optionally store `facts` for knowledge extraction
 
 ### v2.0 Blackboard Containers
 
 | Container | Scope | Use Case | Example |
 |-----------|-------|----------|---------|
-| `variable_updates` | Session | Key-value state for widgets | `{"phase": "closing"}` |
+| `variable_updates` / `state_snapshot` | Session | Key-value state for widgets | `{"phase": "closing"}` |
 | `events` | Session | Trigger other agents | `["price_mentioned", "objection_raised"]` |
 | `queue_pushes` | Session | Ordered item collection | `{"action_items": ["Follow up on pricing"]}` |
 | `facts` | Session | Extracted knowledge with confidence | `[{"type": "budget", "value": 50000, "confidence": 0.9}]` |
 | `memory_updates` | Agent | Private persistent state | `{"last_warning_turn": 42}` |
 
-### Example: Goals Tracker (Widget Controller)
+> **Note on `variable_updates` vs `state_snapshot`:** These are two names for the same thing, determined by the output schema. Agents using the `widget_control` schema return `state_snapshot` at the JSON root level. Agents using the `default` or `default_v2` schema return `variable_updates`. Both are mapped to `response.state_updates` by the engine's schema mapper. Handlers and the orchestrator see no difference.
 
+### Widget Controller Agents
+
+The three built-in widget agents all use the `widget_control` output format (`output_format: "widget_control"`). Their LLM output uses `state_snapshot` at the root level:
+
+#### Goals Tracker (`wgt-goals-tracker`)
+
+**Agent ID:** `wgt-goals-tracker`
+**Model:** `gpt-4o` | **Cooldown:** 5s | **Context turns:** 8 | **Priority:** 100
+
+Tracks completion status of user-defined session goals.
+
+**Blackboard Input:**
+```text
+{{ state.session_goals }}      → ["Discuss Pricing", "Next Steps", "Timeline"]
+{{ state.completed_goals }}    → ["Discuss Pricing"]
+```
+
+**LLM Output:**
 ```json
 {
-  "has_insight": false,
-  "variable_updates": {
-    "completed_goals": ["Discuss Pricing", "Review Timeline"]
+  "ui_actions": [],
+  "state_snapshot": {
+    "completed_goals": ["Discuss Pricing", "Next Steps"]
   }
 }
 ```
 
-### Example: Sentiment Analyzer
+**Handler behavior:** `GoalsHandler` diffs `new - old` using set arithmetic. Newly completed goals are persisted to `goals_history` with `status="completed"` and a timestamp derived from the last transcript segment. The agent must always return the **full cumulative list** — the handler extracts only the delta.
 
+#### Sentiment Analyst (`wgt-sentiment-analyst`)
+
+**Agent ID:** `wgt-sentiment-analyst`
+**Model:** `gpt-4o-mini` | **Cooldown:** 2s | **Trigger:** `["turn_based", "interval"]` (3s) | **Priority:** 50
+
+High-frequency emotional flight recorder.
+
+**Blackboard Input:**
+```text
+{{ state.sentiment }}    → {"score": 0.5, "label": "Neutral", ...}
+```
+
+**LLM Output:**
 ```json
 {
-  "has_insight": false,
-  "variable_updates": {
+  "ui_actions": [],
+  "state_snapshot": {
     "sentiment": {
       "score": 0.85,
       "label": "Positive",
-      "velocity": 0.1
+      "confidence": 0.95,
+      "velocity": 0.1,
+      "timestamp": 0
     }
   }
 }
 ```
+
+**Handler behavior:** `SentimentHandler` persists every data point to `sentiment_history` (no diffing — all points are stored). Extracted fields: `score`, `label`, `confidence`, `timestamp`. The `velocity` field is **not persisted** by the handler but still flows to the frontend via `state_snapshot` in the `ai:insight` event.
+
+#### Topic Tracker (`wgt-topic-tracker`)
+
+**Agent ID:** `wgt-topic-tracker`
+**Model:** `gpt-4o` | **Cooldown:** 4s | **Context turns:** 15 | **Priority:** 50
+
+Tracks linear progression of discussion topics with de-duplication.
+
+**Blackboard Input:**
+```text
+{{ state.topics }}    → ["Intro", "Demo"]
+```
+
+**LLM Output:**
+```json
+{
+  "state_snapshot": {
+    "topics": ["Intro", "Demo", "Pricing"]
+  }
+}
+```
+
+**Handler behavior:** `TrendingTopicsHandler` diffs using order-preserving iteration with normalized keys (`strip().lower()`). Only newly detected topics are persisted to `trending_topics_history`. First-detection-only: if a topic disappears and reappears, it is NOT re-inserted. The DB enforces this via `UNIQUE(session_id, topic_key)` + `INSERT OR IGNORE`. The agent returns the **full current list** — the handler extracts only new additions.
+
+### State Handler Pattern (Backend Persistence)
+
+When an agent returns `state_updates`, the orchestrator runs registered **State Handlers** before merging into the Blackboard. Handlers persist widget data to dedicated DB tables for durability and sync.
+
+| Handler | Intercepts Key | DB Table | Diffing Strategy |
+|---------|---------------|----------|------------------|
+| `SentimentHandler` | `sentiment` | `sentiment_history` | No diff (every point persisted) |
+| `GoalsHandler` | `completed_goals` | `goals_history` | Set diff: `new - old` = newly completed |
+| `TrendingTopicsHandler` | `topics` | `trending_topics_history` | Order-preserving diff with normalized keys |
+
+**Handler Contract (`core/agents/handlers/base.py`):**
+- `can_handle(state_updates: dict) -> bool` — checks if the intercepted key exists
+- `handle(session_id, state_updates, context)` — persists and/or emits events
+- `context` includes `old_state` (previous Blackboard snapshot) and `session` (for segment timestamps)
+
+Handlers run **before** state is merged and emitted, ensuring DB writes succeed even if the socket emission fails. Handler failures are logged but do not block other handlers or state emission.
+
+**Adding a new widget handler:**
+1. Create a class extending `StateHandler` in `core/agents/handlers/`
+2. Implement `can_handle()` and `handle()`
+3. Register in `core/agents/handlers/__init__.py` → `ALL_HANDLERS` list
 
 ### Example: Event Emitter (Chained Agents)
 
@@ -513,7 +646,7 @@ This simulates a live call environment, allowing you to see if your agent interr
 - [ ] **Temperature:** Is it set to `0.1`-`0.3` for structured outputs (JSON, charts)?
 - [ ] **Model:** Are you using `gpt-4o` for complex logic/JSON, `gpt-4o-mini` for simple tasks?
 - [ ] **Examples:** Did you include a one-shot example in the prompt text?
-- [ ] **Context:** Is `include_context` set correctly for user profile injection?
+- [ ] **Context:** Is `include_context` set correctly? `true` for agents needing user profile/RAG, `false` for widget trackers and pure-state agents.
 
 ### For Agents
 - [ ] **Output Protocol:** Does the prompt instruct the agent to return the correct JSON schema?
@@ -530,7 +663,10 @@ This simulates a live call environment, allowing you to see if your agent interr
 ### For Background Monitors
 - [ ] **Silent Mode:** Does the prompt always return `has_insight: false`?
 - [ ] **Variable Keys:** Are you using the correct Blackboard variable names?
-- [ ] **Intercepted Keys:** Are you using `sentiment` or `completed_goals` for widget updates?
+- [ ] **Intercepted Keys:** Are you using `sentiment`, `completed_goals`, or `topics` for widget updates?
+- [ ] **Handler Exists:** If adding a new intercepted key, is a `StateHandler` registered in `ALL_HANDLERS`?
+- [ ] **Unified Event Path:** Widget data flows ONLY via `ai:insight`. Do NOT emit per-widget socket events.
+- [ ] **Output Schema:** Widget agents should use `widget_control` format with `state_snapshot` at root level.
 
 ---
 

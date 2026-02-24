@@ -2,6 +2,9 @@
 
 **A standalone Python library for real-time conversational AI agents.**
 
+**Version:** 2.0  
+**Status:** Production-Ready
+
 > **Note**: This is a **separate product/project** that provides the agent framework. It is consumed by `xubb_server` and other applications that need intelligent conversation agents.
 
 ## Installation
@@ -18,7 +21,7 @@ pip install xubb-agents
 ## Usage in Other Projects
 
 ```python
-from xubb_agents import AgentEngine, DynamicAgent, AgentContext
+from xubb_agents import AgentEngine, DynamicAgent, AgentContext, Blackboard, TriggerType
 
 # Initialize engine
 engine = AgentEngine(api_key="your-openai-key")
@@ -27,114 +30,105 @@ engine = AgentEngine(api_key="your-openai-key")
 agent = DynamicAgent(config_dict)
 engine.register_agent(agent)
 
+# Create session with Blackboard
+blackboard = Blackboard()
+
 # Process conversation
-context = AgentContext(...)
-response = await engine.process_turn(context)
+context = AgentContext(
+    session_id="session_123",
+    recent_segments=[...],
+    blackboard=blackboard,
+    turn_count=1
+)
+response = await engine.process_turn(context, trigger_type=TriggerType.TURN_BASED)
 ```
 
-## Architecture Relationship
+## What's New in v2.0
 
-```
-┌─────────────────┐
-│  xubb_agents    │  ← Standalone library (this project)
-│  (Framework)    │
-└────────┬────────┘
-         │ consumed by
-         ▼
-┌─────────────────┐
-│  xubb_server    │  ← Backend service (separate project)
-│  (FastAPI)      │
-└─────────────────┘
-```
-
-**This library:**
-- Defines agent interfaces and protocols
-- Provides agent execution engine
-- Manages agent lifecycle and triggers
-- Handles LLM communication
-- Can be used by any application (xubb_server, web apps, etc.)
-
-**Consumers:**
-- `xubb_server` - Uses this library for agent functionality
-- Other applications can import and use independently
-
----
-
-A lightweight, event-driven framework for real-time conversational AI agents. Designed for low-latency, high-throughput scenarios where multiple agents provide guidance during live conversations.
-
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Architecture](#architecture)
-3. [Core Concepts](#core-concepts)
-4. [Agent Configuration](#agent-configuration)
-5. [Trigger System](#trigger-system)
-6. [Agent Communication](#agent-communication)
-7. [Advanced Features](#advanced-features)
-8. [Performance Optimization](#performance-optimization)
-9. [Usage Guide](#usage-guide)
-10. [API Reference](#api-reference)
-
-> **For a deep dive into the internal implementation and data models, see [technical_spec_agents.md](technical_spec_agents.md).**
-
----
-
-## Overview
-
-The Xubb Agents Framework enables you to create intelligent, autonomous agents that analyze conversations in real-time and provide contextual insights, warnings, and suggestions. Agents can:
-
-- **React to events**: Turn completion, keyword detection, silence periods
-- **Share state**: Coordinate with other agents via a shared blackboard
-- **Remember context**: Maintain private memory across turns
-- **Integrate with RAG**: Access document knowledge bases
-- **Optimize performance**: Caching and batching for scale
-
-### Key Features
-
-- ✅ **Multiple Trigger Types**: Turn-based, keyword-based, silence-based, interval-based
-- ✅ **Priority System**: Higher-priority agents can override lower-priority state updates
-- ✅ **Response Caching**: Avoid redundant LLM calls for similar transcript slices
-- ✅ **Request Batching**: Group agents by model for efficient API usage
-- ✅ **Embedding Cache**: RAG document indexing optimization
-- ✅ **Agent-to-Agent Communication**: Shared state blackboard pattern
-
----
+| Feature | v1.0 | v2.0 |
+|---------|------|------|
+| State management | Flat dictionary | Structured Blackboard |
+| Agent coordination | Parallel only | Event-driven pub/sub |
+| Trigger conditions | None | Blackboard-aware preconditions |
+| Execution phases | Single pass | Multi-phase (normal → event-triggered) |
+| Data containers | Unstructured | Variables, Events, Queues, Facts, Memory |
+| Response caching | Hash-based LLM cache | **Removed** (cooldowns + conditions are better) |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Xubb Server (FastAPI)                     │
-│                                                               │
-│  ┌──────────────┐      ┌──────────────┐                    │
-│  │ SessionManager│──────│ AgentEngine  │                    │
-│  │              │      │              │                    │
-│  │ - Heartbeat  │      │ - Agents[]   │                    │
-│  │ - Keyword    │      │ - SharedState│                    │
-│  │   Matching   │      │ - Cache      │                    │
-│  └──────────────┘      └──────────────┘                    │
-│         │                      │                            │
-│         └──────────────────────┘                            │
-│                    │                                         │
-│         ┌───────────┴───────────┐                          │
-│         │                        │                          │
-│  ┌──────▼──────┐        ┌───────▼──────┐                   │
-│  │ BaseAgent   │        │ DynamicAgent │                   │
-│  │             │        │              │                   │
-│  │ - Config    │        │ - Prompt     │                   │
-│  │ - Cooldown  │        │ - Memory     │                   │
-│  │ - Priority  │        │ - RAG        │                   │
-│  └─────────────┘        └──────────────┘                   │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         HOST APPLICATION                                 │
+│  (xubb_server, CLI tool, desktop app, etc.)                             │
+│                                                                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                   │
+│  │ Transcription│  │ Preprocessing│  │   Session    │                   │
+│  │   Source     │─▶│   (optional) │─▶│   Manager    │                   │
+│  └──────────────┘  └──────────────┘  └──────┬───────┘                   │
+│                                              │                           │
+└──────────────────────────────────────────────┼───────────────────────────┘
+                                               │
+                                               ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      XUBB_AGENTS FRAMEWORK                               │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                       AgentContext                               │    │
+│  │  - session_id          - recent_segments    - shared_state      │    │
+│  │  - trigger_type        - trigger_metadata   - rag_docs          │    │
+│  │  - user_context        - language_directive - blackboard (v2)   │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                    │                                     │
+│                                    ▼                                     │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                       AgentEngine                                │    │
+│  │                                                                  │    │
+│  │  Phase 1: Run TURN_BASED/KEYWORD/SILENCE/INTERVAL agents        │    │
+│  │      │                                                          │    │
+│  │      ▼                                                          │    │
+│  │  Collect Events + Apply State Updates                           │    │
+│  │      │                                                          │    │
+│  │      ▼                                                          │    │
+│  │  Phase 2: Run EVENT-triggered agents (if events emitted)        │    │
+│  │      │                                                          │    │
+│  │      ▼                                                          │    │
+│  │  Aggregate Responses                                            │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                    │                                     │
+│                                    ▼                                     │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                      AgentResponse                               │    │
+│  │  - insights            - events             - variable_updates  │    │
+│  │  - queue_pushes        - facts              - memory_updates    │    │
+│  │  - data                - debug_info                             │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Component Responsibilities
 
-- **AgentEngine**: Orchestrates agent execution, manages shared state, handles caching
+- **AgentEngine**: Orchestrates agent execution, manages Blackboard, handles multi-phase execution
 - **BaseAgent**: Abstract base class defining agent interface
 - **DynamicAgent**: Configurable agent loaded from prompts/database
-- **SessionManager**: Triggers agents based on events (transcript, keywords, silence)
+- **Blackboard**: Structured shared state (Variables, Events, Queues, Facts, Memory)
+- **ConditionEvaluator**: Evaluates trigger conditions against Blackboard state
 - **LLMClient**: Isolated OpenAI client for agent LLM calls
+
+> **For detailed implementation and data models, see [technical_spec_agents.md](technical_spec_agents.md).**
+> **For prompt writing best practices, see [prompt_engineering_guide.md](prompt_engineering_guide.md).**
+
+---
+
+## Table of Contents
+
+1. [Core Concepts](#core-concepts)
+2. [Blackboard Architecture](#blackboard-architecture)
+3. [Trigger System](#trigger-system)
+4. [Agent Configuration](#agent-configuration)
+5. [Agent Communication](#agent-communication)
+6. [Usage Guide](#usage-guide)
+7. [API Reference](#api-reference)
 
 ---
 
@@ -146,20 +140,52 @@ An agent is a self-contained unit of intelligence that:
 - Observes conversation context
 - Evaluates whether to provide insight
 - Returns structured insights (suggestions, warnings, facts)
-- Updates shared state for other agents
+- Updates Blackboard state for other agents
+- Emits events to trigger other agents
 
-### 2. Trigger
+### 2. Blackboard
 
-A trigger is an event that causes an agent to evaluate. Four types:
+The structured shared workspace where agents read and write information. Contains five containers:
 
-- **TURN_BASED**: Agent runs after a speaker finishes a turn (default)
-- **KEYWORD**: Agent runs immediately when a keyword is detected
-- **SILENCE**: Agent runs after a period of silence (dead air)
-- **INTERVAL**: Agent runs on a periodic timer
+| Container | Purpose | Lifetime |
+|-----------|---------|----------|
+| **Variables** | Session-scoped key-value state | Session |
+| **Events** | Transient signals to trigger other agents | Cleared after turn |
+| **Queues** | Ordered work items (FIFO) | Session |
+| **Facts** | Extracted knowledge with confidence | Session |
+| **Memory** | Agent-private scratchpad | Session |
 
-### 3. Insight
+### 3. Trigger
 
-An insight is a piece of advice returned by an agent:
+A trigger is an event that causes an agent to evaluate. Five types:
+
+| Type | Description | Use Case |
+|------|-------------|----------|
+| **TURN_BASED** | After a speaker finishes a turn | General conversation analysis |
+| **KEYWORD** | Keyword detected in transcript | Price objections, compliance alerts |
+| **SILENCE** | Dead air threshold exceeded | Meeting facilitation |
+| **INTERVAL** | Time-based periodic | Background monitoring |
+| **EVENT** | Another agent emitted an event | Agent coordination |
+
+### 4. Trigger Conditions
+
+Preconditions that must be satisfied before an agent runs. Prevents unnecessary LLM calls.
+
+```json
+{
+  "trigger_conditions": {
+    "mode": "all",
+    "rules": [
+      {"var": "phase", "op": "eq", "value": "negotiation"},
+      {"fact": "budget", "op": "exists"}
+    ]
+  }
+}
+```
+
+### 5. Insight
+
+A piece of advice returned by an agent:
 
 ```python
 {
@@ -169,77 +195,76 @@ An insight is a piece of advice returned by an agent:
     "content": "Price objection detected. Focus on value.",
     "confidence": 0.9,
     "expiry": 15,  # seconds
-    "metadata": { "zone": "A", "color": "red" } # Optional UI hints
+    "metadata": {"zone": "A", "color": "red"}  # Optional UI hints
 }
 ```
 
-### 4. Shared State (Blackboard)
-
-A dictionary shared across all agents. Agents can:
-- **Read**: `context.shared_state.get("key")`
-- **Write**: `response.state_updates = {"key": "value"}`
-
-Higher-priority agents can override lower-priority updates.
-
-### 5. User Context (Cognitive Frame)
-
-Agents receive a `user_context` string containing the user's identity, goals, and expertise. This is injected into the system prompt to ground the agent in the user's reality (e.g., "You are supporting Enrique").
+**Insight Types:**
+- `SUGGESTION`: Passive advice (Zone C)
+- `WARNING`: Urgent negative alert (Zone A)
+- `OPPORTUNITY`: Urgent positive alert (Zone A)
+- `FACT`: Contextual information (Zone C)
+- `PRAISE`: Positive reinforcement
+- `ERROR`: System issues
 
 ---
 
-## Agent Configuration
+## Blackboard Architecture
 
-### AgentConfig
+### Container Overview
 
-Every agent has a configuration object:
-
-```python
-AgentConfig(
-    name="Sales Coach",
-    id="sales-coach",  # Unique identifier
-    cooldown=15,  # Minimum seconds between runs
-    model="gpt-4o-mini",  # LLM model to use
-    trigger_types=[TriggerType.TURN_BASED, TriggerType.KEYWORD],
-    trigger_keywords=["price", "cost", "expensive"],
-    silence_threshold=30,  # Seconds of silence before triggering
-    priority=10,  # Higher = more important (default: 0)
-    output_format="default" # "default", "v2_raw", or custom filename (e.g. "custom1")
-)
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            BLACKBOARD                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EVENTS (transient, structured)                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │ Event(name="question_detected", payload={"q": "What's price?"}) │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+├─────────────────────────────────────────────────────────────────────────┤
+│  VARIABLES (session-scoped)                                              │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │ phase: "negotiation", sentiment: 0.7, turn_count: 15            │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+├─────────────────────────────────────────────────────────────────────────┤
+│  QUEUES (ordered lists)                                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │ pending_questions: ["What's the price?", "When can you start?"] │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+├─────────────────────────────────────────────────────────────────────────┤
+│  FACTS (extracted knowledge)                                             │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │ {type: "budget", value: "$50,000", confidence: 0.9}             │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+├─────────────────────────────────────────────────────────────────────────┤
+│  MEMORY (agent-private)                                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │ question_extractor: {questions_found: 3, last_question: "..."}  │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Dynamic Agent (JSON/Database)
+### Accessing Blackboard in Templates (Jinja2)
 
-Agents can be configured via JSON:
+```jinja2
+{# Variables #}
+Current phase: {{ blackboard.variables.phase }}
+Sentiment: {{ blackboard.variables.sentiment }}
 
-```json
-{
-    "id": "sales-coach",
-    "name": "Sales Coach",
-    "type": "agent",
-    "text": "You are a sales coach...",
-    "output_format": "v2_raw",  // Selects schema from library/schemas/v2_raw.json
-    "trigger_config": {
-        "mode": ["turn_based", "keyword"],  // Can be string or list
-        "cooldown": 15,
-        "keywords": ["price", "cost"],
-        "silence_threshold": 30,
-        "priority": 10
-    },
-    "model_config": {
-        "model": "gpt-4o-mini",
-        "context_turns": 6
-    }
-}
+{# Queues #}
+Pending questions: {{ blackboard.queues.pending_questions | length }}
+{% for q in blackboard.queues.pending_questions %}
+- {{ q }}
+{% endfor %}
+
+{# Facts #}
+{% for fact in blackboard.facts %}
+- {{ fact.type }}: {{ fact.value }} (confidence: {{ fact.confidence }})
+{% endfor %}
+
+{# Memory (own) #}
+My counter: {{ blackboard.memory[agent_id].counter }}
 ```
-
-### Output Schemas (12/10 Architecture)
-
-The framework supports pluggable output schemas located in `library/schemas/`.
-
-*   **`default`**: The standard flat schema (`has_insight`, `message`, `type`). Best for simple advisors.
-*   **`v2_raw`**: Structured schema (`insight`, `state_snapshot`). Best for complex agents with metadata.
-*   **`widget_control`**: The "Hands" schema. Maps `ui_actions` to `response.data` for controlling UI widgets.
-*   **Custom**: Create your own `library/schemas/my_schema.json` to define custom prompt instructions and mapping logic.
 
 ---
 
@@ -247,243 +272,290 @@ The framework supports pluggable output schemas located in `library/schemas/`.
 
 ### Turn-Based Triggers (Default)
 
-Agents run after a speaker finishes a turn (detected by VAD silence).
+Agents run after a speaker finishes a turn.
 
-**Use Case**: General conversation analysis, sentiment tracking
-
-**Configuration**:
 ```json
 {
-    "trigger_config": {
-        "mode": "turn_based",
-        "cooldown": 10
-    }
+  "trigger_config": {
+    "mode": "turn_based",
+    "cooldown": 10
+  }
 }
 ```
 
 ### Keyword-Based Triggers
 
-Agents run immediately when a keyword is detected in the transcript.
+Agents run immediately when a keyword is detected.
 
-**Use Case**: Price objections, compliance alerts, competitor mentions
-
-**Configuration**:
 ```json
 {
-    "trigger_config": {
-        "mode": "keyword",
-        "keywords": ["price", "discount", "budget"],
-        "cooldown": 5
-    }
+  "trigger_config": {
+    "mode": "keyword",
+    "keywords": ["price", "discount", "budget"],
+    "cooldown": 5
+  }
 }
 ```
 
-**Behavior**:
-- Triggers on partial transcripts (before turn completion)
-- Case-insensitive matching
-- One trigger per agent per segment
+**Note:** Keyword detection is host responsibility. The engine provides `check_keyword_triggers(text)` as a helper.
 
-### Silence-Based Triggers (Dead Air)
+### Silence-Based Triggers
 
-Agents run after a period of silence (e.g., 30 seconds).
+Agents run after a period of silence.
 
-**Use Case**: Meeting facilitation, conversation restart suggestions
-
-**Configuration**:
 ```json
 {
-    "trigger_config": {
-        "mode": "silence",
-        "silence_threshold": 30,
-        "cooldown": 10
-    }
+  "trigger_config": {
+    "mode": "silence",
+    "silence_threshold": 30,
+    "cooldown": 10
+  }
 }
 ```
-
-**Behavior**:
-- Heartbeat loop checks every 2 seconds
-- Triggers once per threshold level (avoids spam)
-- Passes `silence_duration` in `trigger_metadata`
 
 ### Interval-Based Triggers
 
-Agents run on a periodic timer (e.g., every 60 seconds).
+Agents run on a periodic timer.
 
-**Use Case**: Periodic summaries, health checks
-
-**Configuration**:
 ```json
 {
-    "trigger_config": {
-        "mode": "interval",
-        "trigger_interval": 60,
-        "cooldown": 5
-    }
+  "trigger_config": {
+    "mode": "interval",
+    "trigger_interval": 60,
+    "cooldown": 5
+  }
 }
 ```
+
+### Event-Based Triggers (NEW in v2.0)
+
+Agents run when another agent emits a specific event.
+
+```json
+{
+  "trigger_config": {
+    "mode": "event",
+    "subscribed_events": ["question_detected", "objection_raised"],
+    "cooldown": 0
+  }
+}
+```
+
+### Trigger Conditions
+
+Define preconditions that must be satisfied:
+
+```json
+{
+  "trigger_conditions": {
+    "mode": "all",
+    "rules": [
+      {"var": "phase", "op": "in", "value": ["negotiation", "closing"]},
+      {"queue": "pending_questions", "op": "not_empty"},
+      {"meta": "turn_count", "op": "gte", "value": 3}
+    ]
+  }
+}
+```
+
+**Available Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `exists`, `not_exists`, `not_empty`, `empty`, `mod`
+
+---
+
+## Agent Configuration
+
+### Full Configuration Schema
+
+```json
+{
+  "id": "string (unique identifier)",
+  "name": "string (display name)",
+  
+  "trigger_config": {
+    "mode": "turn_based | keyword | silence | interval | event | [array]",
+    "cooldown": 15,
+    "keywords": ["price", "discount"],
+    "silence_threshold": 5,
+    "subscribed_events": ["question_detected"]
+  },
+  
+  "trigger_conditions": {
+    "mode": "all | any",
+    "rules": [
+      {"var": "phase", "op": "eq", "value": "negotiation"}
+    ]
+  },
+  
+  "priority": 0,
+  
+  "model_config": {
+    "model": "gpt-4o-mini",
+    "context_turns": 30
+  },
+  
+  "text": "Your system prompt here with {{ jinja2 }} templating",
+
+  "output_format": "default | v2_raw | custom_schema_name",
+
+  "include_context": true
+}
+```
+
+### Configuration Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | string | auto-generated | Unique identifier |
+| `name` | string | required | Display name |
+| `trigger_config.mode` | string/array | "turn_based" | When to trigger |
+| `trigger_config.cooldown` | int | 15 | Seconds between runs |
+| `trigger_config.keywords` | array | [] | Keywords for KEYWORD trigger |
+| `trigger_config.silence_threshold` | int | null | Seconds for SILENCE trigger |
+| `trigger_config.subscribed_events` | array | [] | Events for EVENT trigger |
+| `trigger_conditions` | object | null | Preconditions (Blackboard-aware) |
+| `priority` | int | 0 | State update priority (higher wins) |
+| `model_config.model` | string | "gpt-4o-mini" | LLM model |
+| `model_config.context_turns` | int | 6 | Transcript segments to include |
+| `text` | string | required | System prompt (Jinja2) |
+| `output_format` | string | "default" | Output schema name |
+| `include_context` | bool | true | Inject user profile & RAG docs into prompt. Set `false` for widget trackers and agents that don't need user/session context. Language directive always injected. |
 
 ---
 
 ## Agent Communication
 
-### Shared State Blackboard
+### Event-Driven Coordination
 
-Agents communicate indirectly via a shared dictionary:
-
-```python
-# Agent A writes
-response.state_updates = {
-    "detected_objection": "price",
-    "conversation_phase": "negotiation"
+**Agent A (Emitter):**
+```json
+{
+  "has_insight": false,
+  "events": [
+    {"name": "question_detected", "payload": {"question": "What is pricing?", "speaker": "CUSTOMER"}}
+  ]
 }
-
-# Agent B reads
-if context.shared_state.get("detected_objection") == "price":
-    # React to price objection
-    insight = self.create_insight(
-        content="Price objection detected. Use ROI calculator.",
-        type=InsightType.SUGGESTION
-    )
 ```
+
+**Agent B (Subscriber):**
+```json
+{
+  "trigger_config": {
+    "mode": "event",
+    "subscribed_events": ["question_detected"]
+  }
+}
+```
+
+### Multi-Phase Execution
+
+1. **Phase 1:** TURN_BASED, KEYWORD, SILENCE, INTERVAL agents run in parallel
+2. **State Update:** Variables, queues, facts, memory merged (priority-ordered)
+3. **Event Collection:** Events gathered from Phase 1 responses
+4. **Phase 2:** EVENT-triggered agents run (if events were emitted)
+5. **Cleanup:** Events cleared from Blackboard
 
 ### Priority System
 
 Higher-priority agents can override lower-priority state updates:
 
 ```python
-# Compliance Agent (priority: 100)
-response.state_updates = {"risk_level": "high"}
+# Agent A (priority=5): variable_updates={"phase": "closing"}
+# Agent B (priority=10): variable_updates={"phase": "negotiation"}
 
-# Sales Agent (priority: 10)
-response.state_updates = {"risk_level": "low"}
-
-# Result: risk_level = "high" (Compliance wins)
+# Result: phase = "negotiation" (Agent B wins, higher priority)
 ```
 
-**Priority Rules**:
-- Default priority: `0`
-- Higher number = higher priority
-- State updates applied in priority order (descending)
+Updates are applied in **ascending** priority order (low → high), so higher priority writes last and wins.
 
-### Private State (Memory)
+### Private Memory
 
-Each agent maintains a private scratchpad:
+Each agent maintains a private scratchpad via `memory_updates`:
 
-```python
-# In DynamicAgent
-self.private_state = {
-    "last_objection": "price",
-    "objection_count": 3
-}
-
-# LLM can update via JSON response
+```json
 {
-    "memory_updates": {
-        "objection_count": 4
-    }
+  "memory_updates": {
+    "last_objection": "price",
+    "objection_count": 4
+  }
 }
 ```
 
----
-
-## Advanced Features
-
-### Jinja2 Prompt Templating (14/10)
-
-You can access shared state and memory directly in your system prompts using Jinja2 syntax:
-
-*   **`{{ state }}`**: Access the Global Blackboard.
-    *   Example: `"The current phase is {{ state.conversation_phase }}"`
-*   **`{{ memory }}`**: Access the Agent's Private Memory.
-    *   Example: `"You have warned the user {{ memory.warning_count }} times."`
-*   **`{{ context }}`**: Access the full `AgentContext`.
-*   **`{{ user_context }}`**: Access the User Persona string.
-
-### Widget Control (Sidecar Pattern)
-
-To build agents that control UI widgets ("Hands") instead of just speaking ("Voice"):
-
-1.  Set `output_format: "widget_control"`.
-2.  The framework will map the LLM's `ui_actions` output to the `response.data` sidecar.
-3.  The Host Application (Backend) routes this data to the Frontend.
-
----
-
-## Performance Optimization
-
-### Response Caching
-
-Agent responses are cached to avoid redundant LLM calls:
-
-- **Cache Key**: `hash(agent_id + transcript_slice)`
-- **TTL**: 5 minutes (configurable)
-- **Size Limit**: 100 entries (auto-cleanup)
-
-**Benefits**:
-- Reduces API costs
-- Lowers latency for similar queries
-- Handles repeated conversation patterns
-
-**Configuration**:
-```python
-engine = AgentEngine(
-    api_key=api_key,
-    enable_caching=True,
-    cache_ttl=300  # seconds
-)
-```
-
-### Request Batching
-
-Agents using the same model are grouped for potential batching:
-
-- Agents grouped by `model` (e.g., `gpt-4o-mini`)
-- Future optimization: Single API call for multiple agents
-
-**Current State**: Grouping implemented, batching pending OpenAI batch API support
-
-### Embedding Cache (RAG)
-
-Document embeddings are cached to avoid re-indexing:
-
-- **Cache Key**: `hash(document_content)`
-- **Behavior**: Skip indexing if document unchanged
-
-**Implementation**:
-```python
-# In RAGManager
-content_hash = hashlib.md5(content.encode()).hexdigest()
-if cached_hash == content_hash:
-    return  # Skip re-indexing
-```
+Access in templates: `{{ blackboard.memory[agent_id].objection_count }}`
 
 ---
 
 ## Usage Guide
 
-### Enabling Debugging (The Agent MRI)
-
-To see exactly what your agents are thinking, enable the Structured Tracer:
+### Basic Integration
 
 ```python
-from xubb_agents.utils.tracing import StructuredLogTracer
+from xubb_agents import AgentEngine, AgentContext, TriggerType, Blackboard
+from xubb_agents.library import DynamicAgent
 
-# 1. Initialize Tracer
-tracer = StructuredLogTracer()
+# Initialize
+engine = AgentEngine(api_key="sk-...")
 
-# 2. Register with Engine
-engine = AgentEngine(api_key="...", callbacks=[tracer])
+# Load agents from config
+for config in load_agents_from_db():
+    engine.register_agent(DynamicAgent(config))
 
-# 3. Watch your logs for "TURN_TRACE: { ... }"
+# Session state
+session = {
+    "id": "session_123",
+    "blackboard": Blackboard(),
+    "turn_count": 0,
+    "segments": []
+}
+
+async def on_transcript_segment(segment: dict):
+    """Called when speech is detected."""
+    session["segments"].append(TranscriptSegment(**segment))
+    session["turn_count"] += 1
+    
+    context = AgentContext(
+        session_id=session["id"],
+        recent_segments=session["segments"][-100:],
+        blackboard=session["blackboard"],
+        turn_count=session["turn_count"],
+        user_context="Sales Director at Acme Corp"
+    )
+    
+    response = await engine.process_turn(
+        context,
+        trigger_type=TriggerType.TURN_BASED
+    )
+    
+    for insight in response.insights:
+        await send_to_ui(insight)
+```
+
+### Keyword Handling
+
+```python
+async def on_keyword_detected(keyword: str, segment: dict):
+    """Called when a keyword is detected."""
+    matches = engine.check_keyword_triggers(segment["text"])
+    allowed_ids = [agent.config.id for agent, _ in matches]
+    
+    context = AgentContext(
+        session_id=session["id"],
+        recent_segments=session["segments"][-100:],
+        blackboard=session["blackboard"],
+        trigger_metadata={"keyword": keyword}
+    )
+    
+    response = await engine.process_turn(
+        context,
+        allowed_agent_ids=allowed_ids,
+        trigger_type=TriggerType.KEYWORD
+    )
 ```
 
 ### Creating a Custom Agent
 
-1. **Extend BaseAgent**:
-
 ```python
 from xubb_agents.core.agent import BaseAgent, AgentConfig
-from xubb_agents.core.models import AgentContext, AgentResponse, InsightType
+from xubb_agents.core.models import AgentContext, AgentResponse, InsightType, TriggerType
 
 class MyAgent(BaseAgent):
     def __init__(self):
@@ -498,7 +570,6 @@ class MyAgent(BaseAgent):
     async def evaluate(self, context: AgentContext) -> AgentResponse:
         response = AgentResponse()
         
-        # Analyze context
         last_text = context.recent_segments[-1].text
         
         if "urgent" in last_text.lower():
@@ -508,79 +579,25 @@ class MyAgent(BaseAgent):
                     type=InsightType.WARNING
                 )
             )
+            # Emit event for other agents
+            response.events.append(Event(
+                name="urgency_detected",
+                payload={"text": last_text},
+                source_agent=self.config.id
+            ))
         
         return response
 ```
 
-2. **Register Agent**:
+### Enabling Debugging
 
 ```python
-from xubb_agents import AgentEngine
+from xubb_agents.utils.tracing import StructuredLogTracer
 
-engine = AgentEngine(api_key=api_key)
-engine.register_agent(MyAgent())
-```
+tracer = StructuredLogTracer()
+engine = AgentEngine(api_key="...", callbacks=[tracer])
 
-### Using Dynamic Agents
-
-1. **Create Prompt Template** (in `prompts.json`):
-
-```json
-{
-    "id": "my-dynamic-agent",
-    "name": "My Dynamic Agent",
-    "type": "agent",
-    "text": "You are a helpful assistant...",
-    "trigger_config": {
-        "mode": ["turn_based", "keyword"],
-        "cooldown": 15,
-        "keywords": ["help", "assist"],
-        "priority": 5
-    },
-    "model_config": {
-        "model": "gpt-4o-mini",
-        "context_turns": 6
-    }
-}
-```
-
-2. **Load in Server**:
-
-```python
-# In xubb_server/core/state.py
-agents = prompt_manager.get_agents()
-for agent_config in agents:
-    engine.register_agent(DynamicAgent(agent_config))
-```
-
-### Triggering Agents
-
-**Turn-Based** (automatic):
-```python
-# In SessionManager.add_transcript_segment
-await self._run_agent_check(engine, session)
-```
-
-**Keyword-Based** (automatic):
-```python
-# In SessionManager.add_transcript_segment
-if keyword in text:
-    await self._run_agent_check(
-        engine, session,
-        trigger_type="keyword",
-        trigger_metadata={"keyword": keyword}
-    )
-```
-
-**Silence-Based** (automatic):
-```python
-# In SessionManager._heartbeat_loop
-if silence_duration >= agent.config.silence_threshold:
-    await self._run_agent_check(
-        engine, session,
-        trigger_type="silence",
-        trigger_metadata={"silence_duration": silence_duration}
-    )
+# Traces include multi-phase execution details
 ```
 
 ---
@@ -591,40 +608,56 @@ if silence_duration >= agent.config.silence_threshold:
 
 ```python
 class AgentEngine:
-    def __init__(self, api_key: str, enable_caching: bool = True, cache_ttl: int = 300)
-    def register_agent(self, agent: BaseAgent)
+    def __init__(self, api_key: str)
+    def register_agent(self, agent: BaseAgent) -> None
     async def process_turn(
         self,
         context: AgentContext,
         allowed_agent_ids: Optional[List[str]] = None,
-        trigger_type: TriggerType = TriggerType.TURN_BASED,
-        trigger_metadata: Dict[str, Any] = None
+        trigger_type: TriggerType = TriggerType.TURN_BASED
     ) -> AgentResponse
-    def check_keyword_triggers(self, text: str, allowed_agent_ids: Optional[List[str]] = None) -> List[tuple]
+    def check_keyword_triggers(
+        self, 
+        text: str, 
+        allowed_agent_ids: Optional[List[str]] = None
+    ) -> List[tuple]
 ```
 
-### BaseAgent
+### Blackboard
 
 ```python
-class BaseAgent(ABC):
-    def __init__(self, config: AgentConfig)
-    async def process(self, context: AgentContext) -> Optional[AgentResponse]
-    @abstractmethod
-    async def evaluate(self, context: AgentContext) -> Optional[AgentResponse]
-    def create_insight(self, content: str, type: InsightType, confidence: float = 1.0) -> AgentInsight
-```
-
-### AgentInsight
-
-```python
-class AgentInsight(BaseModel):
-    agent_id: str
-    agent_name: str
-    type: InsightType  # SUGGESTION, WARNING, OPPORTUNITY, FACT, PRAISE, ERROR
-    content: str
-    confidence: float
-    expiry: int
-    metadata: Dict[str, Any] # Universal adapter for UI extensions (zone, color, voice)
+class Blackboard(BaseModel):
+    events: List[Event]
+    variables: Dict[str, Any]
+    queues: Dict[str, List[Any]]
+    facts: List[Fact]
+    memory: Dict[str, Dict[str, Any]]
+    
+    # Event operations
+    def emit_event(self, event: Event) -> None
+    def has_event(self, event_name: str) -> bool
+    def get_events_by_name(self, event_name: str) -> List[Event]
+    def clear_events(self) -> None
+    
+    # Variable operations
+    def set_var(self, key: str, value: Any) -> None
+    def get_var(self, key: str, default: Any = None) -> Any
+    def delete_var(self, key: str) -> None
+    
+    # Queue operations
+    def push_queue(self, queue_name: str, item: Any) -> None
+    def pop_queue(self, queue_name: str) -> Optional[Any]
+    def peek_queue(self, queue_name: str) -> Optional[Any]
+    def queue_length(self, queue_name: str) -> int
+    
+    # Fact operations
+    def add_fact(self, fact: Fact) -> None
+    def get_fact(self, fact_type: str, key: Optional[str] = None) -> Optional[Fact]
+    def get_facts_by_type(self, fact_type: str) -> List[Fact]
+    
+    # Memory operations
+    def get_memory(self, agent_id: str) -> Dict[str, Any]
+    def update_memory(self, agent_id: str, updates: Dict[str, Any]) -> None
 ```
 
 ### AgentContext
@@ -633,56 +666,108 @@ class AgentInsight(BaseModel):
 class AgentContext(BaseModel):
     session_id: str
     recent_segments: List[TranscriptSegment]
-    shared_state: Dict[str, Any]
-    rag_docs: List[str]
-    trigger_type: TriggerType
-    trigger_metadata: Dict[str, Any]
-    user_context: Optional[str]  # Injected User Profile
-    language_directive: Optional[str] # Translation/Language instruction
+    
+    # State (v1 compatibility)
+    shared_state: Dict[str, Any] = {}
+    
+    # Blackboard (v2)
+    blackboard: Optional[Blackboard] = None
+    
+    # Trigger information
+    trigger_type: TriggerType = TriggerType.TURN_BASED
+    trigger_metadata: Dict[str, Any] = {}
+    
+    # Context enrichment
+    rag_docs: List[str] = []
+    user_context: Optional[str] = None
+    language_directive: Optional[str] = None
+    
+    # Execution metadata
+    turn_count: int = 0
+    phase: int = 1
 ```
 
 ### AgentResponse
 
 ```python
 class AgentResponse(BaseModel):
-    insights: List[AgentInsight]
-    state_updates: Dict[str, Any]
+    # Core output
+    insights: List[AgentInsight] = []
+    
+    # Blackboard updates (v2)
+    events: List[Event] = []
+    variable_updates: Dict[str, Any] = {}
+    queue_pushes: Dict[str, List[Any]] = {}
+    facts: List[Fact] = []
+    memory_updates: Dict[str, Any] = {}
+    
+    # Legacy compatibility (v1)
+    state_updates: Dict[str, Any] = {}
+    
+    # Sidecar data
+    data: Dict[str, Any] = {}
+    debug_info: Dict[str, Any] = {}
+```
+
+### Data Models
+
+```python
+class Event(BaseModel):
+    name: str
+    payload: Dict[str, Any] = {}
+    source_agent: str
+    timestamp: float
+    id: Optional[str] = None
+
+class Fact(BaseModel):
+    type: str
+    key: Optional[str] = None
+    value: Any
+    confidence: float = 1.0
+    source_agent: str
+    timestamp: float
+
+class AgentInsight(BaseModel):
+    agent_id: str
+    agent_name: str
+    type: InsightType
+    content: str
+    confidence: float = 1.0
+    expiry: int = 15
+    action_label: Optional[str] = None
+    metadata: Dict[str, Any] = {}
 ```
 
 ---
 
 ## Best Practices
 
-1. **Cooldowns**: Set appropriate cooldowns to prevent agent spam (10-30 seconds typical)
-2. **Priority**: Use priority to ensure critical agents (e.g., compliance) override others
-3. **Context Window**: Limit `context_turns` to 6-10 for cost efficiency
-4. **Keywords**: Use specific, low-frequency keywords to avoid false positives
-5. **Caching**: Enable caching for agents that analyze similar patterns repeatedly
-6. **Error Handling**: Always return `AgentResponse` with error insights on exceptions
+1. **Use Trigger Conditions**: Prevent unnecessary LLM calls with preconditions
+2. **Emit Events**: Use events for agent coordination instead of polling state
+3. **Set Appropriate Cooldowns**: 10-30 seconds typical to prevent spam
+4. **Use Priority Wisely**: Higher priority for critical agents (compliance, escalation)
+5. **Limit Context Window**: 6-10 turns for cost efficiency
+6. **Use Facts for Knowledge**: Structured extraction with confidence scores
+7. **Use Queues for Work Items**: FIFO processing of pending tasks
 
 ---
 
-## Troubleshooting
+## Migration from v1.0
 
-### Agents Not Triggering
+v2.0 is 100% backward compatible. Existing agents work unchanged.
 
-- Check `ai/agents_enabled` setting in database
-- Verify agent is registered: `engine.agents`
-- Check trigger type matches: `agent.config.trigger_types`
-- Verify cooldown hasn't expired: `agent.last_run_time`
+| v1.0 Pattern | v2.0 Equivalent | Auto-Mapped? |
+|--------------|-----------------|--------------|
+| `shared_state["key"]` | `blackboard.variables["key"]` | ✅ Yes |
+| `state_updates` | `variable_updates` | ✅ Yes |
+| `memory_{agent_id}` | `blackboard.memory[agent_id]` | ✅ Yes |
+| `{{ state.key }}` | `{{ blackboard.variables.key }}` | ✅ Both work |
 
-### Duplicate Insights
-
-- Check de-duplication logic in `SessionManager._run_agent_check`
-- Verify cooldown is set correctly
-- Check cache isn't returning stale results
-
-### Performance Issues
-
-- Enable caching: `AgentEngine(enable_caching=True)`
-- Reduce `context_turns` in model config
-- Use faster models (`gpt-4o-mini` vs `gpt-4o`)
-- Check RAG embedding cache is working
+**Gradual Migration:**
+1. Add `trigger_conditions` to reduce LLM calls
+2. Add `events` for agent coordination
+3. Use `facts` for extracted knowledge
+4. Use `queues` for work items
 
 ---
 
