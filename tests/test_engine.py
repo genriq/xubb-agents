@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from xubb_agents.core.engine import AgentEngine
 from xubb_agents.core.agent import BaseAgent, AgentConfig
 from xubb_agents.core.models import (
-    AgentContext, AgentResponse, AgentInsight, InsightType, 
+    AgentContext, AgentConfigOverride, AgentResponse, AgentInsight, InsightType,
     TriggerType, TranscriptSegment, Event, Fact
 )
 from xubb_agents.core.blackboard import Blackboard
@@ -370,3 +370,295 @@ class TestSnapshotIsolation:
         # Final value depends on merge order (both wrote 1, last wins)
         # Since both have same priority, registration order determines winner
         assert sample_context.blackboard.get_var("counter") == 1
+
+
+# =========================================================================
+# FORCE Trigger Tests
+# =========================================================================
+
+class TestForceTrigger:
+    """Test FORCE trigger bypass mechanics."""
+
+    @pytest.mark.asyncio
+    async def test_force_bypasses_trigger_type_mismatch(self, engine, sample_context):
+        """FORCE should run a KEYWORD-only agent (trigger_type mismatch bypass)."""
+        agent = MockAgent("keyword_only")
+        agent.config.trigger_types = [TriggerType.KEYWORD]  # Not TURN_BASED or FORCE
+        engine.register_agent(agent)
+
+        response = await engine.process_turn(
+            sample_context, trigger_type=TriggerType.FORCE
+        )
+
+        assert agent.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_force_bypasses_cooldown(self, engine, sample_context):
+        """FORCE should run even when agent is in cooldown."""
+        agent = MockAgent("cooldown_test")
+        agent.config.cooldown = 9999  # Very long cooldown
+        agent.last_run_time = time.time()  # Just ran
+        engine.register_agent(agent)
+
+        response = await engine.process_turn(
+            sample_context, trigger_type=TriggerType.FORCE
+        )
+
+        assert agent.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_force_bypasses_trigger_conditions(self, engine, sample_context):
+        """FORCE should bypass failing trigger_conditions."""
+        agent = MockAgent(
+            "conditional",
+            trigger_conditions={
+                "mode": "all",
+                "rules": [{"var": "phase", "op": "eq", "value": "closing"}]
+            }
+        )
+        engine.register_agent(agent)
+
+        # Phase is "discovery" (set in fixture), condition requires "closing"
+        response = await engine.process_turn(
+            sample_context, trigger_type=TriggerType.FORCE
+        )
+
+        assert agent.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_force_does_not_bypass_allow_list(self, engine, sample_context):
+        """FORCE does NOT bypass allow-list (host filter is authoritative)."""
+        agent1 = MockAgent("allowed")
+        agent2 = MockAgent("not_allowed")
+        engine.register_agent(agent1)
+        engine.register_agent(agent2)
+
+        response = await engine.process_turn(
+            sample_context,
+            trigger_type=TriggerType.FORCE,
+            allowed_agent_ids=[agent1.config.id]
+        )
+
+        assert agent1.call_count == 1
+        assert agent2.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_force_updates_last_run_time(self, engine, sample_context):
+        """FORCE runs still update last_run_time."""
+        agent = MockAgent("timestamp_test")
+        assert agent.last_run_time == 0.0
+        engine.register_agent(agent)
+
+        before = time.time()
+        await engine.process_turn(
+            sample_context, trigger_type=TriggerType.FORCE
+        )
+
+        assert agent.last_run_time >= before
+
+    @pytest.mark.asyncio
+    async def test_force_back_to_back(self, engine):
+        """Two FORCE calls in quick succession should both succeed."""
+        agent = MockAgent("back_to_back")
+        agent.config.cooldown = 9999
+        engine.register_agent(agent)
+
+        bb = Blackboard()
+        ctx1 = AgentContext(
+            session_id="s1",
+            recent_segments=[TranscriptSegment(speaker="USER", text="Hi", timestamp=1.0)],
+            blackboard=bb, turn_count=1
+        )
+        ctx2 = AgentContext(
+            session_id="s1",
+            recent_segments=[TranscriptSegment(speaker="USER", text="Hi again", timestamp=2.0)],
+            blackboard=bb, turn_count=2
+        )
+
+        await engine.process_turn(ctx1, trigger_type=TriggerType.FORCE)
+        await engine.process_turn(ctx2, trigger_type=TriggerType.FORCE)
+
+        assert agent.call_count == 2
+
+
+# =========================================================================
+# Override Tests
+# =========================================================================
+
+class TestAgentConfigOverrides:
+    """Test agent_config_overrides mechanics."""
+
+    @pytest.mark.asyncio
+    async def test_cooldown_modifier_negative(self, engine):
+        """Negative cooldown modifier speeds up agent (floor at 5s)."""
+        agent = MockAgent("fast_agent")
+        agent.config.cooldown = 60  # Base 60s
+        engine.register_agent(agent)
+
+        overrides = {agent.config.id: AgentConfigOverride(cooldown_modifier=-55)}
+
+        bb = Blackboard()
+        # First call - sets last_run_time
+        ctx1 = AgentContext(
+            session_id="s1",
+            recent_segments=[TranscriptSegment(speaker="USER", text="Hi", timestamp=1.0)],
+            blackboard=bb, turn_count=1,
+            agent_config_overrides=overrides
+        )
+        await engine.process_turn(ctx1)
+        assert agent.call_count == 1
+
+        # Second call after 6s (> floor 5s, < base 60s) — should run with modifier
+        agent.last_run_time = time.time() - 6  # Simulate 6s elapsed
+        ctx2 = AgentContext(
+            session_id="s1",
+            recent_segments=[TranscriptSegment(speaker="USER", text="Update", timestamp=7.0)],
+            blackboard=bb, turn_count=2,
+            agent_config_overrides=overrides
+        )
+        await engine.process_turn(ctx2)
+        assert agent.call_count == 2  # Ran because effective=5, 6>5
+
+    @pytest.mark.asyncio
+    async def test_cooldown_modifier_floor_at_5(self, engine):
+        """Cooldown floor is 5s even with extreme negative modifier."""
+        agent = MockAgent("floor_test")
+        agent.config.cooldown = 10
+        engine.register_agent(agent)
+
+        overrides = {agent.config.id: AgentConfigOverride(cooldown_modifier=-100)}
+
+        bb = Blackboard()
+        ctx = AgentContext(
+            session_id="s1",
+            recent_segments=[TranscriptSegment(speaker="USER", text="Hi", timestamp=1.0)],
+            blackboard=bb, turn_count=1,
+            agent_config_overrides=overrides
+        )
+        await engine.process_turn(ctx)
+        assert agent.call_count == 1
+
+        # Set last_run_time to 3s ago (< floor 5s)
+        agent.last_run_time = time.time() - 3
+        ctx2 = AgentContext(
+            session_id="s1",
+            recent_segments=[TranscriptSegment(speaker="USER", text="Again", timestamp=4.0)],
+            blackboard=bb, turn_count=2,
+            agent_config_overrides=overrides
+        )
+        await engine.process_turn(ctx2)
+        assert agent.call_count == 1  # Blocked by 5s floor
+
+    @pytest.mark.asyncio
+    async def test_override_no_cross_contamination(self, engine):
+        """Overrides for agent A should not affect agent B."""
+        agent_a = MockAgent("agent_a")
+        agent_a.config.cooldown = 60
+        agent_b = MockAgent("agent_b")
+        agent_b.config.cooldown = 60
+        engine.register_agent(agent_a)
+        engine.register_agent(agent_b)
+
+        # Only agent_a gets the fast override
+        overrides = {agent_a.config.id: AgentConfigOverride(cooldown_modifier=-55)}
+
+        bb = Blackboard()
+        ctx = AgentContext(
+            session_id="s1",
+            recent_segments=[TranscriptSegment(speaker="USER", text="Hi", timestamp=1.0)],
+            blackboard=bb, turn_count=1,
+            agent_config_overrides=overrides
+        )
+        await engine.process_turn(ctx)
+        assert agent_a.call_count == 1
+        assert agent_b.call_count == 1
+
+        # After 6s, agent_a (effective=5s) should run, agent_b (base=60s) should not
+        agent_a.last_run_time = time.time() - 6
+        agent_b.last_run_time = time.time() - 6
+
+        ctx2 = AgentContext(
+            session_id="s1",
+            recent_segments=[TranscriptSegment(speaker="USER", text="Update", timestamp=7.0)],
+            blackboard=bb, turn_count=2,
+            agent_config_overrides=overrides
+        )
+        await engine.process_turn(ctx2)
+        assert agent_a.call_count == 2  # Ran (effective cooldown=5, 6>5)
+        assert agent_b.call_count == 1  # Blocked (base cooldown=60, 6<60)
+
+    @pytest.mark.asyncio
+    async def test_overrides_propagated_through_run_phase(self, engine, sample_context):
+        """agent_config_overrides should survive into phase context snapshot."""
+        overrides = {"test_agent": AgentConfigOverride(instructions_append="Extra info")}
+        sample_context.agent_config_overrides = overrides
+
+        received_overrides = {}
+
+        def capture_overrides(context, agent):
+            received_overrides.update(context.agent_config_overrides)
+            return AgentResponse()
+
+        agent = MockAgent("test_agent", response_fn=capture_overrides)
+        engine.register_agent(agent)
+
+        await engine.process_turn(sample_context)
+
+        assert "test_agent" in received_overrides
+        assert received_overrides["test_agent"].instructions_append == "Extra info"
+
+    @pytest.mark.asyncio
+    async def test_overrides_survive_into_phase2(self, engine, sample_context):
+        """Overrides propagated into Phase 2 for event-triggered agents."""
+        overrides = {"subscriber": AgentConfigOverride(cooldown_modifier=-5)}
+        sample_context.agent_config_overrides = overrides
+
+        received_overrides = {}
+
+        def emit_event(context, agent):
+            return AgentResponse(
+                events=[Event(
+                    name="test_event", payload={},
+                    source_agent=agent.config.id, timestamp=time.time()
+                )]
+            )
+
+        def capture_overrides_phase2(context, agent):
+            received_overrides.update(context.agent_config_overrides)
+            return AgentResponse()
+
+        emitter = MockAgent("emitter", response_fn=emit_event)
+        subscriber = MockAgent(
+            "subscriber",
+            subscribed_events=["test_event"],
+            response_fn=capture_overrides_phase2
+        )
+        engine.register_agent(emitter)
+        engine.register_agent(subscriber)
+
+        await engine.process_turn(sample_context)
+
+        assert "subscriber" in received_overrides
+        assert received_overrides["subscriber"].cooldown_modifier == -5
+
+    @pytest.mark.asyncio
+    async def test_force_debug_log_when_no_override(self, engine, sample_context):
+        """FORCE with overrides dict non-empty + agent missing → debug log (no crash)."""
+        # Override for a different agent
+        overrides = {"other_agent": AgentConfigOverride(cooldown_modifier=-5)}
+        sample_context.agent_config_overrides = overrides
+
+        agent = MockAgent("this_agent")
+        engine.register_agent(agent)
+
+        # Should log debug but still run
+        response = await engine.process_turn(
+            sample_context, trigger_type=TriggerType.FORCE
+        )
+        assert agent.call_count == 1
+
+    def test_override_extra_forbid_rejects_typos(self):
+        """AgentConfigOverride with extra='forbid' rejects unknown fields."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            AgentConfigOverride(cooldown_modifer=-5)  # typo: modifer vs modifier

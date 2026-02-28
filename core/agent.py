@@ -72,23 +72,31 @@ class BaseAgent(ABC):
 
     async def process(self, context: AgentContext, callbacks: List[Any] = None) -> Optional[AgentResponse]:
         """Main entry point. Handles checks before running logic.
-        
+
         Responsibility Split (v2):
-        - Engine: Decides trigger eligibility (trigger type, conditions)
-        - Agent: Enforces cooldown, handles errors
-        
-        Note: The trigger type check is kept for backward compatibility,
-        but the engine already filters by trigger type before calling.
+        - Engine: Decides trigger eligibility (trigger type, conditions, FORCE bypass)
+        - Agent: Enforces cooldown (with modifier), handles errors
+
+        FORCE trigger bypasses trigger-type check and cooldown (engine already
+        verified eligibility). last_run_time still updates on FORCE runs.
         """
         now = time.time()
-        
-        # 1. Trigger Type Check (kept for backward compatibility; engine already filters)
-        if context.trigger_type not in self.config.trigger_types:
+        is_force = context.trigger_type == TriggerType.FORCE
+
+        # 1. Trigger Type Check — FORCE bypasses (engine already validated)
+        if not is_force and context.trigger_type not in self.config.trigger_types:
             return None
-        
-        # 2. Cooldown Check (agent's responsibility)
-        if (now - self.last_run_time) < self.config.cooldown:
-            return None
+
+        # 2. Cooldown Check — FORCE bypasses entirely
+        if not is_force:
+            effective_cooldown = self.config.cooldown
+            overrides = context.agent_config_overrides.get(self.config.id)
+            if overrides and overrides.cooldown_modifier is not None:
+                effective_cooldown = max(5, effective_cooldown + overrides.cooldown_modifier)
+            if (now - self.last_run_time) < effective_cooldown:
+                return None
+        elif context.agent_config_overrides and self.config.id not in context.agent_config_overrides:
+            self.logger.debug(f"FORCE run with no override for agent {self.config.id}")
         
         # 3. Fire Start Callback
         if callbacks:

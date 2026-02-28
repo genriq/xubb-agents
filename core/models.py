@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from enum import Enum
 
@@ -19,7 +19,8 @@ class TriggerType(str, Enum):
     KEYWORD = "keyword"  # Immediate: keyword detected
     SILENCE = "silence"  # Dead air: long silence detected
     INTERVAL = "interval"  # Time-based: periodic check
-    EVENT = "event"  # NEW v2: Triggered by Blackboard event
+    EVENT = "event"  # v2: Triggered by Blackboard event
+    FORCE = "force"  # User-triggered force-talk, bypasses cooldown/conditions
 
 
 # ============================================================================
@@ -61,6 +62,20 @@ class TranscriptSegment(BaseModel):
     timestamp: float = Field(..., description="When it happened (seconds)")
     is_final: bool = True
 
+class AgentConfigOverride(BaseModel):
+    """Per-agent config overrides from Role modifiers.
+
+    Typed to prevent silent typos — unknown keys rejected (extra='forbid').
+    Polarity: cooldown_modifier +N = slower, -N = faster (floor 5s).
+    context_turns_modifier +N = more context, -N = less (<=0 = all).
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    cooldown_modifier: Optional[int] = None
+    context_turns_modifier: Optional[int] = None
+    instructions_append: Optional[str] = None
+
+
 class AgentContext(BaseModel):
     """The full context required for an Agent to think."""
     session_id: str
@@ -78,14 +93,20 @@ class AgentContext(BaseModel):
     language_directive: Optional[str] = None
     # Optional: User Profile / Context (Identity, Goal, Mic mapping)
     user_context: Optional[str] = None
-    
+
     # ---- V2 Fields ----
     # Structured Blackboard (v2) - typed containers for state
     blackboard: Optional[Any] = Field(default=None, description="Blackboard instance (v2)")
     # Execution metadata (read-only, set by engine)
     turn_count: int = Field(default=0, description="Current turn number")
     phase: int = Field(default=1, description="Execution phase (1=normal, 2=event-triggered)")
-    
+
+    # ---- Role Override Fields ----
+    # Per-agent config overrides from Roles. Keys = agent.config.id (engine agent ID, NOT role ID).
+    agent_config_overrides: Dict[str, AgentConfigOverride] = Field(
+        default_factory=dict, description="Per-agent config overrides from Role modifiers"
+    )
+
     class Config:
         arbitrary_types_allowed = True
 

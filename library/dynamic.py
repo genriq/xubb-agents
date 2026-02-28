@@ -160,16 +160,17 @@ class DynamicAgent(BaseAgent):
             self.private_state.update(persistent_memory)
 
         # 1. Format Transcript (Configurable Window)
-        # Use self.context_turns to slice
+        # Apply context_turns_modifier from role overrides (+N = more, -N = less, <=0 = all)
+        effective_turns = self.context_turns
+        overrides = context.agent_config_overrides.get(self.config.id)
+        if overrides and overrides.context_turns_modifier is not None:
+            effective_turns = effective_turns + overrides.context_turns_modifier
+
         turns = []
-        
-        # Handle 0 or large numbers gracefully
-        # If context_turns is 0, take ALL (slice_start=0)? Or none? Let's assume 0 means "Unlimited/All".
-        # Actually standard python slice [-0:] is empty.
-        if self.context_turns <= 0:
-            target_segments = context.recent_segments # All available in context
+        if effective_turns <= 0:
+            target_segments = context.recent_segments  # All available in context
         else:
-            slice_start = -self.context_turns if len(context.recent_segments) >= self.context_turns else 0
+            slice_start = -effective_turns if len(context.recent_segments) >= effective_turns else 0
             target_segments = context.recent_segments[slice_start:]
         
         for seg in target_segments:
@@ -228,14 +229,18 @@ class DynamicAgent(BaseAgent):
         {user_context_section}
         {language_section}
         {rendered_system_prompt}
-        
+
         [YOUR MEMORY / SCRATCHPAD]
         {current_memory}
         {rag_section}
         {trigger_context}
         {self.json_instruction}
         """
-        
+
+        # Append role instructions_append (after system prompt, before user content)
+        if overrides and overrides.instructions_append and overrides.instructions_append.strip():
+            full_system_prompt += f"\n\n# Role Overrides\n{overrides.instructions_append.strip()}"
+
         messages = [
             {"role": "system", "content": full_system_prompt},
             {"role": "user", "content": f"### TRANSCRIPT:\n{transcript_slice}"}
@@ -375,7 +380,7 @@ class DynamicAgent(BaseAgent):
                     if isinstance(evt, dict):
                         event = Event(
                             name=evt.get("name", ""),
-                            payload=evt.get("payload", {}),
+                            payload=evt.get("payload") or evt.get("data", {}),
                             source_agent=self.config.id,
                             timestamp=current_time,
                             id=evt.get("id")
