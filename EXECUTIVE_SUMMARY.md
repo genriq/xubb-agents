@@ -90,7 +90,7 @@ Developers focus on the intelligence, not the plumbing.
 | Concept | Description |
 |---------|-------------|
 | **Agent** | An AI specialist that analyzes specific aspects of the conversation |
-| **Trigger** | What causes an agent to activate (turn completion, keywords, silence, events) |
+| **Trigger** | What causes an agent to activate (turn completion, keywords, silence, intervals, events, force) |
 | **Insight** | Actionable advice delivered to the user (suggestions, warnings, opportunities) |
 | **Blackboard** | Shared state where agents coordinate and build collective understanding |
 | **Event** | A signal from one agent that triggers others (e.g., "question detected" → "generate answer") |

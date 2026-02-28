@@ -240,7 +240,11 @@ class AgentEngine:
         if all_events and self.max_phases >= 2:
             context.phase = 2
             meta["phase"] = 2
-            
+            # Set trigger_type to EVENT so Phase 2 agents pass their
+            # own trigger_type check in BaseAgent.process().
+            original_trigger_type = context.trigger_type
+            context.trigger_type = TriggerType.EVENT
+
             event_names = list(set(e.name for e in all_events))
             phase2_agents = self.get_event_subscribers(event_names)
             
@@ -281,7 +285,10 @@ class AgentEngine:
                         await cb.on_phase_end(2, [e.name for e in phase2_events])
                     except Exception as e:
                         logger.error(f"Callback error on_phase_end: {e}")
-        
+
+            # Restore original trigger_type for finalization
+            context.trigger_type = original_trigger_type
+
         # =====================================================================
         # Finalization
         # =====================================================================
@@ -338,7 +345,8 @@ class AgentEngine:
             language_directive=context.language_directive,
             user_context=context.user_context,
             turn_count=context.turn_count,
-            phase=context.phase
+            phase=context.phase,
+            agent_config_overrides=context.agent_config_overrides,
         )
         
         # Run all agents in parallel
@@ -536,18 +544,22 @@ class AgentEngine:
             if agent.config.id not in allowed_agent_ids:
                 return (False, "not_in_allow_list")
         
-        # 2. Check trigger type match
+        # 2. FORCE bypasses trigger_type match + conditions (engine is source of truth)
+        if trigger_type == TriggerType.FORCE:
+            return (True, "")
+
+        # 3. Check trigger type match
         if trigger_type not in agent.config.trigger_types:
             return (False, "trigger_type_mismatch")
-        
-        # 3. Check trigger conditions (if defined)
+
+        # 4. Check trigger conditions (if defined)
         conditions = getattr(agent.config, 'trigger_conditions', None)
         if conditions:
             if not self.condition_evaluator.evaluate(
                 conditions, context.blackboard, meta, agent.config.id
             ):
                 return (False, "conditions_not_met")
-        
+
         return (True, "")
     
     def _is_eligible_for_phase2(self, agent: BaseAgent, context: AgentContext,

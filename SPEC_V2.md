@@ -213,12 +213,12 @@ xubb_agents/
 │       └── ...
 ├── utils/
 │   ├── __init__.py
-│   ├── tracing.py         # Structured logging
-│   └── transcript.py      # OPTIONAL: Transcript utilities
+│   └── tracing.py         # Structured logging
 ├── __init__.py
 ├── README.md
-├── technical_spec_agents.md    # v1.0 spec (legacy)
-└── SPEC_V2.md                  # THIS DOCUMENT
+├── EXECUTIVE_SUMMARY.md        # Vision & positioning
+├── prompt_engineering_guide.md  # Prompt writing guide
+└── SPEC_V2.md                   # THIS DOCUMENT
 ```
 
 ---
@@ -286,8 +286,8 @@ Evaluates trigger conditions against Blackboard state.
 
 ```python
 class ConditionEvaluator:
-    def evaluate(self, conditions: dict, blackboard: Blackboard, meta: dict) -> bool
-    def evaluate_rule(self, rule: dict, blackboard: Blackboard, meta: dict) -> bool
+    def evaluate(self, conditions: dict, blackboard: Blackboard, meta: dict, agent_id: str) -> bool
+    def _evaluate_rule(self, rule: dict, blackboard: Blackboard, meta: dict, agent_id: str) -> bool
 ```
 
 ### 4.5 LLMClient (`core/llm.py`)
@@ -425,6 +425,7 @@ class TriggerType(str, Enum):
     SILENCE = "silence"        # Dead air threshold
     INTERVAL = "interval"      # Time-based periodic
     EVENT = "event"            # NEW: Triggered by Blackboard event
+    FORCE = "force"            # Host-triggered, bypasses cooldown + conditions
 ```
 
 ### 5.7 Fact — NEW
@@ -791,6 +792,9 @@ async def on_response_displayed(question_item):
 | `SILENCE` | Silence duration exceeds threshold | Dead air intervention |
 | `INTERVAL` | Time-based periodic check | Background monitoring |
 | `EVENT` | Another agent emits a Blackboard event | Agent coordination |
+| `FORCE` | Host-triggered force run | User override (bypasses cooldown + conditions) |
+
+**FORCE Trigger Note:** When `trigger_type=FORCE`, the engine bypasses trigger type matching and condition evaluation. The agent's `process()` method also bypasses cooldown checks. FORCE respects `allowed_agent_ids` if provided. Use for explicit user-initiated actions (e.g., "run this agent now").
 
 **KEYWORD Trigger Note:** The engine does **not** automatically scan transcript text for keywords. Keyword detection is **host responsibility**. The engine provides `check_keyword_triggers(text)` as a helper utility. Host workflow:
 1. Host detects keyword match (using engine helper or own logic)
