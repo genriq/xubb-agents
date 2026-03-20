@@ -1,7 +1,7 @@
 # Xubb Agents Framework v2.0
 ## Techno-Functional-Implementation Specification
 
-> **Note:** This document describes the v2.0 design as originally shipped. For v2.1 behavioral changes (bug fixes, security hardening, snapshot isolation fixes), see [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md). This spec remains the authoritative reference for v2.0 architectural decisions and design rationale.
+> **ARCHIVED** — This document describes the v2.0 design as originally shipped. The current version is **v2.1.1**. For all changes since v2.0, see [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) (v2.1 bug fixes and security hardening) and [SPEC_V2_1_1_BUGFIX.md](SPEC_V2_1_1_BUGFIX.md) (v2.1.1 bug fixes and improvements). This spec remains the authoritative reference for v2.0 architectural decisions and design rationale.
 
 **Version:** 2.0.3
 **Status:** Archived (superseded by v2.1 for behavioral details)

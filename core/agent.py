@@ -6,21 +6,6 @@ from .models import AgentContext, AgentResponse, AgentInsight, InsightType, Trig
 
 logger = logging.getLogger(__name__)
 
-# Need to import callbacks to annotate properly, but avoid circular import if possible
-# Usually handled by injecting callbacks into Agent or having Agent return metadata
-# For 13/10 SoC, the Engine handles the callbacks, but the Agent needs to expose hooks?
-# No, the Engine orchestrates the callbacks.
-# But we need to know when the agent STARTS running logic inside process().
-# We can add a 'callback_handler' to the Agent, but that couples them.
-# BETTER: Agent returns a wrapper or we wrap the process call in Engine.
-# Actually, the simplest way is to pass the callback handler to process? No, messy signature.
-# 
-# CORRECTION: The Engine calls `agent.process`. The Engine can fire `on_agent_start` 
-# right before calling `agent.process`.
-# HOWEVER, `agent.process` does checks (cooldown, trigger). We only want `on_agent_start` 
-# if it ACTUALLY runs.
-#
-# So, we will add an optional `callbacks` argument to `process` method.
 
 class AgentConfig:
     """Configuration for an agent.

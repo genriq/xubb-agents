@@ -39,9 +39,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/xubb-agents"
-Documentation = "https://github.com/your-org/xubb-agents#readme"
-Repository = "https://github.com/your-org/xubb-agents"
+Homepage = "https://github.com/genriq/xubb-agents"
+Documentation = "https://github.com/genriq/xubb-agents#readme"
+Repository = "https://github.com/genriq/xubb-agents"
 
 [tool.setuptools]
 packages = ["xubb_agents", "xubb_agents.core", "xubb_agents.library", "xubb_agents.utils"]

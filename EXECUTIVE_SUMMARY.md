@@ -1,6 +1,8 @@
 # Xubb Agents Framework
 ## Executive Summary
 
+**Version:** 2.1.1
+
 ---
 
 ### The Vision
