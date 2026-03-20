@@ -12,11 +12,14 @@ Persistence is host responsibility. The framework maintains the
 Blackboard in-memory for session lifetime.
 """
 
+import logging
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from copy import deepcopy
 
 from .models import Event, Fact
+
+_bb_logger = logging.getLogger("Blackboard")
 
 
 class Blackboard(BaseModel):
@@ -68,12 +71,17 @@ class Blackboard(BaseModel):
     # Variable Operations
     # =========================================================================
     
-    def set_var(self, key: str, value: Any) -> None:
+    def set_var(self, key: str, value: Any, _engine_internal: bool = False) -> None:
         """Set a session variable.
-        
-        Note: Keys starting with 'sys.' are reserved for engine use.
-        Hosts and agents should not write to sys.* variables.
+
+        Keys starting with 'sys.' are reserved for engine use.
+        Non-engine writes to sys.* emit a warning (v2.1) and will
+        become a hard error in v2.2.
         """
+        if key.startswith("sys.") and not _engine_internal:
+            _bb_logger.warning(
+                f"Writing to reserved key '{key}'. sys.* keys are engine-managed."
+            )
         self.variables[key] = value
     
     def get_var(self, key: str, default: Any = None) -> Any:
@@ -121,8 +129,9 @@ class Blackboard(BaseModel):
         return len(self.queues.get(queue_name, []))
     
     def clear_queue(self, queue_name: str) -> None:
-        """Clear a queue."""
-        self.queues[queue_name] = []
+        """Clear a queue (no-op if queue doesn't exist)."""
+        if queue_name in self.queues:
+            self.queues[queue_name] = []
     
     def has_queue(self, queue_name: str) -> bool:
         """Check if a queue exists."""
@@ -177,8 +186,8 @@ class Blackboard(BaseModel):
     # =========================================================================
     
     def get_memory(self, agent_id: str) -> Dict[str, Any]:
-        """Get an agent's private memory."""
-        return self.memory.get(agent_id, {})
+        """Get an agent's private memory (returns a deep copy)."""
+        return deepcopy(self.memory.get(agent_id, {}))
     
     def set_memory(self, agent_id: str, data: Dict[str, Any]) -> None:
         """Set an agent's private memory (full replace)."""
@@ -218,13 +227,13 @@ class Blackboard(BaseModel):
     # =========================================================================
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
+        """Convert to dictionary for serialization (returns deep copies)."""
         return {
             "events": [e.model_dump() for e in self.events],
-            "variables": self.variables,
-            "queues": self.queues,
+            "variables": deepcopy(self.variables),
+            "queues": deepcopy(self.queues),
             "facts": [f.model_dump() for f in self.facts],
-            "memory": self.memory
+            "memory": deepcopy(self.memory)
         }
     
     @classmethod

@@ -1,11 +1,13 @@
 # Xubb Agents Framework v2.0
 ## Techno-Functional-Implementation Specification
 
-**Version:** 2.0.3  
-**Status:** Final (Production-Ready)  
-**Date:** January 27, 2026  
-**Scope:** Complete framework redesign with enhanced Blackboard architecture and event-driven agent coordination  
-**Compatibility:** 100% backward compatible with v1.0 agents  
+> **Note:** This document describes the v2.0 design as originally shipped. For v2.1 behavioral changes (bug fixes, security hardening, snapshot isolation fixes), see [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md). This spec remains the authoritative reference for v2.0 architectural decisions and design rationale.
+
+**Version:** 2.0.3
+**Status:** Archived (superseded by v2.1 for behavioral details)
+**Date:** January 27, 2026
+**Scope:** Complete framework redesign with enhanced Blackboard architecture and event-driven agent coordination
+**Compatibility:** 100% backward compatible with v1.0 agents
 **Revision:** v2.0.3 — Fixed operator implementation, aligned examples with v2 patterns, clarified responsibilities
 
 ---

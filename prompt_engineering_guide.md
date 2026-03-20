@@ -1,8 +1,8 @@
 # Xubb Prompt Engineering Guide
 
-**Version:** 2.4
-**Last Updated:** February 23, 2026
-**Status:** Production (xubb_agents v2.0 Compliant)
+**Version:** 2.5
+**Last Updated:** March 19, 2026
+**Status:** Production (xubb_agents v2.1 Compliant)
 
 This guide is the **definitive reference** for creating prompts within the Xubb ecosystem. It covers everything from standard text generation to interactive widgets, autonomous agents, and RAG-augmented analysis.
 
@@ -12,6 +12,7 @@ This guide is the **definitive reference** for creating prompts within the Xubb 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.5 | Mar 19, 2026 | Updated for xubb_agents v2.1: Jinja2 templates now sandboxed (`SandboxedEnvironment`). Templates accessing Python internals (`__class__`, `__globals__`, `__mro__`) will raise `SecurityError`. All documented template patterns continue to work unchanged. |
 | 2.4 | Feb 23, 2026 | Clarified `include_context` enforcement: `DynamicAgent` now gates user profile and RAG injection at prompt composition time. Documented which sections are always injected (language, trigger, schema) vs gated (user profile, RAG). |
 | 2.3 | Feb 23, 2026 | Unified widget event path (`ai:insight` only), added `topics` intercepted key, documented State Handler pattern and `widget_control` schema, added Goal Tracker and Topic Tracker widget examples, fixed sentiment data shape (`confidence` not `velocity`), removed deprecated `sentiment:update` references |
 | 2.2 | Jan 31, 2026 | **Critical fix:** Changed `message` → `content` in Agent Output Protocol to match v2.0 schema |

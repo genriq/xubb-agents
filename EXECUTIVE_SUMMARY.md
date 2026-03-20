@@ -123,9 +123,9 @@ Developers focus on the intelligence, not the plumbing.
 
 ---
 
-### The v2.0 Architecture
+### The Architecture
 
-Version 2.0 introduces a sophisticated **Blackboard Architecture** that enables true multi-agent coordination:
+The framework uses a sophisticated **Blackboard Architecture** that enables true multi-agent coordination (introduced in v2.0, hardened in v2.1):
 
 **Structured State Containers:**
 
@@ -231,8 +231,8 @@ Whether you're building sales coaching tools, support agent assistants, or inter
 
 ---
 
-**Version:** 2.0  
-**Status:** Production-Ready  
+**Version:** 2.1
+**Status:** Production-Ready
 **License:** See main project  
 
 *"Every great conversation deserves an AI copilot."*

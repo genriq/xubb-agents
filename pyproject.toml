@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xubb-agents"
-version = "2.0.0"
+version = "2.1.0"
 description = "A lightweight, event-driven framework for real-time conversational AI agents"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -26,6 +26,8 @@ classifiers = [
 
 dependencies = [
     "openai>=1.0.0",
+    "pydantic>=2.0.0",
+    "jinja2>=3.1.0",
 ]
 
 [project.optional-dependencies]
@@ -42,11 +44,11 @@ Documentation = "https://github.com/your-org/xubb-agents#readme"
 Repository = "https://github.com/your-org/xubb-agents"
 
 [tool.setuptools]
-packages = ["xubb_agents", "xubb_agents.core", "xubb_agents.library", "xubb_agents.tools", "xubb_agents.utils"]
+packages = ["xubb_agents", "xubb_agents.core", "xubb_agents.library", "xubb_agents.utils"]
 
 [tool.setuptools.package-dir]
 xubb_agents = "."
 
 [tool.setuptools.package-data]
-"*" = ["*.md", "*.txt"]
+"*" = ["*.md", "*.txt", "*.json", "*.html"]
 

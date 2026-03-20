@@ -18,6 +18,7 @@ provide more correct mechanisms for preventing unnecessary LLM calls.
 import asyncio
 import logging
 import time
+from copy import deepcopy
 from typing import List, Optional, Dict, Any, Tuple
 
 from .models import (
@@ -168,9 +169,9 @@ class AgentEngine:
             context.blackboard = Blackboard()
         
         # Set sys.* variables (engine-owned)
-        context.blackboard.set_var("sys.turn_count", context.turn_count)
-        context.blackboard.set_var("sys.session_id", context.session_id)
-        context.blackboard.set_var("sys.trigger_type", trigger_type.value)
+        context.blackboard.set_var("sys.turn_count", context.turn_count, _engine_internal=True)
+        context.blackboard.set_var("sys.session_id", context.session_id, _engine_internal=True)
+        context.blackboard.set_var("sys.trigger_type", trigger_type.value, _engine_internal=True)
         
         # Sync Blackboard → shared_state for v1 compatibility
         self._sync_state_to_legacy(context)
@@ -200,7 +201,7 @@ class AgentEngine:
         context.phase = 1
         meta["phase"] = 1
         
-        phase1_agents = self._get_eligible_agents(
+        phase1_agents = await self._get_eligible_agents(
             context, allowed_agent_ids, trigger_type, meta
         )
         
@@ -337,7 +338,7 @@ class AgentEngine:
         phase_context = AgentContext(
             session_id=context.session_id,
             recent_segments=context.recent_segments,
-            shared_state=context.shared_state.copy(),
+            shared_state=deepcopy(context.shared_state),
             blackboard=snapshot,
             rag_docs=context.rag_docs,
             trigger_type=context.trigger_type,
@@ -352,13 +353,6 @@ class AgentEngine:
         # Run all agents in parallel
         tasks = []
         for agent in agents:
-            # Fire on_agent_start
-            for cb in self.callbacks:
-                try:
-                    await cb.on_agent_start(agent.config.name, phase_context)
-                except Exception as e:
-                    logger.error(f"Callback error on_agent_start: {e}")
-            
             tasks.append(self._run_agent_safe(agent, phase_context))
         
         results = await asyncio.gather(*tasks)
@@ -369,38 +363,15 @@ class AgentEngine:
     async def _run_agent_safe(self, agent: BaseAgent,
                               context: AgentContext) -> Optional[AgentResponse]:
         """Run an agent with atomic failure handling.
-        
-        If an agent errors during evaluation, none of its state updates,
-        events, facts, or memory changes are applied. The agent is isolated,
-        and an ERROR insight may be emitted instead.
+
+        Callbacks are fired by agent.process() — the engine does NOT
+        duplicate them here (B2 fix). If agent.process() itself raises
+        (unexpected), we catch and discard to preserve atomic failure.
         """
-        start_time = time.time()
-        
         try:
-            response = await agent.process(context, callbacks=self.callbacks)
-            duration = time.time() - start_time
-            
-            # Fire on_agent_finish
-            for cb in self.callbacks:
-                try:
-                    await cb.on_agent_finish(agent.config.name, response, duration)
-                except Exception as e:
-                    logger.error(f"Callback error on_agent_finish: {e}")
-            
-            return response
-            
+            return await agent.process(context, callbacks=self.callbacks)
         except Exception as e:
-            duration = time.time() - start_time
-            logger.error(f"Agent {agent.config.name} failed: {e}")
-            
-            # Fire on_agent_error
-            for cb in self.callbacks:
-                try:
-                    await cb.on_agent_error(agent.config.name, e)
-                except Exception as cb_e:
-                    logger.error(f"Callback error on_agent_error: {cb_e}")
-            
-            # Return None - agent's updates are discarded (atomic failure)
+            logger.error(f"Agent {agent.config.name} failed unexpectedly: {e}")
             return None
     
     # =========================================================================
@@ -423,11 +394,12 @@ class AgentEngine:
         
         for resp in responses:
             # Find the agent that produced this response
-            agent_id = None
+            agent_id = resp.source_agent_id
             agent_priority = 0
             agent_index = 0
-            
-            if resp.insights:
+
+            # Fallback for v1 compat (responses without source_agent_id)
+            if not agent_id and resp.insights:
                 agent_id = resp.insights[0].agent_id
             
             # Find agent by ID to get priority
@@ -496,12 +468,12 @@ class AgentEngine:
     # Eligibility Checks
     # =========================================================================
     
-    def _get_eligible_agents(self, context: AgentContext,
-                             allowed_agent_ids: Optional[List[str]],
-                             trigger_type: TriggerType,
-                             meta: Dict) -> List[BaseAgent]:
+    async def _get_eligible_agents(self, context: AgentContext,
+                                   allowed_agent_ids: Optional[List[str]],
+                                   trigger_type: TriggerType,
+                                   meta: Dict) -> List[BaseAgent]:
         """Get agents eligible for Phase 1 execution.
-        
+
         Eligibility is the intersection of:
         1. allowed_agent_ids (if provided) - host filter
         2. Trigger type match - engine routing
@@ -509,25 +481,21 @@ class AgentEngine:
         4. Trigger conditions - precondition check
         """
         eligible = []
-        
+
         for agent in self.agents:
             eligible_flag, reason = self._is_eligible(
                 agent, context, allowed_agent_ids, trigger_type, meta
             )
-            
+
             if eligible_flag:
                 eligible.append(agent)
             else:
-                # Fire on_agent_skipped callback
                 for cb in self.callbacks:
                     try:
-                        if hasattr(cb, 'on_agent_skipped'):
-                            asyncio.create_task(
-                                cb.on_agent_skipped(agent.config.name, reason)
-                            )
+                        await cb.on_agent_skipped(agent.config.name, reason)
                     except Exception as e:
                         logger.error(f"Callback error on_agent_skipped: {e}")
-        
+
         return eligible
     
     def _is_eligible(self, agent: BaseAgent, context: AgentContext,
@@ -593,13 +561,3 @@ class AgentEngine:
         if context.blackboard:
             context.shared_state.update(context.blackboard.variables)
     
-    def _sync_state_from_legacy(self, context: AgentContext,
-                                 v1_updates: Dict[str, Any]) -> None:
-        """Sync shared_state back INTO Blackboard for consistency.
-        
-        IMPORTANT: Only sync keys that were MODIFIED by v1.0 agents in this turn.
-        Do NOT blindly overwrite all keys — this would clobber v2.0 agent updates.
-        """
-        if context.blackboard:
-            for key, value in v1_updates.items():
-                context.blackboard.variables[key] = value

@@ -7,7 +7,7 @@ from .core.models import (
 )
 from .core.blackboard import Blackboard
 from .core.conditions import ConditionEvaluator
-from .library.mock_coach import MockSalesCoach
+from .library.dynamic import DynamicAgent
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 

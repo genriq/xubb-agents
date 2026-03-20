@@ -111,7 +111,8 @@ class BaseAgent(ABC):
         response = None
         try:
             response = await self.evaluate(context)
-            self.last_run_time = now
+            if response:
+                response.source_agent_id = self.config.id
             return response
         except Exception as e:
             self.logger.error(f"Error in agent evaluation: {e}")
@@ -121,16 +122,22 @@ class BaseAgent(ABC):
                         await cb.on_agent_error(self.config.name, e)
                     except Exception:
                         pass
-            
+
             # Return an error insight for UI feedback
-            return AgentResponse(insights=[
-                self.create_insight(
-                    content=f"Agent '{self.config.name}' encountered an error: {e}",
-                    type=InsightType.ERROR,
-                    confidence=1.0
-                )
-            ])
+            response = AgentResponse(
+                source_agent_id=self.config.id,
+                insights=[
+                    self.create_insight(
+                        content=f"Agent '{self.config.name}' encountered an error: {e}",
+                        type=InsightType.ERROR,
+                        confidence=1.0
+                    )
+                ]
+            )
+            return response
         finally:
+            # B4: Always update cooldown, success or failure
+            self.last_run_time = now
             duration = time.time() - start_time
             if callbacks:
                 for cb in callbacks:

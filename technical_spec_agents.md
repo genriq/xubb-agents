@@ -1,9 +1,9 @@
 # Xubb Agents Framework - Technical Specification
 
-**Version:** 2.0  
-**Status:** Production-Ready  
-**Scope:** `xubb_agents` Library  
-**Compatibility:** 100% backward compatible with v1.0 agents
+**Version:** 2.1
+**Status:** Production-Ready
+**Scope:** `xubb_agents` Library
+**Compatibility:** Backward compatible with v1.0/v2.0 agents (see [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) for behavioral normalizations)
 
 ---
 
@@ -102,6 +102,7 @@ class Blackboard:
 
 **Reserved Variable Namespace:**
 - `sys.*` — Reserved for engine-maintained state (e.g., `sys.turn_count`)
+- Non-engine writes to `sys.*` emit a warning (v2.1) and will become a hard error in v2.2
 - User variables should avoid the `sys.` prefix
 
 ### 3.4 Condition Evaluator (`core/conditions.py`)
@@ -197,23 +198,28 @@ The output payload returned by an agent.
 
 ```python
 class AgentResponse(BaseModel):
+    # Agent identity (v2.1 — set by framework, used for merge ordering)
+    source_agent_id: Optional[str] = None
+
     # Core output
-    insights: List[AgentInsight] = []
-    
+    insights: List[AgentInsight] = Field(default_factory=list)
+
     # Blackboard updates (v2)
-    events: List[Event] = []              # Structured events
-    variable_updates: Dict[str, Any] = {} # Session variables
-    queue_pushes: Dict[str, List[Any]] = {}
-    facts: List[Fact] = []
-    memory_updates: Dict[str, Any] = {}
-    
+    events: List[Event] = Field(default_factory=list)
+    variable_updates: Dict[str, Any] = Field(default_factory=dict)
+    queue_pushes: Dict[str, List[Any]] = Field(default_factory=dict)
+    facts: List[Fact] = Field(default_factory=list)
+    memory_updates: Dict[str, Any] = Field(default_factory=dict)
+
     # Legacy compatibility (v1)
-    state_updates: Dict[str, Any] = {}
-    
+    state_updates: Dict[str, Any] = Field(default_factory=dict)
+
     # Sidecar data
-    data: Dict[str, Any] = {}
-    debug_info: Dict[str, Any] = {}
+    data: Dict[str, Any] = Field(default_factory=dict)
+    debug_info: Dict[str, Any] = Field(default_factory=dict)
 ```
+
+**Note:** `source_agent_id` is stamped automatically by `BaseAgent.process()`. It is used by the engine for merge ordering and memory attribution. Agents should not set it manually.
 
 ### 4.3 AgentInsight
 
@@ -381,6 +387,7 @@ Agent execution is **atomic** with respect to state updates:
 - The agent is isolated from the system state
 - An `ERROR` insight may be emitted instead
 - Other agents continue normally
+- **v2.1:** Cooldown is always enforced after an execution attempt (success or failure), preventing runaway retries on persistent errors
 
 ---
 
@@ -404,15 +411,18 @@ The `DynamicAgent` is the primary implementation used for user-defined agents.
 
     > **Note:** When `include_context` is `false` (default: `true`), the `user_context` and `rag_docs` sections are omitted from the system prompt. This saves tokens for agents that don't need user profile or document context (e.g., widget trackers). The host still provides these fields in `AgentContext` — the gating happens at prompt composition time inside `DynamicAgent.evaluate()`.
 
-3.  **Prompt Templating (Jinja2):**
+3.  **Prompt Templating (Jinja2 — Sandboxed):**
+
+    As of v2.1, templates are rendered via `jinja2.sandbox.SandboxedEnvironment`. Access to Python internals (`__class__`, `__globals__`, `__mro__`) is blocked.
+
     ```python
     rendered_prompt = template.render(
         # v1.0 variables (preserved)
         state=context.shared_state,
-        memory=self.private_state,
+        memory=working_memory,      # local copy, not self.private_state
         context=context,
         user_context=context.user_context,
-        
+
         # v2.0 variables (new)
         blackboard=context.blackboard,
         agent_id=self.config.id,
@@ -449,17 +459,21 @@ Located in `library/schemas/`:
 Consumers can register handlers to receive real-time events:
 
 ```python
-class AgentCallbackHandler(ABC):
+class AgentCallbackHandler:
+    """Base handler — override only the methods you care about. All are no-op by default."""
     async def on_turn_start(self, context: AgentContext) -> None
-    async def on_phase_start(self, phase: int, agents: List[str]) -> None
-    async def on_agent_start(self, agent_name: str, context: AgentContext) -> None
-    async def on_agent_finish(self, agent_name: str, response: AgentResponse, 
-                              duration: float) -> None
-    async def on_agent_skipped(self, agent_name: str, reason: str) -> None
-    async def on_agent_error(self, agent_name: str, error: Exception) -> None
-    async def on_phase_end(self, phase: int, events_emitted: List[str]) -> None
     async def on_turn_end(self, response: AgentResponse, duration: float) -> None
+    async def on_agent_start(self, agent_name: str, context: AgentContext) -> None
+    async def on_agent_finish(self, agent_name: str, response: Optional[AgentResponse],
+                              duration: float) -> None
+    async def on_agent_error(self, agent_name: str, error: Exception) -> None
+    async def on_agent_skipped(self, agent_name: str, reason: str) -> None
+    async def on_phase_start(self, phase: int, agent_names: List[str]) -> None
+    async def on_phase_end(self, phase: int, event_names: List[str]) -> None
+    async def on_chain_error(self, error: Exception) -> None
 ```
+
+**Callback failure policy:** Callback failures are non-fatal. They are logged at `ERROR` level and never abort turn processing or suppress agent output.
 
 ### 7.2 Structured Tracing (`utils/tracing.py`)
 
@@ -675,11 +689,11 @@ Event-triggered agents run automatically in Phase 2 when other agents emit event
 1. **Local LLM Support:** The `LLMClient` is for OpenAI-compatible APIs. Local model loading not yet implemented.
 2. **Session Persistence:** Framework maintains in-memory Blackboard only. Host responsible for durable persistence.
 3. **Phase Depth:** Maximum 2 phases per turn (no event cascades).
-4. **Streaming:** Not yet supported. Planned for v2.1+.
+4. **Streaming:** Not yet supported.
 
 ---
 
-## 12. Future Considerations (v2.1+)
+## 12. Future Considerations (v2.2+)
 
 | Feature | Description | Complexity |
 |---------|-------------|------------|
@@ -688,3 +702,6 @@ Event-triggered agents run automatically in Phase 2 when other agents emit event
 | **Session Persistence** | Built-in persistence layer | Medium |
 | **Structured RAG** | `RAGDocument` model with metadata | Low |
 | **MCP Integration** | Model Context Protocol support | High |
+| **AgentConfig → Pydantic** | Type-safe config validation (NP3) | Medium |
+| **`collections.deque` queues** | O(1) pop for high-volume queues (NP14) | Low |
+| **Differentiated retry** | Error classification + per-category cooldowns | Medium |

@@ -1,6 +1,7 @@
 import logging
 import json
 import time
+from copy import deepcopy
 from typing import Dict, Any, Optional
 from ..core.callbacks import AgentCallbackHandler
 from ..core.models import AgentContext, AgentResponse
@@ -14,7 +15,7 @@ class StructuredLogTracer(AgentCallbackHandler):
     """
     def __init__(self):
         self.current_trace: Dict[str, Any] = {}
-        
+
     async def on_turn_start(self, context: AgentContext) -> None:
         self.current_trace = {
             "session_id": context.session_id,
@@ -26,13 +27,13 @@ class StructuredLogTracer(AgentCallbackHandler):
             "user_context": context.user_context,
             "language_directive": context.language_directive,
             "rag_docs": context.rag_docs,
-            "initial_shared_state": context.shared_state,
+            "initial_shared_state": deepcopy(context.shared_state),
             "transcript_history": [s.model_dump() for s in context.recent_segments],
             "steps": []
         }
 
     async def on_agent_start(self, agent_name: str, context: AgentContext) -> None:
-        # We don't log start events to keep the log volume down, 
+        # We don't log start events to keep the log volume down,
         # we only log the result in on_agent_finish
         pass
 
@@ -43,7 +44,7 @@ class StructuredLogTracer(AgentCallbackHandler):
             "status": "success" if response else "no_response",
             "insights": []
         }
-        
+
         if response:
             step_info["insights"] = [
                 {
@@ -51,12 +52,12 @@ class StructuredLogTracer(AgentCallbackHandler):
                     "content": i.content,
                     "confidence": i.confidence,
                     "metadata": i.metadata
-                } 
+                }
                 for i in response.insights
             ]
             if response.state_updates:
                 step_info["state_updates"] = response.state_updates
-            
+
             # Capture sidecar data
             if response.data:
                 step_info["data"] = response.data
@@ -64,7 +65,7 @@ class StructuredLogTracer(AgentCallbackHandler):
             # Capture debug info (prompts) if available
             if response.debug_info:
                 step_info["debug_info"] = response.debug_info
-                
+
         self.current_trace["steps"].append(step_info)
 
     async def on_agent_error(self, agent_name: str, error: Exception) -> None:
@@ -78,14 +79,8 @@ class StructuredLogTracer(AgentCallbackHandler):
         self.current_trace["total_latency_ms"] = round(duration * 1000, 2)
         self.current_trace["final_insight_count"] = len(response.insights)
         self.current_trace["final_state_updates"] = response.state_updates
-        
-        # The Golden Log Line:
-        # "TURN_TRACE: { ... json ... }"
-        log_line = f"TURN_TRACE: {json.dumps(self.current_trace)}"
-        
-        # Log via logger (handled by core/logging_config.py now)
+
+        # The Golden Log Line — default=str prevents crashes on non-serializable types
+        log_line = f"TURN_TRACE: {json.dumps(self.current_trace, default=str)}"
+
         logger.info(log_line)
-        
-        # Redundant safety print to ensure it hits stdout even if logging is misconfigured
-        # This is temporary debug safety, but acceptable given the user's issue.
-        # print(log_line, flush=True)
