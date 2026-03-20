@@ -55,14 +55,23 @@ class StructuredLogTracer(AgentCallbackHandler):
                 }
                 for i in response.insights
             ]
+            # v1 fields
             if response.state_updates:
                 step_info["state_updates"] = response.state_updates
-
-            # Capture sidecar data
+            # v2 fields
+            if response.variable_updates:
+                step_info["variable_updates"] = list(response.variable_updates.keys())
+            if response.events:
+                step_info["events_emitted"] = [e.name for e in response.events]
+            if response.facts:
+                step_info["facts_count"] = len(response.facts)
+            if response.queue_pushes:
+                step_info["queue_pushes"] = {k: len(v) for k, v in response.queue_pushes.items()}
+            if response.memory_updates:
+                step_info["memory_updates_keys"] = list(response.memory_updates.keys())
+            # Sidecar + debug
             if response.data:
                 step_info["data"] = response.data
-
-            # Capture debug info (prompts) if available
             if response.debug_info:
                 step_info["debug_info"] = response.debug_info
 

@@ -2,7 +2,7 @@
 ## Hardening & Production-Release Specification
 
 **Version:** 2.1.0
-**Status:** Draft — Team Review (Rev 4)
+**Status:** Implemented (Rev 4)
 **Date:** March 19, 2026
 **Scope:** Bug fixes, safety hardening, and production-grade patterns identified during comprehensive code audit
 **Compatibility:** No intended schema or host-integration breaking changes; some incorrect or unsafe behaviors are intentionally normalized (see [Section 15: Migration Notes](#15-migration-notes))

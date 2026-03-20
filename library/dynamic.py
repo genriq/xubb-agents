@@ -10,13 +10,14 @@ class DynamicAgent(BaseAgent):
     An agent that loads its persona and configuration from a dictionary (DB/JSON).
     Supports persistent memory via 'private_state'.
     Uses 'schemas/' directory for pluggable output formats.
-    
+
     V2 additions:
     - trigger_conditions: Preconditions evaluated by engine
     - subscribed_events: Events that trigger this agent
     - Blackboard access in Jinja2 templates via {{ blackboard }}
     - Parses v2 response fields: events, variable_updates, queue_pushes, facts, memory_updates
     """
+    _jinja_env = SandboxedEnvironment()
     def __init__(self, config_dict: dict):
         # Parse Trigger Config
         trigger_conf = config_dict.get("trigger_config", {})
@@ -62,7 +63,13 @@ class DynamicAgent(BaseAgent):
         
         # V2: Parse subscribed events
         subscribed_events = trigger_conf.get("subscribed_events", [])
-        
+
+        # DynamicAgent convenience normalization: auto-add TriggerType.EVENT
+        # when subscribed_events is non-empty. Custom BaseAgent subclasses are
+        # not auto-modified — the engine-level guard catches those.
+        if subscribed_events and TriggerType.EVENT not in trigger_types:
+            trigger_types.append(TriggerType.EVENT)
+
         # Parse priority
         priority = trigger_conf.get("priority", config_dict.get("priority", 0))
         
@@ -187,8 +194,7 @@ class DynamicAgent(BaseAgent):
         # We fail gracefully if Jinja2 crashes to keep the agent alive.
         rendered_system_prompt = self.system_prompt
         try:
-            _jinja_env = SandboxedEnvironment()
-            template = _jinja_env.from_string(self.system_prompt)
+            template = self._jinja_env.from_string(self.system_prompt)
             rendered_system_prompt = template.render(
                 # V1 compatibility
                 state=context.shared_state,      # Access via {{ state.my_key }}
@@ -226,17 +232,21 @@ class DynamicAgent(BaseAgent):
         if self.include_context and context.user_context:
             user_context_section = f"{context.user_context}\n\n"
 
-        full_system_prompt = f"""
-        {user_context_section}
-        {language_section}
-        {rendered_system_prompt}
+        parts = []
+        if user_context_section:
+            parts.append(user_context_section)
+        if language_section:
+            parts.append(language_section)
+        parts.append(rendered_system_prompt)
+        parts.append(f"[YOUR MEMORY / SCRATCHPAD]\n{current_memory}")
+        if rag_section:
+            parts.append(rag_section)
+        if trigger_context:
+            parts.append(trigger_context)
+        if self.json_instruction:
+            parts.append(self.json_instruction)
 
-        [YOUR MEMORY / SCRATCHPAD]
-        {current_memory}
-        {rag_section}
-        {trigger_context}
-        {self.json_instruction}
-        """
+        full_system_prompt = "\n\n".join(parts)
 
         # Append role instructions_append (after system prompt, before user content)
         if overrides and overrides.instructions_append and overrides.instructions_append.strip():

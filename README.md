@@ -2,7 +2,7 @@
 
 **A standalone Python library for real-time conversational AI agents.**
 
-**Version:** 2.1
+**Version:** 2.1.1
 **Status:** Production-Ready
 
 > **Note**: This is a **separate product/project** that provides the agent framework. It is consumed by `xubb_server` and other applications that need intelligent conversation agents.
@@ -72,6 +72,23 @@ v2.1 is a **hardening release** — no new features, only bug fixes and producti
 
 > **See [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) for full details.**
 
+## What's New in v2.1.1
+
+v2.1.1 is a **bugfix release** — 4 bug fixes, 3 defense-in-depth improvements, and 1 test correction:
+
+| Change | Type | Impact |
+|--------|------|--------|
+| `get_event_subscribers()` now validates `TriggerType.EVENT` | Bug fix | Agents with `subscribed_events` but missing `EVENT` trigger type are excluded with a warning |
+| `_sync_state_to_legacy()` runs before Phase 2 | Bug fix | v1 agents in Phase 2 now see correct `shared_state` |
+| `memory_updates_by_agent` field on `AgentResponse` | Bug fix | Per-agent keyed memory available on aggregated responses (additive — `memory_updates` unchanged) |
+| `process_turn` wrapped for `on_chain_error` | Bug fix | `on_chain_error` callback now fires on unhandled exceptions |
+| Prompt whitespace elimination in `DynamicAgent` | Defense | Eliminates blank sections when optional context is absent |
+| Class-level `SandboxedEnvironment` in `DynamicAgent` | Defense | Single Jinja2 env instance instead of per-call allocation |
+| v2 fields added to `StructuredLogTracer` | Defense | Traces now include events, facts, queues, variables, memory |
+| `DynamicAgent` auto-adds `TriggerType.EVENT` | Convenience | Agents with `subscribed_events` get `EVENT` trigger type automatically |
+
+> **See [SPEC_V2_1_1_BUGFIX.md](SPEC_V2_1_1_BUGFIX.md) for full details.**
+
 ## Architecture
 
 ```
@@ -118,7 +135,7 @@ v2.1 is a **hardening release** — no new features, only bug fixes and producti
 │  │                      AgentResponse                               │    │
 │  │  - insights            - events             - variable_updates  │    │
 │  │  - queue_pushes        - facts              - memory_updates    │    │
-│  │  - data                - debug_info                             │    │
+│  │  - data                - debug_info   - memory_updates_by_agent │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -721,6 +738,9 @@ class AgentResponse(BaseModel):
     queue_pushes: Dict[str, List[Any]] = Field(default_factory=dict)
     facts: List[Fact] = Field(default_factory=list)
     memory_updates: Dict[str, Any] = Field(default_factory=dict)
+
+    # Per-agent keyed memory (v2.1.1 — populated on aggregated responses from process_turn)
+    memory_updates_by_agent: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
     # Legacy compatibility (v1)
     state_updates: Dict[str, Any] = Field(default_factory=dict)
