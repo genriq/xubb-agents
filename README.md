@@ -21,8 +21,7 @@ pip install xubb-agents
 ## Usage in Other Projects
 
 ```python
-from xubb_agents import AgentEngine, AgentContext, Blackboard, TriggerType
-from xubb_agents.library import DynamicAgent
+from xubb_agents import AgentEngine, DynamicAgent, AgentContext, Blackboard, TriggerType
 
 # Initialize engine
 engine = AgentEngine(api_key="your-openai-key")
@@ -116,7 +115,7 @@ response = await engine.process_turn(context, trigger_type=TriggerType.TURN_BASE
 - **ConditionEvaluator**: Evaluates trigger conditions against Blackboard state
 - **LLMClient**: Isolated OpenAI client for agent LLM calls
 
-> **For the complete techno-functional specification, see [SPEC_V2.md](SPEC_V2.md).**
+> **For detailed implementation and data models, see [technical_spec_agents.md](technical_spec_agents.md).**
 > **For prompt writing best practices, see [prompt_engineering_guide.md](prompt_engineering_guide.md).**
 
 ---
@@ -158,7 +157,7 @@ The structured shared workspace where agents read and write information. Contain
 
 ### 3. Trigger
 
-A trigger is an event that causes an agent to evaluate. Six types:
+A trigger is an event that causes an agent to evaluate. Five types:
 
 | Type | Description | Use Case |
 |------|-------------|----------|
@@ -167,7 +166,6 @@ A trigger is an event that causes an agent to evaluate. Six types:
 | **SILENCE** | Dead air threshold exceeded | Meeting facilitation |
 | **INTERVAL** | Time-based periodic | Background monitoring |
 | **EVENT** | Another agent emitted an event | Agent coordination |
-| **FORCE** | Host-triggered force run | User override (bypasses cooldown + conditions) |
 
 ### 4. Trigger Conditions
 
@@ -610,21 +608,17 @@ engine = AgentEngine(api_key="...", callbacks=[tracer])
 
 ```python
 class AgentEngine:
-    def __init__(self, api_key: Optional[str] = None,
-                 callbacks: List[AgentCallbackHandler] = None,
-                 max_phases: int = 2)
+    def __init__(self, api_key: str)
     def register_agent(self, agent: BaseAgent) -> None
-    def update_api_key(self, api_key: Optional[str]) -> None
     async def process_turn(
         self,
         context: AgentContext,
         allowed_agent_ids: Optional[List[str]] = None,
-        trigger_type: TriggerType = TriggerType.TURN_BASED,
-        trigger_metadata: Dict[str, Any] = None
+        trigger_type: TriggerType = TriggerType.TURN_BASED
     ) -> AgentResponse
     def check_keyword_triggers(
-        self,
-        text: str,
+        self, 
+        text: str, 
         allowed_agent_ids: Optional[List[str]] = None
     ) -> List[tuple]
 ```
