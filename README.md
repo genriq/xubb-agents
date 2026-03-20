@@ -70,7 +70,7 @@ v2.1 is a **hardening release** — no new features, only bug fixes and producti
 | `AgentCallbackHandler` is no longer `ABC` | Subclasses don't need to implement anything |
 | `sys.*` write protection on Blackboard | Warns on non-engine writes to reserved keys |
 
-> **See [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) for full details.**
+> **See [SPEC_V2_1_HARDENING.md](docs/SPEC_V2_1_HARDENING.md) for full details.**
 
 ## What's New in v2.1.1
 
@@ -87,7 +87,7 @@ v2.1.1 is a **bugfix release** — 4 bug fixes, 3 defense-in-depth improvements,
 | v2 fields added to `StructuredLogTracer` | Defense | Traces now include events, facts, queues, variables, memory |
 | `DynamicAgent` auto-adds `TriggerType.EVENT` | Convenience | Agents with `subscribed_events` get `EVENT` trigger type automatically |
 
-> **See [SPEC_V2_1_1_BUGFIX.md](SPEC_V2_1_1_BUGFIX.md) for full details.**
+> **See [SPEC_V2_1_1_BUGFIX.md](docs/SPEC_V2_1_1_BUGFIX.md) for full details.**
 
 ## Architecture
 
@@ -150,8 +150,8 @@ v2.1.1 is a **bugfix release** — 4 bug fixes, 3 defense-in-depth improvements,
 - **ConditionEvaluator**: Evaluates trigger conditions against Blackboard state
 - **LLMClient**: Isolated OpenAI client for agent LLM calls
 
-> **For detailed implementation and data models, see [technical_spec_agents.md](technical_spec_agents.md).**
-> **For prompt writing best practices, see [prompt_engineering_guide.md](prompt_engineering_guide.md).**
+> **For detailed implementation and data models, see [technical_spec_agents.md](docs/technical_spec_agents.md).**
+> **For prompt writing best practices, see [prompt_engineering_guide.md](docs/prompt_engineering_guide.md).**
 
 ---
 

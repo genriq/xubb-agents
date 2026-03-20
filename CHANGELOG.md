@@ -8,7 +8,7 @@ All notable changes to the Xubb Agents Framework are documented here.
 
 Bugfix release: 4 bug fixes, 3 defense-in-depth improvements, 1 test correction.
 
-See [SPEC_V2_1_1_BUGFIX.md](SPEC_V2_1_1_BUGFIX.md) for full details.
+See [SPEC_V2_1_1_BUGFIX.md](docs/SPEC_V2_1_1_BUGFIX.md) for full details.
 
 ### Bug Fixes
 
@@ -37,7 +37,7 @@ See [SPEC_V2_1_1_BUGFIX.md](SPEC_V2_1_1_BUGFIX.md) for full details.
 
 Hardening release: no new features, only bug fixes and production-grade improvements.
 
-See [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) for full details.
+See [SPEC_V2_1_HARDENING.md](docs/SPEC_V2_1_HARDENING.md) for full details.
 
 ### Security
 
@@ -63,7 +63,7 @@ See [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) for full details.
 
 Major release: structured Blackboard, event-driven agent coordination, multi-phase execution.
 
-See [SPEC_V2.md](SPEC_V2.md) for full details.
+See [SPEC_V2.md](docs/SPEC_V2.md) for full details.
 
 ### Added
 

@@ -610,11 +610,16 @@ xubb_agents/
 ├── utils/
 │   ├── __init__.py
 │   └── tracing.py         # Structured logging
+├── docs/
+│   ├── technical_spec_agents.md    # This document
+│   ├── prompt_engineering_guide.md # Prompt writing guide
+│   ├── EXECUTIVE_SUMMARY.md        # Strategic overview
+│   ├── SPEC_V2.md                  # Full v2.0 specification (archived)
+│   ├── SPEC_V2_1_HARDENING.md      # v2.1 hardening spec
+│   └── SPEC_V2_1_1_BUGFIX.md       # v2.1.1 bugfix spec
 ├── __init__.py
 ├── README.md
-├── technical_spec_agents.md    # This document
-├── prompt_engineering_guide.md # Prompt writing guide
-└── SPEC_V2.md                  # Full v2.0 specification
+└── CHANGELOG.md
 ```
 
 ---
