@@ -192,7 +192,7 @@ The structured shared workspace where agents read and write information. Contain
 
 ### 3. Trigger
 
-A trigger is an event that causes an agent to evaluate. Five types:
+A trigger is an event that causes an agent to evaluate. Six types:
 
 | Type | Description | Use Case |
 |------|-------------|----------|
@@ -201,6 +201,7 @@ A trigger is an event that causes an agent to evaluate. Five types:
 | **SILENCE** | Dead air threshold exceeded | Meeting facilitation |
 | **INTERVAL** | Time-based periodic | Background monitoring |
 | **EVENT** | Another agent emitted an event | Agent coordination |
+| **FORCE** | User-triggered, bypasses cooldown and conditions | Manual intervention, debugging |
 
 ### 4. Trigger Conditions
 
@@ -230,6 +231,7 @@ A piece of advice returned by an agent:
     "content": "Price objection detected. Focus on value.",
     "confidence": 0.9,
     "expiry": 15,  # seconds
+    "action_label": "Handle Objection",  # Optional button text
     "metadata": {"zone": "A", "color": "red"}  # Optional UI hints
 }
 ```
@@ -393,7 +395,7 @@ Define preconditions that must be satisfied:
 }
 ```
 
-**Available Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `exists`, `not_exists`, `not_empty`, `empty`, `mod`
+**Available Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `exists`, `present`, `not_exists`, `not_empty`, `empty`, `mod`
 
 ---
 
@@ -524,8 +526,10 @@ Access in templates: `{{ blackboard.memory[agent_id].objection_count }}`
 ### Basic Integration
 
 ```python
-from xubb_agents import AgentEngine, AgentContext, TriggerType, Blackboard
-from xubb_agents.library import DynamicAgent
+from xubb_agents import (
+    AgentEngine, AgentContext, TriggerType, Blackboard,
+    DynamicAgent, TranscriptSegment
+)
 
 # Initialize
 engine = AgentEngine(api_key="sk-...")
@@ -590,7 +594,7 @@ async def on_keyword_detected(keyword: str, segment: dict):
 
 ```python
 from xubb_agents.core.agent import BaseAgent, AgentConfig
-from xubb_agents.core.models import AgentContext, AgentResponse, InsightType, TriggerType
+from xubb_agents.core.models import AgentContext, AgentResponse, InsightType, TriggerType, Event
 
 class MyAgent(BaseAgent):
     def __init__(self):
@@ -628,12 +632,33 @@ class MyAgent(BaseAgent):
 
 ```python
 from xubb_agents.utils.tracing import StructuredLogTracer
+from xubb_agents.core.callbacks import AgentCallbackHandler
 
 tracer = StructuredLogTracer()
 engine = AgentEngine(api_key="...", callbacks=[tracer])
 
 # Traces include multi-phase execution details
 ```
+
+### Writing Custom Callbacks
+
+Subclass `AgentCallbackHandler` and override only the methods you need — all are no-op by default:
+
+```python
+class MyCallback(AgentCallbackHandler):
+    async def on_turn_start(self, context: AgentContext) -> None: ...
+    async def on_turn_end(self, response: AgentResponse, duration: float) -> None: ...
+    async def on_agent_start(self, agent_name: str, context: AgentContext) -> None: ...
+    async def on_agent_finish(self, agent_name: str, response: Optional[AgentResponse],
+                              duration: float) -> None: ...
+    async def on_agent_error(self, agent_name: str, error: Exception) -> None: ...
+    async def on_agent_skipped(self, agent_name: str, reason: str) -> None: ...
+    async def on_phase_start(self, phase: int, agent_names: List[str]) -> None: ...
+    async def on_phase_end(self, phase: int, event_names: List[str]) -> None: ...
+    async def on_chain_error(self, error: Exception) -> None: ...
+```
+
+Callback failures are non-fatal — they are logged and never abort turn processing.
 
 ---
 
@@ -643,17 +668,20 @@ engine = AgentEngine(api_key="...", callbacks=[tracer])
 
 ```python
 class AgentEngine:
-    def __init__(self, api_key: str)
+    def __init__(self, api_key: str, callbacks: List[AgentCallbackHandler] = None,
+                 max_phases: int = 2)
     def register_agent(self, agent: BaseAgent) -> None
+    def update_api_key(self, api_key: str) -> None
     async def process_turn(
         self,
         context: AgentContext,
         allowed_agent_ids: Optional[List[str]] = None,
-        trigger_type: TriggerType = TriggerType.TURN_BASED
+        trigger_type: TriggerType = TriggerType.TURN_BASED,
+        trigger_metadata: Dict[str, Any] = None
     ) -> AgentResponse
     def check_keyword_triggers(
-        self, 
-        text: str, 
+        self,
+        text: str,
         allowed_agent_ids: Optional[List[str]] = None
     ) -> List[tuple]
 ```
@@ -671,28 +699,42 @@ class Blackboard(BaseModel):
     # Event operations
     def emit_event(self, event: Event) -> None
     def has_event(self, event_name: str) -> bool
+    def count_events(self, event_name: str) -> int
     def get_events_by_name(self, event_name: str) -> List[Event]
     def clear_events(self) -> None
-    
+
     # Variable operations (sys.* keys are engine-reserved)
     def set_var(self, key: str, value: Any) -> None
     def get_var(self, key: str, default: Any = None) -> Any
+    def has_var(self, key: str) -> bool
     def delete_var(self, key: str) -> None
-    
+
     # Queue operations
     def push_queue(self, queue_name: str, item: Any) -> None
+    def push_queue_items(self, queue_name: str, items: List[Any]) -> None
     def pop_queue(self, queue_name: str) -> Optional[Any]
     def peek_queue(self, queue_name: str) -> Optional[Any]
     def queue_length(self, queue_name: str) -> int
-    
+    def has_queue(self, queue_name: str) -> bool
+    def clear_queue(self, queue_name: str) -> None
+
     # Fact operations
     def add_fact(self, fact: Fact) -> None
     def get_fact(self, fact_type: str, key: Optional[str] = None) -> Optional[Fact]
     def get_facts_by_type(self, fact_type: str) -> List[Fact]
-    
+    def has_fact(self, fact_type: str, key: Optional[str] = None) -> bool
+
     # Memory operations (get_memory returns a deep copy)
     def get_memory(self, agent_id: str) -> Dict[str, Any]
+    def set_memory(self, agent_id: str, data: Dict[str, Any]) -> None
     def update_memory(self, agent_id: str, updates: Dict[str, Any]) -> None
+    def has_memory(self, agent_id: str) -> bool
+
+    # Serialization
+    def snapshot(self) -> Blackboard
+    def to_dict(self) -> Dict[str, Any]
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> Blackboard
 ```
 
 ### AgentContext
@@ -720,6 +762,18 @@ class AgentContext(BaseModel):
     # Execution metadata
     turn_count: int = 0
     phase: int = 1
+
+    # Role overrides (per-agent config modifications)
+    agent_config_overrides: Dict[str, AgentConfigOverride] = {}
+```
+
+### AgentConfigOverride
+
+```python
+class AgentConfigOverride(BaseModel):
+    cooldown_modifier: Optional[int] = None       # +N = slower, -N = faster (floor 5s)
+    context_turns_modifier: Optional[int] = None   # +N = more context, -N = less
+    instructions_append: Optional[str] = None      # Extra instructions appended to prompt
 ```
 
 ### AgentResponse
@@ -750,6 +804,26 @@ class AgentResponse(BaseModel):
     debug_info: Dict[str, Any] = Field(default_factory=dict)
 ```
 
+### AgentConfig
+
+```python
+class AgentConfig:
+    def __init__(self,
+        name: str,                                          # Display name (required)
+        id: str = None,                                     # Unique ID (auto-generated from name)
+        cooldown: int = 10,                                 # Seconds between runs
+        model: str = "gpt-4o-mini",                         # LLM model
+        trigger_types: List[TriggerType] = [TriggerType.TURN_BASED],
+        trigger_keywords: List[str] = [],                   # For KEYWORD trigger
+        silence_threshold: Optional[int] = None,            # For SILENCE trigger
+        trigger_interval: Optional[int] = None,             # For INTERVAL trigger
+        priority: int = 0,                                  # Merge priority (higher wins)
+        output_format: str = "default",                     # Output schema name
+        trigger_conditions: Optional[Dict] = None,          # Blackboard preconditions
+        subscribed_events: Optional[List[str]] = None       # For EVENT trigger
+    )
+```
+
 ### Data Models
 
 ```python
@@ -758,7 +832,7 @@ class Event(BaseModel):
     payload: Dict[str, Any] = {}
     source_agent: str
     timestamp: float
-    id: Optional[str] = None
+    id: Optional[str] = None  # Optional unique ID for tracing/deduplication
 
 class Fact(BaseModel):
     type: str

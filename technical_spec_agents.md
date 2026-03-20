@@ -133,7 +133,7 @@ class ConditionEvaluator:
 | `not_exists` | Key is falsy or missing | `objection not_exists` |
 | `not_empty` | Collection has items | `pending_questions not_empty` |
 | `empty` | Collection is empty | `action_items empty` |
-| `mod` | Modulo operation | `turn_count % 5 == 0` |
+| `mod` | Modulo operation (`value` = divisor, `result` = expected remainder, default 0) | `{"var": "turn_count", "op": "mod", "value": 5, "result": 0}` |
 
 **Condition Evaluation Safety:** Condition evaluation **never raises exceptions**. If a comparison fails due to type mismatch or invalid operation, the condition evaluates to `False`.
 
@@ -148,6 +148,7 @@ Agents define *when* they want to wake up via `AgentConfig`:
 | `SILENCE` | Silence duration exceeds threshold | Dead air intervention |
 | `INTERVAL` | Time-based periodic check | Background monitoring |
 | `EVENT` | Another agent emits a Blackboard event | Agent coordination |
+| `FORCE` | User-triggered via host | Bypasses cooldown and conditions |
 
 **DynamicAgent convenience (v2.1.1):** When a `DynamicAgent` is constructed with `subscribed_events` but `TriggerType.EVENT` is not in `trigger_types`, the framework auto-adds `TriggerType.EVENT`. This prevents a common misconfiguration where agents subscribe to events but never receive them. The engine's `get_event_subscribers()` validates this invariant and logs a warning for any non-DynamicAgent agents that have `subscribed_events` without `EVENT` trigger type.
 
@@ -192,6 +193,22 @@ class AgentContext(BaseModel):
     # Execution metadata (read-only, set by engine)
     turn_count: int = 0
     phase: int = 1  # Which execution phase (1 = normal, 2 = event-triggered)
+
+    # Role overrides (per-agent config modifications from Roles)
+    agent_config_overrides: Dict[str, AgentConfigOverride] = {}
+```
+
+**Note:** `agent_config_overrides` keys are agent config IDs (engine agent IDs, not role IDs). See `AgentConfigOverride` below.
+
+### 4.1.1 AgentConfigOverride
+
+Per-agent configuration overrides applied by Roles. Uses `extra="forbid"` to reject unknown keys at construction time.
+
+```python
+class AgentConfigOverride(BaseModel):
+    cooldown_modifier: Optional[int] = None       # +N = slower, -N = faster (floor 5s)
+    context_turns_modifier: Optional[int] = None   # +N = more context, -N = less (<=0 = all)
+    instructions_append: Optional[str] = None      # Extra instructions appended to system prompt
 ```
 
 ### 4.2 AgentResponse
@@ -382,7 +399,7 @@ Updates are applied in **ascending priority order** (low → high) so that **hig
 ### 5.4 Phase Depth Limit
 
 To prevent infinite event cascades:
-- **Maximum phases:** 2 (configurable)
+- **Maximum phases:** 2 (configurable via `AgentEngine(max_phases=N)`)
 - Phase 2 agents **cannot** trigger Phase 3
 - Events emitted in Phase 2 are recorded for telemetry but not dispatched
 - All events are cleared after `process_turn()` completes
