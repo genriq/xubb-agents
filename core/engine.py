@@ -92,12 +92,26 @@ class AgentEngine:
         return [a for a in self.agents if a.config.silence_threshold is not None]
     
     def get_event_subscribers(self, event_names: List[str]) -> List[BaseAgent]:
-        """Get agents subscribed to any of the given events (v2)."""
+        """Get agents subscribed to any of the given events (v2).
+
+        Only returns agents that have TriggerType.EVENT in their trigger_types.
+        Agents with subscribed_events but without EVENT trigger type are
+        configuration errors — they are excluded from routing and a warning
+        is logged. This is a configuration-time exclusion, not a runtime skip.
+        """
         subscribers = []
         for agent in self.agents:
             subscribed = getattr(agent.config, 'subscribed_events', None) or []
             if any(event_name in subscribed for event_name in event_names):
-                subscribers.append(agent)
+                if TriggerType.EVENT in agent.config.trigger_types:
+                    subscribers.append(agent)
+                else:
+                    logger.warning(
+                        f"Agent '{agent.config.name}' has subscribed_events "
+                        f"{subscribed} but TriggerType.EVENT is not in "
+                        f"trigger_types {agent.config.trigger_types}. "
+                        f"Skipping for Phase 2."
+                    )
         return subscribers
     
     def check_keyword_triggers(self, text: str, 
@@ -158,8 +172,24 @@ class AgentEngine:
         Returns:
             Aggregated AgentResponse with all insights and state updates
         """
+        try:
+            return await self._process_turn_inner(context, allowed_agent_ids,
+                                                   trigger_type, trigger_metadata)
+        except Exception as e:
+            for cb in self.callbacks:
+                try:
+                    await cb.on_chain_error(e)
+                except Exception as cb_err:
+                    logger.error(f"Callback error on_chain_error: {cb_err}")
+            raise
+
+    async def _process_turn_inner(self, context: AgentContext,
+                                   allowed_agent_ids: Optional[List[str]],
+                                   trigger_type: TriggerType,
+                                   trigger_metadata: Dict[str, Any]) -> AgentResponse:
+        """Inner implementation of process_turn (extracted for on_chain_error wrapping)."""
         start_time = time.time()
-        
+
         # Set trigger info in context
         context.trigger_type = trigger_type
         context.trigger_metadata = trigger_metadata or {}
@@ -239,6 +269,9 @@ class AgentEngine:
         # Phase 2: Event-Triggered Execution (if events were emitted)
         # =====================================================================
         if all_events and self.max_phases >= 2:
+            # Re-sync shared_state for v1 agents in Phase 2
+            self._sync_state_to_legacy(context)
+
             context.phase = 2
             meta["phase"] = 2
             # Set trigger_type to EVENT so Phase 2 agents pass their
@@ -449,7 +482,12 @@ class AgentEngine:
             # Apply memory updates to blackboard
             if resp.memory_updates and agent_id:
                 blackboard.update_memory(agent_id, resp.memory_updates)
+                # Existing flat merge (backward compatible, last-write-wins)
                 final_response.memory_updates.update(resp.memory_updates)
+                # Per-agent keyed field (additive)
+                if agent_id not in final_response.memory_updates_by_agent:
+                    final_response.memory_updates_by_agent[agent_id] = {}
+                final_response.memory_updates_by_agent[agent_id].update(resp.memory_updates)
             
             # Handle v1 state_updates (map to variable_updates)
             if resp.state_updates and not resp.variable_updates:

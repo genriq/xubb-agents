@@ -174,19 +174,21 @@ class TestMultiPhaseExecution:
         # Phase 1 agent emits event
         emitter = MockAgent("emitter", response_fn=emit_event)
         
-        # Phase 2 agent subscribes to event
+        # Phase 2 agent subscribes to event (EVENT-only: runs in Phase 2 only)
         subscriber = MockAgent(
-            "subscriber", 
-            subscribed_events=["question_detected"]
+            "subscriber",
+            subscribed_events=["question_detected"],
+            trigger_types=[TriggerType.EVENT]
         )
-        
+        subscriber.config.cooldown = 0  # Explicit: cooldown is not the gating mechanism
+
         engine.register_agent(emitter)
         engine.register_agent(subscriber)
-        
+
         await engine.process_turn(sample_context)
-        
+
         assert emitter.call_count == 1
-        assert subscriber.call_count == 1  # Should run in Phase 2
+        assert subscriber.call_count == 1  # Correctly tests Phase 2 event triggering
     
     @pytest.mark.asyncio
     async def test_phase2_events_not_dispatched(self, engine, sample_context):
@@ -666,3 +668,218 @@ class TestAgentConfigOverrides:
         from pydantic import ValidationError
         with pytest.raises(ValidationError):
             AgentConfigOverride(cooldown_modifer=-5)  # typo: modifer vs modifier
+
+
+# =========================================================================
+# v2.1.1 Bugfix Regression Tests
+# =========================================================================
+
+class TestB1SubscriberTriggerTypeGuard:
+    """B1: Phase 2 subscribers must have TriggerType.EVENT."""
+
+    @pytest.mark.asyncio
+    async def test_subscriber_without_event_trigger_type_is_excluded(self, engine, sample_context):
+        """Subscriber with subscribed_events but no TriggerType.EVENT should be excluded from Phase 2."""
+        def emit_event(context, agent):
+            return AgentResponse(
+                events=[Event(
+                    name="test_event", payload={},
+                    source_agent=agent.config.id, timestamp=time.time()
+                )]
+            )
+
+        emitter = MockAgent("emitter", response_fn=emit_event)
+
+        # Subscriber has subscribed_events but only TURN_BASED trigger type
+        misconfigured = MockAgent(
+            "misconfigured",
+            subscribed_events=["test_event"],
+            trigger_types=[TriggerType.TURN_BASED]  # No EVENT
+        )
+
+        engine.register_agent(emitter)
+        engine.register_agent(misconfigured)
+
+        await engine.process_turn(sample_context)
+
+        # Validates exclusion from Phase 2: misconfigured ran once (Phase 1,
+        # TURN_BASED) but was not selected for Phase 2 despite subscribed_events.
+        assert misconfigured.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_subscriber_with_event_trigger_type_runs_in_phase2(self, engine, sample_context):
+        """Correctly configured subscriber (EVENT in trigger_types) should run in Phase 2."""
+        def emit_event(context, agent):
+            return AgentResponse(
+                events=[Event(
+                    name="test_event", payload={},
+                    source_agent=agent.config.id, timestamp=time.time()
+                )]
+            )
+
+        emitter = MockAgent("emitter", response_fn=emit_event)
+        subscriber = MockAgent(
+            "subscriber",
+            subscribed_events=["test_event"],
+            trigger_types=[TriggerType.EVENT]
+        )
+        subscriber.config.cooldown = 0
+
+        engine.register_agent(emitter)
+        engine.register_agent(subscriber)
+
+        await engine.process_turn(sample_context)
+
+        assert emitter.call_count == 1
+        assert subscriber.call_count == 1  # Ran in Phase 2
+
+    def test_get_event_subscribers_filters_by_trigger_type(self, engine):
+        """get_event_subscribers should only return agents with TriggerType.EVENT."""
+        correct = MockAgent("correct", subscribed_events=["evt"],
+                           trigger_types=[TriggerType.EVENT])
+        misconfigured = MockAgent("misconfigured", subscribed_events=["evt"],
+                                  trigger_types=[TriggerType.TURN_BASED])
+        no_sub = MockAgent("no_sub")
+
+        engine.register_agent(correct)
+        engine.register_agent(misconfigured)
+        engine.register_agent(no_sub)
+
+        subscribers = engine.get_event_subscribers(["evt"])
+        assert len(subscribers) == 1
+        assert subscribers[0].config.name == "correct"
+
+
+class TestB2Phase2SharedStateSync:
+    """B2: Phase 2 v1 agents should see post-Phase-1 shared_state."""
+
+    @pytest.mark.asyncio
+    async def test_phase2_agents_see_updated_shared_state(self, engine, sample_context):
+        """Phase 2 agents should see Phase 1's state updates in shared_state."""
+        def emit_and_update(context, agent):
+            return AgentResponse(
+                variable_updates={"phase": "closing"},
+                events=[Event(
+                    name="phase_changed", payload={},
+                    source_agent=agent.config.id, timestamp=time.time()
+                )]
+            )
+
+        captured_state = {}
+
+        def capture_shared_state(context, agent):
+            captured_state["phase"] = context.shared_state.get("phase")
+            return AgentResponse()
+
+        emitter = MockAgent("emitter", response_fn=emit_and_update)
+        subscriber = MockAgent(
+            "subscriber",
+            subscribed_events=["phase_changed"],
+            response_fn=capture_shared_state,
+            trigger_types=[TriggerType.EVENT]
+        )
+        subscriber.config.cooldown = 0
+
+        engine.register_agent(emitter)
+        engine.register_agent(subscriber)
+
+        sample_context.blackboard.set_var("phase", "discovery")
+        await engine.process_turn(sample_context)
+
+        # Phase 2 subscriber should see the Phase 1 update
+        assert captured_state["phase"] == "closing"
+
+
+class TestB4MemoryUpdatesByAgent:
+    """B4: memory_updates_by_agent should preserve per-agent attribution."""
+
+    @pytest.mark.asyncio
+    async def test_memory_updates_by_agent_preserves_attribution(self, engine, sample_context):
+        """memory_updates_by_agent should be keyed by agent_id."""
+        def mem_a(context, agent):
+            return AgentResponse(memory_updates={"counter": 1})
+
+        def mem_b(context, agent):
+            return AgentResponse(memory_updates={"counter": 5})
+
+        agent_a = MockAgent("agent_a", response_fn=mem_a)
+        agent_b = MockAgent("agent_b", response_fn=mem_b)
+        engine.register_agent(agent_a)
+        engine.register_agent(agent_b)
+
+        response = await engine.process_turn(sample_context)
+
+        # New additive field preserves per-agent attribution
+        assert response.memory_updates_by_agent[agent_a.config.id]["counter"] == 1
+        assert response.memory_updates_by_agent[agent_b.config.id]["counter"] == 5
+
+        # Existing flat field still works (last-write-wins, backward compatible)
+        assert "counter" in response.memory_updates
+
+    @pytest.mark.asyncio
+    async def test_memory_updates_flat_field_unchanged(self, engine, sample_context):
+        """Existing memory_updates flat dict should still work (backward compat)."""
+        def mem_single(context, agent):
+            return AgentResponse(memory_updates={"key": "value"})
+
+        agent = MockAgent("single", response_fn=mem_single)
+        engine.register_agent(agent)
+
+        response = await engine.process_turn(sample_context)
+
+        assert response.memory_updates["key"] == "value"
+
+
+class TestB5OnChainError:
+    """B5: on_chain_error should fire when engine errors."""
+
+    @pytest.mark.asyncio
+    async def test_on_chain_error_fires_on_engine_failure(self, engine, sample_context):
+        """on_chain_error should fire when process_turn itself errors."""
+        from xubb_agents.core.callbacks import AgentCallbackHandler
+
+        class ErrorTracker(AgentCallbackHandler):
+            def __init__(self):
+                self.errors = []
+            async def on_chain_error(self, error):
+                self.errors.append(error)
+
+        tracker = ErrorTracker()
+        engine.callbacks = [tracker]
+
+        with patch.object(engine, '_get_eligible_agents', side_effect=RuntimeError("engine boom")):
+            with pytest.raises(RuntimeError, match="engine boom"):
+                await engine.process_turn(sample_context)
+
+        assert len(tracker.errors) == 1
+        assert str(tracker.errors[0]) == "engine boom"
+
+    @pytest.mark.asyncio
+    async def test_on_chain_error_still_raises_to_host(self, engine, sample_context):
+        """on_chain_error is observability only — the exception must still propagate."""
+        from xubb_agents.core.callbacks import AgentCallbackHandler
+
+        class SilentTracker(AgentCallbackHandler):
+            async def on_chain_error(self, error):
+                pass  # Swallow in callback — should NOT prevent re-raise
+
+        engine.callbacks = [SilentTracker()]
+
+        with patch.object(engine, '_get_eligible_agents', side_effect=ValueError("must propagate")):
+            with pytest.raises(ValueError, match="must propagate"):
+                await engine.process_turn(sample_context)
+
+    @pytest.mark.asyncio
+    async def test_on_chain_error_callback_failure_does_not_mask_original(self, engine, sample_context):
+        """If on_chain_error itself errors, the original exception still propagates."""
+        from xubb_agents.core.callbacks import AgentCallbackHandler
+
+        class BrokenTracker(AgentCallbackHandler):
+            async def on_chain_error(self, error):
+                raise RuntimeError("callback crashed")
+
+        engine.callbacks = [BrokenTracker()]
+
+        with patch.object(engine, '_get_eligible_agents', side_effect=ValueError("original error")):
+            with pytest.raises(ValueError, match="original error"):
+                await engine.process_turn(sample_context)

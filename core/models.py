@@ -148,4 +148,6 @@ class AgentResponse(BaseModel):
     facts: List[Fact] = Field(default_factory=list, description="Facts extracted by this agent")
     # Agent-private memory updates
     memory_updates: Dict[str, Any] = Field(default_factory=dict, description="Updates to agent's private memory")
+    # Per-agent keyed memory updates (aggregated final response only)
+    memory_updates_by_agent: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Memory updates keyed by agent_id (populated on aggregated responses from process_turn)")
 

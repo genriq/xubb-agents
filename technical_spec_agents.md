@@ -1,6 +1,6 @@
 # Xubb Agents Framework - Technical Specification
 
-**Version:** 2.1
+**Version:** 2.1.1
 **Status:** Production-Ready
 **Scope:** `xubb_agents` Library
 **Compatibility:** Backward compatible with v1.0/v2.0 agents (see [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) for behavioral normalizations)
@@ -149,6 +149,8 @@ Agents define *when* they want to wake up via `AgentConfig`:
 | `INTERVAL` | Time-based periodic check | Background monitoring |
 | `EVENT` | Another agent emits a Blackboard event | Agent coordination |
 
+**DynamicAgent convenience (v2.1.1):** When a `DynamicAgent` is constructed with `subscribed_events` but `TriggerType.EVENT` is not in `trigger_types`, the framework auto-adds `TriggerType.EVENT`. This prevents a common misconfiguration where agents subscribe to events but never receive them. The engine's `get_event_subscribers()` validates this invariant and logs a warning for any non-DynamicAgent agents that have `subscribed_events` without `EVENT` trigger type.
+
 **KEYWORD Trigger Note:** The engine does **not** automatically scan transcript text for keywords. Keyword detection is **host responsibility**. The engine provides `check_keyword_triggers(text)` as a helper utility.
 
 ### 3.6 LLM Client (`core/llm.py`)
@@ -211,6 +213,9 @@ class AgentResponse(BaseModel):
     facts: List[Fact] = Field(default_factory=list)
     memory_updates: Dict[str, Any] = Field(default_factory=dict)
 
+    # Per-agent keyed memory (v2.1.1 — populated on aggregated responses from process_turn)
+    memory_updates_by_agent: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
     # Legacy compatibility (v1)
     state_updates: Dict[str, Any] = Field(default_factory=dict)
 
@@ -220,6 +225,8 @@ class AgentResponse(BaseModel):
 ```
 
 **Note:** `source_agent_id` is stamped automatically by `BaseAgent.process()`. It is used by the engine for merge ordering and memory attribution. Agents should not set it manually.
+
+**Note:** `memory_updates_by_agent` is only populated on the aggregated `AgentResponse` returned by `process_turn()`. Individual agent responses use `memory_updates` (flat dict). The engine collects per-agent memory writes and keys them by `agent_id` on the final response, so consumers can inspect which agent wrote which memory keys without parsing the flat merge.
 
 ### 4.3 AgentInsight
 
@@ -413,7 +420,7 @@ The `DynamicAgent` is the primary implementation used for user-defined agents.
 
 3.  **Prompt Templating (Jinja2 — Sandboxed):**
 
-    As of v2.1, templates are rendered via `jinja2.sandbox.SandboxedEnvironment`. Access to Python internals (`__class__`, `__globals__`, `__mro__`) is blocked.
+    As of v2.1, templates are rendered via a **class-level** `jinja2.sandbox.SandboxedEnvironment` (single instance shared across all DynamicAgent instances, avoiding per-call allocation). Access to Python internals (`__class__`, `__globals__`, `__mro__`) is blocked.
 
     ```python
     rendered_prompt = template.render(
@@ -474,6 +481,8 @@ class AgentCallbackHandler:
 ```
 
 **Callback failure policy:** Callback failures are non-fatal. They are logged at `ERROR` level and never abort turn processing or suppress agent output.
+
+**`on_chain_error` firing (v2.1.1):** `process_turn()` is wrapped in a try/except that calls `on_chain_error` on all registered callbacks before re-raising. This ensures observers are notified of unhandled exceptions (e.g., for alerting or metrics). If a callback itself raises during `on_chain_error`, that failure is logged but does not mask the original exception.
 
 ### 7.2 Structured Tracing (`utils/tracing.py`)
 
