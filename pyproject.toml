@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["ai", "agents", "conversation", "llm", "real-time"]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -42,7 +42,7 @@ Documentation = "https://github.com/your-org/xubb-agents#readme"
 Repository = "https://github.com/your-org/xubb-agents"
 
 [tool.setuptools]
-packages = ["xubb_agents", "xubb_agents.core", "xubb_agents.library", "xubb_agents.utils"]
+packages = ["xubb_agents", "xubb_agents.core", "xubb_agents.library", "xubb_agents.tools", "xubb_agents.utils"]
 
 [tool.setuptools.package-dir]
 xubb_agents = "."
