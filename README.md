@@ -2,7 +2,7 @@
 
 **A standalone Python library for real-time conversational AI agents.**
 
-**Version:** 2.0  
+**Version:** 2.1
 **Status:** Production-Ready
 
 > **Note**: This is a **separate product/project** that provides the agent framework. It is consumed by `xubb_server` and other applications that need intelligent conversation agents.
@@ -53,6 +53,24 @@ response = await engine.process_turn(context, trigger_type=TriggerType.TURN_BASE
 | Execution phases | Single pass | Multi-phase (normal → event-triggered) |
 | Data containers | Unstructured | Variables, Events, Queues, Facts, Memory |
 | Response caching | Hash-based LLM cache | **Removed** (cooldowns + conditions are better) |
+
+## What's New in v2.1
+
+v2.1 is a **hardening release** — no new features, only bug fixes and production-grade improvements:
+
+| Change | Impact |
+|--------|--------|
+| Jinja2 templates now sandboxed (`SandboxedEnvironment`) | SSTI vulnerability eliminated |
+| `source_agent_id` field on `AgentResponse` | Reliable agent identity (no more insight-based inference) |
+| `get_memory()` returns deep copy | Snapshot isolation enforced |
+| `to_dict()` returns deep copies | No mutable reference leaks |
+| Callbacks fire exactly once per agent | Previously fired 2x (engine + agent) |
+| Cooldown enforced after errors | Prevents runaway retries on persistent failures |
+| `on_phase_start`, `on_phase_end`, `on_agent_skipped` callbacks added | Previously crashed with `AttributeError` |
+| `AgentCallbackHandler` is no longer `ABC` | Subclasses don't need to implement anything |
+| `sys.*` write protection on Blackboard | Warns on non-engine writes to reserved keys |
+
+> **See [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) for full details.**
 
 ## Architecture
 
@@ -639,7 +657,7 @@ class Blackboard(BaseModel):
     def get_events_by_name(self, event_name: str) -> List[Event]
     def clear_events(self) -> None
     
-    # Variable operations
+    # Variable operations (sys.* keys are engine-reserved)
     def set_var(self, key: str, value: Any) -> None
     def get_var(self, key: str, default: Any = None) -> Any
     def delete_var(self, key: str) -> None
@@ -655,7 +673,7 @@ class Blackboard(BaseModel):
     def get_fact(self, fact_type: str, key: Optional[str] = None) -> Optional[Fact]
     def get_facts_by_type(self, fact_type: str) -> List[Fact]
     
-    # Memory operations
+    # Memory operations (get_memory returns a deep copy)
     def get_memory(self, agent_id: str) -> Dict[str, Any]
     def update_memory(self, agent_id: str, updates: Dict[str, Any]) -> None
 ```
@@ -691,22 +709,25 @@ class AgentContext(BaseModel):
 
 ```python
 class AgentResponse(BaseModel):
+    # Agent identity (v2.1 — set by framework)
+    source_agent_id: Optional[str] = None
+
     # Core output
-    insights: List[AgentInsight] = []
-    
+    insights: List[AgentInsight] = Field(default_factory=list)
+
     # Blackboard updates (v2)
-    events: List[Event] = []
-    variable_updates: Dict[str, Any] = {}
-    queue_pushes: Dict[str, List[Any]] = {}
-    facts: List[Fact] = []
-    memory_updates: Dict[str, Any] = {}
-    
+    events: List[Event] = Field(default_factory=list)
+    variable_updates: Dict[str, Any] = Field(default_factory=dict)
+    queue_pushes: Dict[str, List[Any]] = Field(default_factory=dict)
+    facts: List[Fact] = Field(default_factory=list)
+    memory_updates: Dict[str, Any] = Field(default_factory=dict)
+
     # Legacy compatibility (v1)
-    state_updates: Dict[str, Any] = {}
-    
+    state_updates: Dict[str, Any] = Field(default_factory=dict)
+
     # Sidecar data
-    data: Dict[str, Any] = {}
-    debug_info: Dict[str, Any] = {}
+    data: Dict[str, Any] = Field(default_factory=dict)
+    debug_info: Dict[str, Any] = Field(default_factory=dict)
 ```
 
 ### Data Models
@@ -752,9 +773,14 @@ class AgentInsight(BaseModel):
 
 ---
 
-## Migration from v1.0
+## Migration from v1.0 / v2.0
 
-v2.0 is 100% backward compatible. Existing agents work unchanged.
+v2.1 is backward compatible. Existing agents work unchanged, with these behavioral normalizations:
+
+- **Callback count halved**: Callbacks now fire once per agent (was 2x due to a bug). Dashboards tracking callback counts will see a 50% drop — this is correct.
+- **`get_memory()` returns a copy**: Code that mutated the returned dict as a shortcut must now use `update_memory()` explicitly.
+- **Jinja2 sandboxed**: Templates accessing Python internals (`__class__`, `__globals__`) will raise `SecurityError`. All documented template patterns continue to work.
+- **Cooldown after errors**: Agents that fail now respect cooldown (previously retried every turn).
 
 | v1.0 Pattern | v2.0 Equivalent | Auto-Mapped? |
 |--------------|-----------------|--------------|

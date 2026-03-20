@@ -209,10 +209,3 @@ class ConditionEvaluator:
             # Type mismatch or invalid operation → condition fails
             logger.debug(f"Condition comparison error for op '{op}': {e}")
             return False
-
-
-def evaluate_conditions(conditions: Optional[Dict], blackboard: Blackboard,
-                        meta: Dict, agent_id: str) -> bool:
-    """Convenience function to evaluate conditions without instantiating evaluator."""
-    evaluator = ConditionEvaluator()
-    return evaluator.evaluate(conditions, blackboard, meta, agent_id)

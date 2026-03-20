@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from jinja2 import Template
+from jinja2.sandbox import SandboxedEnvironment
 from ..core.agent import BaseAgent, AgentConfig
 from ..core.models import AgentContext, AgentResponse, InsightType, TriggerType, Event, Fact
 
@@ -153,11 +153,11 @@ class DynamicAgent(BaseAgent):
         # We namespace memory by agent ID to avoid collisions
         mem_key = f"memory_{self.config.id}"
         persistent_memory = context.shared_state.get(mem_key, {}) if context.shared_state else {}
-        
-        # Merge Persistent State into RAM State
-        # (Persistence is the source of truth for restart recovery)
+
+        # Build working memory for this evaluation (do not mutate self.private_state)
+        working_memory = dict(self.private_state)
         if persistent_memory and isinstance(persistent_memory, dict):
-            self.private_state.update(persistent_memory)
+            working_memory.update(persistent_memory)
 
         # 1. Format Transcript (Configurable Window)
         # Apply context_turns_modifier from role overrides (+N = more, -N = less, <=0 = all)
@@ -180,18 +180,19 @@ class DynamicAgent(BaseAgent):
         
         # 2. Build Prompt with Memory Injection
         # We serialize the private state to JSON
-        current_memory = json.dumps(self.private_state, indent=2)
+        current_memory = json.dumps(working_memory, indent=2)
         
         # Jinja2 Rendering of System Prompt
         # This allows prompts to access {{ state.phase }}, {{ blackboard.variables }}, etc.
         # We fail gracefully if Jinja2 crashes to keep the agent alive.
         rendered_system_prompt = self.system_prompt
         try:
-            template = Template(self.system_prompt)
+            _jinja_env = SandboxedEnvironment()
+            template = _jinja_env.from_string(self.system_prompt)
             rendered_system_prompt = template.render(
                 # V1 compatibility
                 state=context.shared_state,      # Access via {{ state.my_key }}
-                memory=self.private_state,       # Access via {{ memory.my_key }}
+                memory=working_memory,            # Access via {{ memory.my_key }}
                 context=context,                 # Access via {{ context }}
                 user_context=context.user_context, # Shortcut
                 # V2 additions
@@ -281,7 +282,7 @@ class DynamicAgent(BaseAgent):
             check_field = self.mapping.get("check_field")
             if check_field:
                 # If check field exists (e.g. "has_insight"), assume it drives the decision
-                should_speak = result.get(check_field, False)
+                should_speak = root_data.get(check_field, False)
             else:
                 # If no check field (like v2_raw), existence of root content implies yes
                 # But we check if root_data is empty
@@ -330,19 +331,7 @@ class DynamicAgent(BaseAgent):
             # 4. State/Memory Extraction
             state_key = self.mapping.get("state_field")
             if state_key:
-                # Check if state is at root of RESULT (like v2_raw state_snapshot) or inside ROOT_DATA?
-                # v2_raw has state_snapshot at RESULT level, not INSIGHT level.
-                # default has memory_updates at RESULT level.
-                # So state is usually at RESULT level.
-                is_state_at_root = self.mapping.get("is_state_at_root", False) # Flag for v2 style
-                
-                updates = {}
-                if is_state_at_root:
-                    # Look in top-level result
-                    updates = result.get(state_key, {})
-                else:
-                    # Look in top-level result (Legacy default behavior was top level too)
-                    updates = result.get(state_key, {})
+                updates = result.get(state_key, {})
                 
                 if updates and isinstance(updates, dict):
                      # Legacy memory logic vs V2 State Logic

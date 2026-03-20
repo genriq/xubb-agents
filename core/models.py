@@ -125,9 +125,11 @@ class AgentInsight(BaseModel):
 
 class AgentResponse(BaseModel):
     """The result of a processing cycle."""
-    insights: List[AgentInsight] = []
+    # Agent that produced this response (set by framework, used for identity resolution)
+    source_agent_id: Optional[str] = Field(default=None, description="Agent that produced this response")
+    insights: List[AgentInsight] = Field(default_factory=list)
     # Updates to the shared memory (v1 compatibility)
-    state_updates: Dict[str, Any] = {}
+    state_updates: Dict[str, Any] = Field(default_factory=dict)
     
     # Generic Data Sidecar (For arbitrary payloads like ui_actions)
     data: Dict[str, Any] = Field(default_factory=dict)

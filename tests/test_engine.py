@@ -19,14 +19,15 @@ from xubb_agents.core.blackboard import Blackboard
 class MockAgent(BaseAgent):
     """A mock agent for testing."""
     
-    def __init__(self, name: str, priority: int = 0, 
+    def __init__(self, name: str, priority: int = 0,
                  subscribed_events: list = None,
                  trigger_conditions: dict = None,
-                 response_fn=None):
+                 response_fn=None,
+                 trigger_types: list = None):
         config = AgentConfig(
             name=name,
             priority=priority,
-            trigger_types=[TriggerType.TURN_BASED, TriggerType.EVENT],
+            trigger_types=trigger_types or [TriggerType.TURN_BASED, TriggerType.EVENT],
             subscribed_events=subscribed_events,
             trigger_conditions=trigger_conditions
         )
@@ -215,12 +216,15 @@ class TestMultiPhaseExecution:
         subscriber = MockAgent(
             "subscriber",
             subscribed_events=["event1"],
-            response_fn=emit_event_phase2
+            response_fn=emit_event_phase2,
+            trigger_types=[TriggerType.EVENT]
         )
         # This agent would be triggered by event2 if Phase 3 existed
+        # EVENT-only so it doesn't run in Phase 1 as TURN_BASED
         would_be_triggered = MockAgent(
             "would_be",
-            subscribed_events=["event2"]
+            subscribed_events=["event2"],
+            trigger_types=[TriggerType.EVENT]
         )
         
         engine.register_agent(emitter)

@@ -1,6 +1,7 @@
+import json
 import os
-from typing import Optional, Dict, Any
 import logging
+from typing import Optional, Dict, Any
 
 # Try to import openai, but don't crash if not present (graceful degradation or mocking)
 try:
@@ -10,6 +11,7 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 logger = logging.getLogger("AgentLLM")
+
 
 class LLMClient:
     def __init__(self, api_key: Optional[str] = None):
@@ -26,9 +28,7 @@ class LLMClient:
         self.client = AsyncOpenAI(api_key=self.api_key)
 
     async def generate_json(self, model: str, messages: list) -> Optional[Dict[str, Any]]:
-        """
-        Generates a structured JSON response from the LLM.
-        """
+        """Generates a structured JSON response from the LLM."""
         if not self.client:
             logger.error("LLM Client not initialized (missing key or package).")
             return None
@@ -39,8 +39,10 @@ class LLMClient:
                 messages=messages,
                 response_format={"type": "json_object"}
             )
+            if not response.choices:
+                logger.warning("LLM returned empty choices (content may have been filtered)")
+                return None
             content = response.choices[0].message.content
-            import json
             return json.loads(content)
         except Exception as e:
             logger.error(f"LLM Generation failed: {e}")
