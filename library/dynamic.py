@@ -117,6 +117,10 @@ class DynamicAgent(BaseAgent):
         self.json_instruction = self.schema_def.get("instruction", "")
         self.mapping = self.schema_def.get("mapping", {})
 
+        # A-1 / INV-11: warn at load time if the schema is misconfigured in a way
+        # that silently loses the "stay silent" contract.
+        self._warn_on_gateless_misconfig(output_format)
+
     def _load_schema(self, format_name: str) -> dict:
         """Loads schema config from disk, falling back to default if not found."""
         try:
@@ -150,6 +154,45 @@ class DynamicAgent(BaseAgent):
                 "type_field": "type"
             }
         }
+
+    # A-1 (INV-11): gate fields a schema's instruction might reference. If the
+    # prose tells the model about one of these but the mapping forgets to wire it
+    # up via `check_field`, the silence gate is silently lost — the exact
+    # misconfiguration A-1 guards against.
+    _GATE_FIELD_HINTS = ("has_insight", "should_speak", "speak", "is_relevant")
+
+    def _warn_on_gateless_misconfig(self, format_name: str) -> None:
+        """A-1 / INV-11: load-time warning for gate-less schema misconfiguration.
+
+        A custom schema can lose the "stay silent" contract in a way that is
+        invisible until it spams the HUD: the instruction text tells the model
+        to emit a boolean gate (e.g. ``has_insight``), but the mapping omits
+        ``check_field`` (and has no ``root_key`` emptiness gate either). In that
+        state the parser has nothing to gate on, so the documented gate-less
+        default policy (see `evaluate`'s should_speak block) applies and the
+        model's intended silence is dropped.
+
+        We warn ONCE at load time so the author notices the mismatch. Gated
+        schemas (default, default_v2, custom1) and root-keyed schemas (v2_raw,
+        ui_control, widget_control) are all unaffected.
+        """
+        mapping = self.mapping or {}
+        if mapping.get("check_field") or mapping.get("root_key"):
+            return  # Properly gated — nothing to warn about.
+
+        instruction = (self.json_instruction or "").lower()
+        referenced = [hint for hint in self._GATE_FIELD_HINTS if hint in instruction]
+        if referenced:
+            self.logger.warning(
+                "Schema '%s' is gate-less (mapping has no 'check_field' and no "
+                "'root_key') but its instruction references gate field(s) %s. The "
+                "silence gate is NOT wired up: the model's intended silence will be "
+                "ignored. Add 'check_field' to the mapping, or set "
+                "'speak_without_gate: true' to opt into the speak-when-content "
+                "default explicitly. (A-1/INV-11)",
+                format_name,
+                referenced,
+            )
 
     @staticmethod
     def _coerce_confidence(raw) -> float:
@@ -362,16 +405,40 @@ class DynamicAgent(BaseAgent):
                  root_data = {}
 
             # 2. Check "Should I Speak?" condition
-            should_speak = True
+            #
+            # A-1 / INV-11 — gate-less schema silence contract.
+            # An agent must stay silent when its schema's gate says so, and the
+            # ABSENCE of a gate must never *force* speech every turn (HUD spam).
+            # Three cases, in precedence order:
+            #
+            #   (a) check_field present (default, default_v2, custom1):
+            #       the boolean gate (e.g. has_insight) drives the decision.
+            #       Missing/false ⇒ silence. UNCHANGED behavior.
+            #
+            #   (b) no check_field but root_key present (v2_raw, ui_control,
+            #       widget_control): the model speaks by *presence* — emitting a
+            #       non-empty root object IS the gate. An absent/empty root ⇒
+            #       silence. UNCHANGED behavior.
+            #
+            #   (c) no check_field AND no root_key (gate-less, rootless — only
+            #       reachable via user-authored custom schemas): there is NO
+            #       structural gate at all. The DOCUMENTED DEFAULT POLICY is to
+            #       stay SILENT rather than emit an insight on every turn that has
+            #       any content. A schema author who genuinely wants
+            #       "content-present ⇒ speak" must OPT IN explicitly by setting
+            #       "speak_without_gate": true in the mapping. This is the safe,
+            #       documented default that honors INV-11; load-time warning in
+            #       _warn_on_gateless_misconfig flags the common misconfiguration.
             check_field = self.mapping.get("check_field")
             if check_field:
-                # If check field exists (e.g. "has_insight"), assume it drives the decision
+                # (a) Explicit gate field drives the decision.
                 should_speak = root_data.get(check_field, False)
+            elif self.mapping.get("root_key"):
+                # (b) Presence of a non-empty root object is the gate.
+                should_speak = bool(root_data)
             else:
-                # If no check field (like v2_raw), existence of root content implies yes
-                # But we check if root_data is empty
-                if not root_data and self.mapping.get("root_key"):
-                    should_speak = False
+                # (c) Gate-less + rootless: default to silence unless opted in.
+                should_speak = bool(self.mapping.get("speak_without_gate", False))
 
             # 3. Extract Core Fields
             if should_speak:
