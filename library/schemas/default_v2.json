@@ -12,7 +12,6 @@
     "queue_field": "queue_pushes",
     "facts_field": "facts",
     "memory_field": "memory_updates",
-    "state_field": null,
-    "is_state_at_root": false
+    "state_field": null
   }
 }
