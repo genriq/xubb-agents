@@ -20,6 +20,39 @@ Hardening release driven by the v2.2 5-agent audit. See
   **Migration:** consumers relying on the buggy confidence-only behavior may see a
   different fact win — verify agent `priority` reflects intended extraction authority.
   Guarded permanently by `PROBE-F1` (`tests/qa_probes/`).
+- **C-1**: condition evaluation now fails **closed** on an unknown/typo'd operator
+  (was fail-open → fired every turn).
+- **C-2**: `in`/`not_in` membership operators guard on `expected is None` instead of
+  truthiness, so a legitimately-falsy expected (`0`, `""`) runs a real membership test.
+- **C-3**: `mod` operator handles `expected == 0` locally (returns False, no
+  `ZeroDivisionError` leak).
+- **S-1**: `DynamicAgent` now parses `expiry`/`action_label` from LLM output and passes
+  them through to `AgentInsight` (previously requested by schemas but silently dropped).
+- **A-2** (INV-13): `Event`/`Fact` timestamps emitted by `DynamicAgent` are now
+  session-relative (derived from the conversation window) instead of wall-clock epoch.
+- **A-3**: model-supplied `confidence` is coerced to float and clamped to [0,1] before
+  building the insight (a bad value no longer turns a good insight into an ERROR).
+- **E-2**: `sys.*` keys are excluded when syncing blackboard variables to the v1
+  `shared_state` (no longer trips the reserved-key warning on v1 round-trip).
+- **E-3**: legacy `state_updates` `memory_` writes are applied even when
+  `variable_updates` is also present (hybrid v1/v2 responses no longer drop them).
+- **M-1** (INV-8'): `set_memory`/`update_memory` deep-copy on write, closing the
+  write-side aliasing gap (memory is now copied in both directions).
+
+### Changed
+
+- **S-2**: removed the dead `is_state_at_root` key from all schemas (never read by the
+  parser).
+- **S-3**: v2 schemas (`v2_raw`, `ui_control`, `widget_control`) route state through
+  `variable_updates_field` for consistency with `default_v2` (v2-only hosts now see their
+  state updates in `variable_updates`).
+- **E-4**: `update_api_key` closes the previous LLM client's session (no pool leak) and
+  documents the no-concurrent-`process_turn` precondition.
+
+### Performance
+
+- **E-5**: `_merge_responses` resolves agent priority via an O(1) `_agent_meta` lookup
+  instead of an O(agents × responses) linear scan; unresolvable agent ids log a warning.
 
 ---
 
