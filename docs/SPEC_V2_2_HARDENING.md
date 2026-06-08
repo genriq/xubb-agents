@@ -72,8 +72,8 @@ These extend the v2.1 invariant set (INV-1 … INV-8). Each is currently violate
 | **INV-10** | Every external LLM call is **time-bounded** and fails with **typed, distinguishable** outcomes (timeout vs rate-limit vs auth vs server vs malformed), never an undifferentiated silent `None`. | **Violated** (R-1) |
 | **INV-11** | An agent stays **silent** when its schema's gate says so. The **absence** of a gate field must never *force* speech; gate-less schemas default to a safe, documented policy. | **Violated** (A-1 — gate-less schemas always speak) |
 | **INV-12** | Any engine mutation of **host-owned context** (`trigger_type`, `phase`, …) is **always restored**, even when the turn raises mid-phase. | **Violated** (E-1 — no `try/finally`) |
-| **INV-8′** | INV-8 extended: agent memory values are copies on **write** as well as on read. A caller mutating an object it passed into `set_memory`/`update_memory` must not mutate blackboard state. | **Violated** (M-1 — write side stores references) |
-| **INV-13** | Timestamps on `Event` and `Fact` follow the **single documented convention** (session-relative seconds). No code path emits wall-clock epoch where the model documents session-relative. | **Violated** (A-2 — `time.time()` in DynamicAgent) |
+| **INV-8′** | INV-8 extended: agent memory values are copies on **write** as well as on read. A caller mutating an object it passed into `set_memory`/`update_memory` must not mutate blackboard state. | **Resolved** (M-1 — v2.2; deep-copy on write) |
+| **INV-13** | Timestamps on `Event` and `Fact` follow the **single documented convention** (session-relative seconds). No code path emits wall-clock epoch where the model documents session-relative. | **Resolved** (A-2 — v2.2; session-relative in DynamicAgent) |
 
 Post-release, all invariants (INV-1 … INV-13, INV-8′) must hold. A regression violating any invariant blocks the release.
 

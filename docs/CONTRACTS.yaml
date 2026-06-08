@@ -119,8 +119,8 @@ contracts:
     statement: "Memory values are copied on WRITE as well as read (set_memory/update_memory)."
     source: ["docs/SPEC_V2_2_HARDENING.md: INV-8'"]
     invariant: "INV-8'"
-    test: "tests/test_blackboard.py::test_memory_write_side_is_copied"   # v2.2 item M-1
-    status: pending_v2.2
+    test: "tests/test_blackboard.py::TestBlackboardMemory::test_update_memory_does_not_retain_caller_reference"
+    status: covered   # v2.2 M-1 landed: set_memory/update_memory deep-copy on write.
 
   - id: INV-10-llm-time-bound
     statement: "Every external LLM call is time-bounded and fails with a typed, distinguishable outcome."
@@ -147,14 +147,14 @@ contracts:
     statement: "Event/Fact timestamps follow the session-relative-seconds convention (no wall-clock epoch)."
     source: ["docs/SPEC_V2_2_HARDENING.md: INV-13"]
     invariant: INV-13
-    test: "tests/test_dynamic_agent.py::test_timestamps_are_session_relative"   # v2.2 item A-2
-    status: pending_v2.2
+    test: "tests/test_dynamic_agent.py::TestSessionRelativeTimestamps::test_event_timestamp_is_session_relative_not_epoch"
+    status: covered   # v2.2 A-2 landed: session-relative timestamps in DynamicAgent.
 
 # ---- Coverage summary (informational; R1 `check_contracts.py` computes this authoritatively) ----
-# covered:        1   (FACT-PRECEDENCE — v2.2 F-1 landed)
+# covered:        3   (FACT-PRECEDENCE/F-1, INV-8'/M-1, INV-13/A-2)
 # to_verify:      9   (R1 bijection back-fill)
 # failing_probe:  0
-# pending_v2.2:   5   (INV-8', INV-10..13)
+# pending_v2.2:   3   (INV-10/R-1, INV-11/A-1, INV-12/E-1)
 # uncovered:      1   (INV-5)
-# → The headline contract is now covered (PROBE-F1 + engine + unit tests). The number keeps
-#   rising as R1 back-fills the to_verify rows and the remaining v2.2 items land.
+# → 3 contracts covered as v2.2 lands incrementally. Remaining pending invariants are the
+#   v2.2 HIGH items not yet implemented (R-1, A-1, E-1). Rises as those + R1 back-fill land.
