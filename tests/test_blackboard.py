@@ -304,6 +304,38 @@ class TestBlackboardMemory:
         mem = bb.get_memory("nonexistent")
         assert mem == {}
 
+    # ---- M-1 / INV-8': memory values are copies on WRITE as well as read ----
+
+    def test_update_memory_does_not_retain_caller_reference(self):
+        """INV-8': mutating a nested object after update_memory must not
+        change blackboard state."""
+        bb = Blackboard()
+        nested = {"items": [1, 2, 3]}
+        bb.update_memory("agent1", {"nested": nested})
+
+        # Caller mutates its own object AFTER the write.
+        nested["items"].append(4)
+        nested["new_key"] = "leaked"
+
+        stored = bb.get_memory("agent1")
+        assert stored["nested"]["items"] == [1, 2, 3]
+        assert "new_key" not in stored["nested"]
+
+    def test_set_memory_does_not_retain_caller_reference(self):
+        """INV-8': mutating a nested object after set_memory must not
+        change blackboard state."""
+        bb = Blackboard()
+        data = {"nested": {"items": [1, 2, 3]}}
+        bb.set_memory("agent1", data)
+
+        # Caller mutates its own object AFTER the write.
+        data["nested"]["items"].append(4)
+        data["top_level"] = "leaked"
+
+        stored = bb.get_memory("agent1")
+        assert stored["nested"]["items"] == [1, 2, 3]
+        assert "top_level" not in stored
+
 
 class TestBlackboardSnapshot:
     """Test snapshot isolation."""
