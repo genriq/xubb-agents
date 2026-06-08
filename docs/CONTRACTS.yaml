@@ -126,22 +126,22 @@ contracts:
     statement: "Every external LLM call is time-bounded and fails with a typed, distinguishable outcome."
     source: ["docs/SPEC_V2_2_HARDENING.md: INV-10"]
     invariant: INV-10
-    test: "tests/test_llm.py::test_timeout_returns_typed_sentinel"   # v2.2 item R-1
-    status: pending_v2.2
+    test: "tests/test_llm.py::test_typed_errors_return_none_and_log_category"
+    status: covered   # v2.2 R-1 landed: timeout + bounded retries + max_tokens + typed errors.
 
   - id: INV-11-gateless-silence
     statement: "A gate-less schema follows the documented safe default; absence of a gate never forces speech."
     source: ["docs/SPEC_V2_2_HARDENING.md: INV-11"]
     invariant: INV-11
-    test: "tests/test_dynamic_agent.py::test_gateless_schema_respects_default_silence"   # v2.2 item A-1
-    status: pending_v2.2
+    test: "tests/test_dynamic_agent.py::TestGatelessSilenceContract::test_gateless_rootless_schema_stays_silent_by_default"
+    status: covered   # v2.2 A-1 landed: gate-less+rootless schemas default to silence; load-time warning.
 
   - id: INV-12-context-mutation-restored
     statement: "Engine mutation of host-owned context (trigger_type, phase) is always restored, even on exception."
     source: ["docs/SPEC_V2_2_HARDENING.md: INV-12"]
     invariant: INV-12
-    test: "tests/test_engine.py::test_phase2_mutation_restored_on_exception"   # v2.2 item E-1
-    status: pending_v2.2
+    test: "tests/test_engine.py::TestE1Phase2ExceptionSafety::test_phase2_exception_restores_context_and_fires_on_chain_error"
+    status: covered   # v2.2 E-1 landed: Phase-2 trigger_type/phase restored via try/finally.
 
   - id: INV-13-session-relative-timestamps
     statement: "Event/Fact timestamps follow the session-relative-seconds convention (no wall-clock epoch)."
@@ -151,10 +151,10 @@ contracts:
     status: covered   # v2.2 A-2 landed: session-relative timestamps in DynamicAgent.
 
 # ---- Coverage summary (informational; R1 `check_contracts.py` computes this authoritatively) ----
-# covered:        3   (FACT-PRECEDENCE/F-1, INV-8'/M-1, INV-13/A-2)
+# covered:        6   (FACT-PRECEDENCE/F-1, INV-8'/M-1, INV-13/A-2, INV-10/R-1, INV-11/A-1, INV-12/E-1)
 # to_verify:      9   (R1 bijection back-fill)
 # failing_probe:  0
-# pending_v2.2:   3   (INV-10/R-1, INV-11/A-1, INV-12/E-1)
-# uncovered:      1   (INV-5)
-# → 3 contracts covered as v2.2 lands incrementally. Remaining pending invariants are the
-#   v2.2 HIGH items not yet implemented (R-1, A-1, E-1). Rises as those + R1 back-fill land.
+# pending_v2.2:   0
+# uncovered:      1   (INV-5 — tracing-never-crashes; no direct test yet)
+# → All v2.2 HIGH/critical/medium invariants now covered. Remaining: INV-5 + the to_verify
+#   back-fill (R1), and Phase 0/4 (infra, hygiene, docs, version bump).
