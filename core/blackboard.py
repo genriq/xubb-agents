@@ -195,14 +195,22 @@ class Blackboard(BaseModel):
         return deepcopy(self.memory.get(agent_id, {}))
     
     def set_memory(self, agent_id: str, data: Dict[str, Any]) -> None:
-        """Set an agent's private memory (full replace)."""
-        self.memory[agent_id] = data
-    
+        """Set an agent's private memory (full replace).
+
+        Stores a deep copy (INV-8'): a caller mutating a nested object it
+        passed in must not mutate blackboard state.
+        """
+        self.memory[agent_id] = deepcopy(data)
+
     def update_memory(self, agent_id: str, updates: Dict[str, Any]) -> None:
-        """Merge updates into an agent's memory."""
+        """Merge updates into an agent's memory.
+
+        Updates are deep-copied before merge (INV-8'): a caller mutating a
+        nested object it passed in must not mutate blackboard state.
+        """
         if agent_id not in self.memory:
             self.memory[agent_id] = {}
-        self.memory[agent_id].update(updates)
+        self.memory[agent_id].update(deepcopy(updates))
     
     def has_memory(self, agent_id: str) -> bool:
         """Check if an agent has any memory stored."""
