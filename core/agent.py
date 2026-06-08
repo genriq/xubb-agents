@@ -138,12 +138,24 @@ class BaseAgent(ABC):
         """
         pass
 
-    def create_insight(self, content: str, type: InsightType = InsightType.SUGGESTION, confidence: float = 1.0) -> AgentInsight:
-        """Helper to create a valid Insight object"""
-        return AgentInsight(
+    def create_insight(self, content: str, type: InsightType = InsightType.SUGGESTION,
+                       confidence: float = 1.0, expiry: Optional[int] = None,
+                       action_label: Optional[str] = None) -> AgentInsight:
+        """Helper to create a valid Insight object.
+
+        expiry / action_label are optional pass-throughs (S-1). When omitted
+        (None), the AgentInsight model defaults apply (expiry=15, action_label=None).
+        """
+        fields = dict(
             agent_id=self.config.id,
             agent_name=self.config.name,
             type=type,
             content=content,
-            confidence=confidence
+            confidence=confidence,
         )
+        # Only pass through when provided so the model defaults stand otherwise.
+        if expiry is not None:
+            fields["expiry"] = expiry
+        if action_label is not None:
+            fields["action_label"] = action_label
+        return AgentInsight(**fields)

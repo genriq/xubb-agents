@@ -35,3 +35,8 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Xubb development-process methodology — maintained in Claude (~/.claude), not this repo.
+# Only the framework's own QA artifacts (docs/CONTRACTS.yaml, tests/qa_probes/) live here.
+process-lab/
+.claude/commands/

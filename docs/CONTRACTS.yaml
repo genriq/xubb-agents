@@ -1,0 +1,160 @@
+# Xubb Agents — Contract Registry  (accuracy gate G1; DEVELOPMENT_PROCESS.md §4.1)
+#
+# Every documented behavioral contract MUST appear here and name a test that asserts the
+# RULE (not just a happy-path example). The R1 checker `tools/check_contracts.py` will fail
+# the build for any entry whose `test` is missing, does not exist, is skipped, or whose
+# status is `uncovered`.
+#
+# This registry is the artifact that turns the F-1 escape ("a documented contract with no
+# asserting test") into a day-one red build. It is seeded here (R0) from the existing
+# invariants in SPEC_V2_1_HARDENING (INV-1..8) and SPEC_V2_2_HARDENING (INV-8'..13). The
+# `to_verify` entries are honest debt for R1 (invariant↔test bijection back-fill); they are
+# NOT claims of coverage.
+#
+# status vocabulary:
+#   covered       — a test asserts the rule and passes; mapping verified.
+#   to_verify     — a plausible test exists but the assertion/bijection is not yet verified
+#                   (R1 back-fill). Treated as UNCOVERED by the gate until promoted.
+#   failing_probe — the rule is documented by a probe that currently FAILS on `main`,
+#                   making the gap visible (the contract is unimplemented). The probe is the
+#                   permanent regression once the fix lands.
+#   pending_v2.2  — a v2.2 hardening target not yet implemented; no passing test can exist
+#                   yet. Becomes `covered` when the corresponding v2.2 item lands with its test.
+#
+# Each entry: id, statement, source[], invariant?, test, status.
+
+schema_version: 1
+baseline_commit: "47f742d"
+seeded: "2026-06-08 (R0)"
+
+contracts:
+
+  # ---- The headline contract: the F-1 escape this whole registry exists to prevent ----
+  - id: FACT-PRECEDENCE
+    statement: >
+      On a Fact (type, key) collision, higher agent PRIORITY wins; ties broken by higher
+      confidence; remaining ties by later registration order.
+    source:
+      - "core/models.py: Fact docstring"
+      - "docs/SPEC_V2.md: §6.5.4"
+      - "docs/SPEC_V2_2_HARDENING.md: INV-9 / §5"
+      - "README.md: ~L720"
+    invariant: INV-9
+    test: "tests/qa_probes/test_probe_f1_facts_priority.py::test_probe_f1_higher_priority_fact_wins_over_higher_confidence"
+    test_engine: "tests/test_engine.py::TestMergeOrdering::test_priority_beats_confidence_on_facts"
+    test_unit: "tests/test_blackboard.py::TestBlackboardFacts::test_higher_priority_wins_over_higher_confidence"
+    status: covered   # v2.2 F-1 landed: Fact.priority + engine stamp + (priority,confidence) resolution.
+
+  - id: FACT-DEDUP-KEY
+    statement: >
+      Facts dedupe by (type, key); when key is None, dedupe by type alone (the type is a
+      singleton).
+    source:
+      - "core/blackboard.py: add_fact"
+      - "docs/SPEC_V2.md: §6.5.4"
+    test: "tests/test_blackboard.py::TestFactOperations::test_dedupe_by_type_key_pair"
+    status: to_verify   # test asserts dedup happens, not the full precedence rule.
+
+  # ---- v2.1 invariants (INV-1..8) — candidate tests exist; R1 verifies bijection ----
+  - id: INV-1-callbacks-fire-once
+    statement: "Each agent lifecycle callback fires at most once per execution attempt."
+    source: ["docs/SPEC_V2_1_HARDENING.md: INV-1"]
+    invariant: INV-1
+    test: "tests/test_engine.py::TestCallbacks"   # to confirm in R1
+    status: to_verify
+
+  - id: INV-2-snapshot-isolation
+    statement: "Snapshot state is immutable from the perspective of peer agents in the same phase."
+    source: ["docs/SPEC_V2_1_HARDENING.md: INV-2"]
+    invariant: INV-2
+    test: "tests/test_engine.py::test_agents_see_snapshot"
+    status: to_verify
+
+  - id: INV-3-explicit-identity
+    statement: "Agent identity is explicit (source_agent_id), never inferred from payload content."
+    source: ["docs/SPEC_V2_1_HARDENING.md: INV-3"]
+    invariant: INV-3
+    test: "tests/test_engine.py::test_memory_updates_by_agent_preserves_attribution"
+    status: to_verify
+
+  - id: INV-4-sys-keys-governed
+    statement: "Reserved sys.* keys are engine-governed; unauthorized writes are detected/flagged."
+    source: ["docs/SPEC_V2_1_HARDENING.md: INV-4"]
+    invariant: INV-4
+    test: "tests/test_engine.py::test_sys_variables_set"
+    status: to_verify
+
+  - id: INV-5-tracing-never-crashes
+    statement: "A serialization/tracing failure must never prevent insight delivery."
+    source: ["docs/SPEC_V2_1_HARDENING.md: INV-5"]
+    invariant: INV-5
+    test: "MISSING"
+    status: uncovered
+
+  - id: INV-6-graceful-degradation
+    statement: "A failed agent must not produce orphaned side effects (atomic discard)."
+    source: ["docs/SPEC_V2_1_HARDENING.md: INV-6"]
+    invariant: INV-6
+    # NOTE: the v2.2 audit found test_failed_agent_updates_discarded UNDER-asserts this
+    # (item T-3). Marked to_verify, not covered, deliberately.
+    test: "tests/test_engine.py::test_failed_agent_updates_discarded"
+    status: to_verify
+
+  - id: INV-7-callback-base-complete
+    statement: "The callback base class defines all methods the engine calls; subclasses never crash."
+    source: ["docs/SPEC_V2_1_HARDENING.md: INV-7"]
+    invariant: INV-7
+    test: "tests/test_compatibility.py"   # to confirm in R1
+    status: to_verify
+
+  - id: INV-8-memory-copy-on-read
+    statement: "Agent memory values returned by the Blackboard are copies, not references."
+    source: ["docs/SPEC_V2_1_HARDENING.md: INV-8"]
+    invariant: INV-8
+    test: "tests/test_blackboard.py::TestMemoryOperations::test_get_and_set_memory"
+    status: to_verify
+
+  # ---- v2.2 invariants (INV-8'..13) — pending the v2.2 hardening items ----
+  - id: INV-8prime-memory-copy-on-write
+    statement: "Memory values are copied on WRITE as well as read (set_memory/update_memory)."
+    source: ["docs/SPEC_V2_2_HARDENING.md: INV-8'"]
+    invariant: "INV-8'"
+    test: "tests/test_blackboard.py::TestBlackboardMemory::test_update_memory_does_not_retain_caller_reference"
+    status: covered   # v2.2 M-1 landed: set_memory/update_memory deep-copy on write.
+
+  - id: INV-10-llm-time-bound
+    statement: "Every external LLM call is time-bounded and fails with a typed, distinguishable outcome."
+    source: ["docs/SPEC_V2_2_HARDENING.md: INV-10"]
+    invariant: INV-10
+    test: "tests/test_llm.py::test_timeout_returns_typed_sentinel"   # v2.2 item R-1
+    status: pending_v2.2
+
+  - id: INV-11-gateless-silence
+    statement: "A gate-less schema follows the documented safe default; absence of a gate never forces speech."
+    source: ["docs/SPEC_V2_2_HARDENING.md: INV-11"]
+    invariant: INV-11
+    test: "tests/test_dynamic_agent.py::test_gateless_schema_respects_default_silence"   # v2.2 item A-1
+    status: pending_v2.2
+
+  - id: INV-12-context-mutation-restored
+    statement: "Engine mutation of host-owned context (trigger_type, phase) is always restored, even on exception."
+    source: ["docs/SPEC_V2_2_HARDENING.md: INV-12"]
+    invariant: INV-12
+    test: "tests/test_engine.py::test_phase2_mutation_restored_on_exception"   # v2.2 item E-1
+    status: pending_v2.2
+
+  - id: INV-13-session-relative-timestamps
+    statement: "Event/Fact timestamps follow the session-relative-seconds convention (no wall-clock epoch)."
+    source: ["docs/SPEC_V2_2_HARDENING.md: INV-13"]
+    invariant: INV-13
+    test: "tests/test_dynamic_agent.py::TestSessionRelativeTimestamps::test_event_timestamp_is_session_relative_not_epoch"
+    status: covered   # v2.2 A-2 landed: session-relative timestamps in DynamicAgent.
+
+# ---- Coverage summary (informational; R1 `check_contracts.py` computes this authoritatively) ----
+# covered:        3   (FACT-PRECEDENCE/F-1, INV-8'/M-1, INV-13/A-2)
+# to_verify:      9   (R1 bijection back-fill)
+# failing_probe:  0
+# pending_v2.2:   3   (INV-10/R-1, INV-11/A-1, INV-12/E-1)
+# uncovered:      1   (INV-5)
+# → 3 contracts covered as v2.2 lands incrementally. Remaining pending invariants are the
+#   v2.2 HIGH items not yet implemented (R-1, A-1, E-1). Rises as those + R1 back-fill land.
