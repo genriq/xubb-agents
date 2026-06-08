@@ -142,26 +142,31 @@ class Blackboard(BaseModel):
     # =========================================================================
     
     def add_fact(self, fact: Fact) -> None:
-        """Add a fact with deduplication. See SPEC_V2.md §6.5.4 for semantics.
-        
-        Deduplication rules:
-        - If key is None: replace ANY existing fact of this type
-        - If key is set: replace only matching (type, key) pair
-        
-        When duplicates exist, higher confidence wins (caller handles
-        priority via merge ordering).
+        """Add a fact with deduplication. See SPEC_V2.md §6.5.4 / INV-9 for semantics.
+
+        Deduplication (by (type, key); when key is None the type is a singleton).
+        Conflict resolution on the matched fact, in strict order:
+          1. higher agent priority wins;
+          2. ties broken by higher confidence;
+          3. remaining ties by later registration order.
+
+        Implemented as a lexicographic (priority, confidence) comparison: the new fact
+        replaces the existing one iff (priority, confidence) >= (existing.priority,
+        existing.confidence). Because the engine stamps ``fact.priority`` (the emitting
+        agent's priority) and calls add_fact in registration order, full equality means the
+        later registration wins. Hosts calling add_fact directly own ``fact.priority``
+        (default 0), in which case resolution degrades to confidence-then-call-order.
         """
         if fact.key is None:
-            # key=None: replace ANY existing fact of this type
+            # key=None: the (type) is a singleton — match any existing fact of this type
             existing = next((f for f in self.facts if f.type == fact.type), None)
         else:
-            # key is set: replace only matching (type, key) pair
-            existing = next((f for f in self.facts 
+            # key is set: match only the (type, key) pair
+            existing = next((f for f in self.facts
                             if f.type == fact.type and f.key == fact.key), None)
-        
+
         if existing:
-            # Higher confidence wins; caller handles priority via merge order
-            if fact.confidence >= existing.confidence:
+            if (fact.priority, fact.confidence) >= (existing.priority, existing.confidence):
                 self.facts.remove(existing)
                 self.facts.append(fact)
         else:

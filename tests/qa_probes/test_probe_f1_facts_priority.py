@@ -12,17 +12,12 @@ the QA-agent design proposal. It drives the REAL AgentEngine (the framework is t
 system-under-test — the one valuable "dogfood" slice) rather than unit-testing add_fact
 in isolation, because the bug lives in the engine-merge ↔ blackboard contract.
 
-STATUS: marked xfail(strict=True) on purpose.
-  - On current `main` (F-1 unfixed) the high-priority/low-confidence fact is silently
-    discarded by Blackboard.add_fact's confidence-only gate, so the assertion FAILS →
-    recorded as an expected failure (xfail) → the suite stays green and the gap is
-    documented, not hidden.
-  - When F-1 lands (v2.2: Fact.priority + engine stamps it + add_fact resolves by
-    (priority, confidence)), the assertion PASSES → strict xfail turns the unexpected
-    pass into a FAILURE, forcing whoever fixes F-1 to remove this marker and promote the
-    probe to a hard, permanently-passing gate.
+STATUS: ACTIVE (hard gate). F-1 landed in v2.2 (Fact.priority + engine stamps it +
+add_fact resolves by (priority, confidence)), so this probe now passes and guards against
+any future regression of the fact-priority contract.
 
-DO NOT delete this probe. When F-1 is fixed, only remove the `@pytest.mark.xfail`.
+DO NOT delete this probe and DO NOT re-add an xfail marker. If it starts failing, the
+fact-priority contract (INV-9) has regressed — fix the code, not the probe.
 """
 
 import time
@@ -64,11 +59,6 @@ def _context():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="PROBE-F1: F-1 (fact priority) unfixed on main; documents the contract gap. "
-           "Remove this marker when v2.2 F-1 lands — the probe must then pass.",
-)
 @pytest.mark.asyncio
 async def test_probe_f1_higher_priority_fact_wins_over_higher_confidence():
     """A higher-PRIORITY agent's fact must win even at LOWER confidence (INV-9 rule 1).

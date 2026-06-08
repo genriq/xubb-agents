@@ -41,7 +41,9 @@ contracts:
       - "README.md: ~L720"
     invariant: INV-9
     test: "tests/qa_probes/test_probe_f1_facts_priority.py::test_probe_f1_higher_priority_fact_wins_over_higher_confidence"
-    status: failing_probe   # PROBE-F1 xfails on main; flips to covered when v2.2 F-1 lands.
+    test_engine: "tests/test_engine.py::TestMergeOrdering::test_priority_beats_confidence_on_facts"
+    test_unit: "tests/test_blackboard.py::TestBlackboardFacts::test_higher_priority_wins_over_higher_confidence"
+    status: covered   # v2.2 F-1 landed: Fact.priority + engine stamp + (priority,confidence) resolution.
 
   - id: FACT-DEDUP-KEY
     statement: >
@@ -149,10 +151,10 @@ contracts:
     status: pending_v2.2
 
 # ---- Coverage summary (informational; R1 `check_contracts.py` computes this authoritatively) ----
-# covered:        0
+# covered:        1   (FACT-PRECEDENCE — v2.2 F-1 landed)
 # to_verify:      9   (R1 bijection back-fill)
-# failing_probe:  1   (FACT-PRECEDENCE — PROBE-F1)
+# failing_probe:  0
 # pending_v2.2:   5   (INV-8', INV-10..13)
 # uncovered:      1   (INV-5)
-# → contract-coverage % (covered / total) = 0% today. This is the honest baseline the gate
-#   is meant to surface. The number rises as R1 back-fills and v2.2 lands.
+# → The headline contract is now covered (PROBE-F1 + engine + unit tests). The number keeps
+#   rising as R1 back-fills the to_verify rows and the remaining v2.2 items land.

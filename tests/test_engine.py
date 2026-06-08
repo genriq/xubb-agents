@@ -271,6 +271,40 @@ class TestMergeOrdering:
         assert response.variable_updates["phase"] == "high_priority_value"
         assert sample_context.blackboard.get_var("phase") == "high_priority_value"
 
+    @pytest.mark.asyncio
+    async def test_priority_beats_confidence_on_facts(self, engine, sample_context):
+        """F-1 / INV-9: a higher-priority agent's fact wins even at lower confidence.
+
+        Mirror of test_higher_priority_wins but for the facts merge path — the exact
+        case that silently inverted before F-1. The engine must stamp the emitting agent's
+        priority so Blackboard.add_fact resolves the (type, key) conflict by priority first.
+        """
+        def emit_high(context, agent):
+            return AgentResponse(facts=[Fact(
+                type="budget", key="primary", value="authoritative_high_priority",
+                confidence=0.5, source_agent="high", timestamp=time.time(),
+            )])
+
+        def emit_low(context, agent):
+            return AgentResponse(facts=[Fact(
+                type="budget", key="primary", value="noisy_low_priority",
+                confidence=0.9, source_agent="low", timestamp=time.time(),
+            )])
+
+        engine.register_agent(MockAgent("low", priority=1, response_fn=emit_low))
+        engine.register_agent(MockAgent("high", priority=10, response_fn=emit_high))
+
+        response = await engine.process_turn(sample_context)
+
+        won = sample_context.blackboard.get_fact("budget", "primary")
+        assert won is not None
+        assert won.value == "authoritative_high_priority"
+        assert any(
+            f.type == "budget" and f.key == "primary"
+            and f.value == "authoritative_high_priority"
+            for f in response.facts
+        )
+
 
 class TestAtomicFailure:
     """Test that failed agents have updates discarded."""

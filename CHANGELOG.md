@@ -4,6 +4,25 @@ All notable changes to the Xubb Agents Framework are documented here.
 
 ---
 
+## [2.2.0] - in progress
+
+Hardening release driven by the v2.2 5-agent audit. See
+[SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md). Items land incrementally.
+
+### Bug Fixes
+
+- **F-1** (CRITICAL): Fact conflict resolution now honors agent **priority** (INV-9).
+  `Blackboard.add_fact` previously resolved `(type, key)` collisions by confidence only,
+  silently inverting the documented "higher priority wins" rule (SPEC_V2 §6.5.4) — a
+  high-priority extractor could be overruled by a lower-priority/higher-confidence agent.
+  Added `Fact.priority` (engine-stamped); `add_fact` now resolves by
+  `(priority, confidence)` with later registration breaking full ties.
+  **Migration:** consumers relying on the buggy confidence-only behavior may see a
+  different fact win — verify agent `priority` reflects intended extraction authority.
+  Guarded permanently by `PROBE-F1` (`tests/qa_probes/`).
+
+---
+
 ## [2.1.1] - 2026-03-19
 
 Bugfix release: 4 bug fixes, 3 defense-in-depth improvements, 1 test correction.
