@@ -1116,3 +1116,81 @@ class TestE5MergeLookup:
         ), "Expected a warning naming the unresolvable agent_id"
         # The update is still applied (graceful degradation).
         assert blackboard.get_var("orphan_var") == "value"
+
+
+class TestE1Phase2ExceptionSafety:
+    """E-1 / INV-12: a Phase-2 exception must never leave the host-owned context
+    corrupted in an EVENT/phase=2 state, and on_chain_error (B5) must still fire."""
+
+    @pytest.mark.asyncio
+    async def test_phase2_exception_restores_context_and_fires_on_chain_error(
+        self, engine, sample_context
+    ):
+        """If _run_phase raises during Phase 2, context.trigger_type and
+        context.phase are restored to their pre-turn values and the error
+        still propagates / on_chain_error still fires."""
+        from xubb_agents.core.callbacks import AgentCallbackHandler
+
+        # Phase 1 agent emits an event so Phase 2 is entered.
+        def emit_event(context, agent):
+            return AgentResponse(
+                events=[Event(
+                    name="question_detected",
+                    payload={},
+                    source_agent=agent.config.id,
+                    timestamp=time.time()
+                )]
+            )
+
+        emitter = MockAgent("emitter", response_fn=emit_event)
+        subscriber = MockAgent(
+            "subscriber",
+            subscribed_events=["question_detected"],
+            trigger_types=[TriggerType.EVENT],
+        )
+        subscriber.config.cooldown = 0
+
+        engine.register_agent(emitter)
+        engine.register_agent(subscriber)
+
+        class ErrorTracker(AgentCallbackHandler):
+            def __init__(self):
+                self.errors = []
+            async def on_chain_error(self, error):
+                self.errors.append(error)
+
+        tracker = ErrorTracker()
+        engine.callbacks = [tracker]
+
+        # Capture the pre-turn host-owned context values. process_turn mutates
+        # trigger_type to TURN_BASED for Phase 1; the contract is that whatever
+        # the host set before Phase 2 (and the originating trigger_type) is
+        # restored. We assert restoration to the values seen entering process_turn.
+        pre_trigger_type = sample_context.trigger_type
+        pre_phase = sample_context.phase
+
+        # Wrap _run_phase so Phase 1 runs normally (emitting the event) but
+        # Phase 2 raises while context is mutated to EVENT/phase=2.
+        real_run_phase = engine._run_phase
+
+        async def run_phase_fail_in_phase2(agents, context):
+            if context.phase == 2:
+                # Mid-phase failure with the context in its mutated state.
+                assert context.trigger_type == TriggerType.EVENT
+                assert context.phase == 2
+                raise RuntimeError("phase2 boom")
+            return await real_run_phase(agents, context)
+
+        with patch.object(engine, '_run_phase', side_effect=run_phase_fail_in_phase2):
+            with pytest.raises(RuntimeError, match="phase2 boom"):
+                await engine.process_turn(sample_context)
+
+        # (1) The host-owned context is restored despite the Phase-2 exception
+        #     (INV-12) — not left corrupted as EVENT/phase=2.
+        assert sample_context.trigger_type == pre_trigger_type
+        assert sample_context.phase == pre_phase
+        assert sample_context.trigger_type != TriggerType.EVENT
+
+        # (2) on_chain_error still fired and the error propagated (B5 contract).
+        assert len(tracker.errors) == 1
+        assert str(tracker.errors[0]) == "phase2 boom"
