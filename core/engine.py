@@ -55,25 +55,77 @@ class AgentEngine:
         
         # Agent registration order for deterministic tie-breaking
         self._agent_index: Dict[str, int] = {}
-        
+        # Parallel map for O(1) (priority, registration-order) lookup at merge time (E-5)
+        self._agent_meta: Dict[str, Tuple[int, int]] = {}
+
     def register_agent(self, agent: BaseAgent):
         """Register an agent with the engine."""
         # Inject the LLM client into the agent
         agent.llm = self.llm_client
-        
+
         # Track registration order for deterministic merge ordering
-        self._agent_index[agent.config.id] = len(self.agents)
-        
+        index = len(self.agents)
+        self._agent_index[agent.config.id] = index
+        # Cache (priority, index) so _merge_responses does an O(1) lookup instead
+        # of an O(agents × responses) linear scan (E-5).
+        self._agent_meta[agent.config.id] = (agent.config.priority, index)
+
         logger.info(f"Registered agent: {agent.config.name} (ID: {agent.config.id}, "
                    f"Model: {agent.config.model}, Triggers: {agent.config.trigger_types})")
         self.agents.append(agent)
     
     def update_api_key(self, api_key: Optional[str]):
-        """Update API key for LLM client and re-inject into all agents."""
+        """Update API key for LLM client and re-inject into all agents.
+
+        PRECONDITION (E-4): this method is NOT concurrency-safe and MUST NOT be
+        called while a ``process_turn`` is in flight. It swaps ``self.llm_client``
+        and re-points every agent's ``llm`` reference without synchronization; an
+        overlapping turn could observe a half-swapped state or use a client whose
+        underlying HTTP session is being torn down. Callers must quiesce turns
+        (or hold their own lock) before invoking it.
+
+        The previous LLM client's underlying HTTP session is closed on a
+        best-effort basis to avoid leaking the connection pool. Closing is
+        synchronous-safe: if the underlying client only exposes an async close,
+        it is scheduled when an event loop is running and otherwise skipped.
+        """
+        old_client = getattr(self, "llm_client", None)
+
         self.llm_client = LLMClient(api_key=api_key)
         for agent in self.agents:
             agent.llm = self.llm_client
+
+        self._close_llm_client(old_client)
         logger.info("Updated API key for all agents")
+
+    @staticmethod
+    def _close_llm_client(llm_client: Optional["LLMClient"]) -> None:
+        """Best-effort close of a replaced LLMClient's underlying HTTP session (E-4).
+
+        The wrapped OpenAI ``AsyncOpenAI`` client exposes an async ``close()``.
+        ``update_api_key`` is synchronous, so we close it without ever blocking:
+        if an event loop is running we schedule the coroutine as a task; if not,
+        we run it to completion; if neither is possible we log and move on. The
+        connection pool leak this prevents is non-fatal, so any failure here is
+        swallowed rather than propagated into the caller.
+        """
+        if llm_client is None:
+            return
+        underlying = getattr(llm_client, "client", None)
+        close = getattr(underlying, "close", None)
+        if close is None:
+            return
+        try:
+            result = close()
+            if asyncio.iscoroutine(result):
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    asyncio.run(result)
+                else:
+                    loop.create_task(result)
+        except Exception as e:  # pragma: no cover - cleanup is best-effort
+            logger.warning(f"Failed to close previous LLM client: {e}")
     
     # =========================================================================
     # Agent Query Methods
@@ -428,20 +480,25 @@ class AgentEngine:
         for resp in responses:
             # Find the agent that produced this response
             agent_id = resp.source_agent_id
-            agent_priority = 0
-            agent_index = 0
 
             # Fallback for v1 compat (responses without source_agent_id)
             if not agent_id and resp.insights:
                 agent_id = resp.insights[0].agent_id
-            
-            # Find agent by ID to get priority
-            for agent in self.agents:
-                if agent.config.id == agent_id:
-                    agent_priority = agent.config.priority
-                    agent_index = self._agent_index.get(agent_id, 0)
-                    break
-            
+
+            # O(1) lookup of (priority, registration-order) instead of a linear
+            # scan of self.agents per response (E-5). An unresolvable agent_id is a
+            # latent ordering bug: it falls back to (0, 0) but is logged loudly.
+            meta = self._agent_meta.get(agent_id) if agent_id else None
+            if meta is None:
+                agent_priority, agent_index = 0, 0
+                logger.warning(
+                    f"Could not resolve agent_id '{agent_id}' to a registered "
+                    f"agent during merge; defaulting priority/order to 0. Merge "
+                    f"ordering for this response may be non-deterministic."
+                )
+            else:
+                agent_priority, agent_index = meta
+
             updates.append((agent_priority, agent_index, agent_id or "unknown", resp))
         
         # Sort by ASCENDING priority, then by registration order
@@ -493,16 +550,23 @@ class AgentEngine:
                     final_response.memory_updates_by_agent[agent_id] = {}
                 final_response.memory_updates_by_agent[agent_id].update(resp.memory_updates)
             
-            # Handle v1 state_updates (map to variable_updates)
-            if resp.state_updates and not resp.variable_updates:
+            # Handle v1 state_updates (map to variable_updates).
+            # E-3: the legacy memory_{agent_id} writes must be processed
+            # unconditionally — a hybrid response carrying BOTH state_updates and
+            # variable_updates previously dropped them silently. Only the plain-var
+            # portion is skipped when v2 variable_updates are present (they
+            # supersede the legacy variable channel).
+            if resp.state_updates:
+                v2_supersedes = bool(resp.variable_updates)
                 for key, value in resp.state_updates.items():
                     # Check for legacy memory_{agent_id} pattern
                     if key.startswith("memory_"):
-                        # Extract memory data and apply to blackboard memory
+                        # Extract memory data and apply to blackboard memory.
+                        # Always applied, regardless of variable_updates presence.
                         mem_agent_id = key.replace("memory_", "")
                         if isinstance(value, dict):
                             blackboard.update_memory(mem_agent_id, value)
-                    else:
+                    elif not v2_supersedes:
                         blackboard.set_var(key, value)
                         final_response.variable_updates[key] = value
     
@@ -599,7 +663,16 @@ class AgentEngine:
         """Sync Blackboard variables INTO shared_state for v1.0 agents.
         
         Called BEFORE agents run so v1 agents can read from context.shared_state.
+
+        E-2: engine-reserved ``sys.*`` variables are excluded from the legacy
+        shared_state. They are an engine-internal namespace; copying them into the
+        v1 surface let a v1 agent echo them back via state_updates, tripping the
+        NP13 ``sys.*`` write-guard warning on a value the engine itself produced.
         """
         if context.blackboard:
-            context.shared_state.update(context.blackboard.variables)
+            context.shared_state.update({
+                key: value
+                for key, value in context.blackboard.variables.items()
+                if not key.startswith("sys.")
+            })
     
