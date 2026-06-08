@@ -8,8 +8,8 @@
     "content_field": "content",
     "type_field": "type",
     "confidence_field": "confidence",
-    "state_field": "state_snapshot",
-    "is_state_at_root": true,
+    "state_field": null,
+    "variable_updates_field": "state_snapshot",
     "data_field": "ui_actions",
     "data_key": "ui_actions"
   }
