@@ -52,6 +52,14 @@ class Fact(BaseModel):
     key: Optional[str] = Field(default=None, description="Instance key: 'budget.primary', 'stakeholder.cfo'")
     value: Any = Field(..., description="The extracted value")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Extraction confidence")
+    priority: int = Field(
+        default=0,
+        description=(
+            "Engine-populated emitting-agent priority, used for conflict resolution "
+            "(higher wins; see INV-9). Agents SHOULD NOT set this — the engine stamps it "
+            "at merge time. Hosts calling Blackboard.add_fact() directly own it."
+        ),
+    )
     source_agent: str = Field(..., description="Which agent extracted it")
     timestamp: float = Field(..., description="Seconds since session start")
 

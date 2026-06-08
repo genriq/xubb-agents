@@ -8,8 +8,8 @@
     "content_field": "content",
     "type_field": "type",
     "confidence_field": "confidence",
-    "state_field": "state_snapshot",
-    "metadata_field": "metadata",
-    "is_state_at_root": true
+    "state_field": null,
+    "variable_updates_field": "state_snapshot",
+    "metadata_field": "metadata"
   }
 }

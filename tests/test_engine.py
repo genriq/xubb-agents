@@ -271,6 +271,40 @@ class TestMergeOrdering:
         assert response.variable_updates["phase"] == "high_priority_value"
         assert sample_context.blackboard.get_var("phase") == "high_priority_value"
 
+    @pytest.mark.asyncio
+    async def test_priority_beats_confidence_on_facts(self, engine, sample_context):
+        """F-1 / INV-9: a higher-priority agent's fact wins even at lower confidence.
+
+        Mirror of test_higher_priority_wins but for the facts merge path — the exact
+        case that silently inverted before F-1. The engine must stamp the emitting agent's
+        priority so Blackboard.add_fact resolves the (type, key) conflict by priority first.
+        """
+        def emit_high(context, agent):
+            return AgentResponse(facts=[Fact(
+                type="budget", key="primary", value="authoritative_high_priority",
+                confidence=0.5, source_agent="high", timestamp=time.time(),
+            )])
+
+        def emit_low(context, agent):
+            return AgentResponse(facts=[Fact(
+                type="budget", key="primary", value="noisy_low_priority",
+                confidence=0.9, source_agent="low", timestamp=time.time(),
+            )])
+
+        engine.register_agent(MockAgent("low", priority=1, response_fn=emit_low))
+        engine.register_agent(MockAgent("high", priority=10, response_fn=emit_high))
+
+        response = await engine.process_turn(sample_context)
+
+        won = sample_context.blackboard.get_fact("budget", "primary")
+        assert won is not None
+        assert won.value == "authoritative_high_priority"
+        assert any(
+            f.type == "budget" and f.key == "primary"
+            and f.value == "authoritative_high_priority"
+            for f in response.facts
+        )
+
 
 class TestAtomicFailure:
     """Test that failed agents have updates discarded."""
@@ -883,3 +917,202 @@ class TestB5OnChainError:
         with patch.object(engine, '_get_eligible_agents', side_effect=ValueError("original error")):
             with pytest.raises(ValueError, match="original error"):
                 await engine.process_turn(sample_context)
+
+
+class TestE2SysLeakIntoLegacy:
+    """E-2: sys.* blackboard vars must not leak into legacy shared_state."""
+
+    @pytest.mark.asyncio
+    async def test_sys_keys_excluded_from_shared_state(self, engine, sample_context):
+        """After sync, shared_state contains no sys.* keys but keeps normal vars."""
+        captured = {}
+
+        def capture_state(context, agent):
+            captured.update(context.shared_state)
+            return AgentResponse()
+
+        agent = MockAgent("reader", response_fn=capture_state)
+        engine.register_agent(agent)
+
+        sample_context.blackboard.set_var("user_var", "visible")
+        await engine.process_turn(sample_context)
+
+        # The engine stamps sys.* vars (e.g. sys.turn_count) on the blackboard...
+        assert sample_context.blackboard.get_var("sys.turn_count") == 1
+        # ...but a v1 agent reading shared_state must never see them (E-2).
+        assert not any(k.startswith("sys.") for k in captured), \
+            f"sys.* leaked into shared_state: {[k for k in captured if k.startswith('sys.')]}"
+        # Normal variables still flow through.
+        assert captured.get("user_var") == "visible"
+
+    @pytest.mark.asyncio
+    async def test_v1_roundtrip_does_not_trip_sys_warning(self, engine, sample_context):
+        """A v1 agent echoing shared_state back as state_updates must not warn (NP13)."""
+        def echo_shared_state(context, agent):
+            resp = AgentResponse()
+            # Simulate a v1 agent blindly writing back everything it read.
+            resp.state_updates = dict(context.shared_state)
+            return resp
+
+        agent = MockAgent("echo", response_fn=echo_shared_state)
+        engine.register_agent(agent)
+
+        with patch("xubb_agents.core.blackboard._bb_logger") as mock_log:
+            await engine.process_turn(sample_context)
+
+        sys_warnings = [
+            c for c in mock_log.warning.call_args_list
+            if "sys." in str(c)
+        ]
+        assert not sys_warnings, f"Unexpected sys.* warnings on v1 round-trip: {sys_warnings}"
+
+
+class TestE3V1DualPathDrop:
+    """E-3: legacy memory_ writes must survive a hybrid state_updates+variable_updates response."""
+
+    @pytest.mark.asyncio
+    async def test_memory_write_survives_hybrid_response(self, engine, sample_context):
+        """A response with BOTH state_updates (incl. memory_x) and variable_updates
+        must still apply the legacy memory_x write (E-3)."""
+        target_agent_id = "mem_target"
+
+        def hybrid(context, agent):
+            resp = AgentResponse(variable_updates={"v2_var": "v2_value"})
+            resp.state_updates = {
+                f"memory_{target_agent_id}": {"legacy_mem_key": "legacy_mem_value"},
+                "plain_var": "should_be_skipped",
+            }
+            return resp
+
+        agent = MockAgent("hybrid", response_fn=hybrid)
+        engine.register_agent(agent)
+
+        await engine.process_turn(sample_context)
+
+        # The legacy memory_ write is applied unconditionally.
+        mem = sample_context.blackboard.get_memory(target_agent_id)
+        assert mem.get("legacy_mem_key") == "legacy_mem_value"
+        # The v2 variable still landed.
+        assert sample_context.blackboard.get_var("v2_var") == "v2_value"
+        # The plain legacy var is correctly superseded by v2 (not applied).
+        assert sample_context.blackboard.get_var("plain_var") is None
+
+    @pytest.mark.asyncio
+    async def test_legacy_only_plain_var_still_applies(self, engine, sample_context):
+        """Regression guard: with no variable_updates, plain legacy vars still map through."""
+        def legacy_only(context, agent):
+            resp = AgentResponse()
+            resp.state_updates = {"plain_var": "applied"}
+            return resp
+
+        agent = MockAgent("legacy", response_fn=legacy_only)
+        engine.register_agent(agent)
+
+        await engine.process_turn(sample_context)
+        assert sample_context.blackboard.get_var("plain_var") == "applied"
+
+
+class TestE4UpdateApiKey:
+    """E-4: update_api_key closes the previous client and documents its precondition."""
+
+    def test_update_api_key_closes_previous_client(self, engine):
+        """The previous LLMClient's underlying session is closed on swap."""
+        closed = {"called": False}
+
+        class FakeUnderlying:
+            def close(self):
+                closed["called"] = True
+
+        # Replace the engine's current client's underlying session with a probe.
+        engine.llm_client.client = FakeUnderlying()
+        old_client = engine.llm_client
+
+        engine.update_api_key("new_test_key")
+
+        assert closed["called"] is True
+        # The client reference was actually swapped.
+        assert engine.llm_client is not old_client
+
+    def test_update_api_key_swaps_client_and_reinjects(self, engine):
+        """After update, a new client is installed and re-injected into agents."""
+        agent = MockAgent("a")
+        engine.register_agent(agent)
+        old_client = engine.llm_client
+
+        engine.update_api_key("another_key")
+
+        assert engine.llm_client is not old_client
+        assert agent.llm is engine.llm_client
+
+    def test_update_api_key_handles_no_close_gracefully(self, engine):
+        """A client whose underlying session lacks close() must not raise."""
+        engine.llm_client.client = object()  # no close attribute
+        # Should not raise.
+        engine.update_api_key("k")
+
+    def test_close_llm_client_swallows_close_errors(self, engine):
+        """Best-effort close: an exception from close() is swallowed, not propagated."""
+        class Boom:
+            def close(self):
+                raise RuntimeError("close failed")
+
+        class Wrapper:
+            client = Boom()
+
+        # Must not raise.
+        AgentEngine._close_llm_client(Wrapper())
+
+    def test_update_api_key_documents_concurrency_precondition(self):
+        """The E-4 docstring must state the no-concurrent-process_turn precondition."""
+        doc = AgentEngine.update_api_key.__doc__ or ""
+        assert "process_turn" in doc
+        assert "concurrency" in doc.lower() or "concurrent" in doc.lower()
+
+
+class TestE5MergeLookup:
+    """E-5: merge priority lookup is O(1) and warns on unresolvable agent_id."""
+
+    @pytest.mark.asyncio
+    async def test_merge_ordering_unchanged_with_o1_lookup(self, engine, sample_context):
+        """Existing higher-priority-wins ordering must hold via the O(1) lookup."""
+        def low(context, agent):
+            return AgentResponse(variable_updates={"k": "low"})
+
+        def high(context, agent):
+            return AgentResponse(variable_updates={"k": "high"})
+
+        engine.register_agent(MockAgent("low", priority=1, response_fn=low))
+        engine.register_agent(MockAgent("high", priority=10, response_fn=high))
+
+        response = await engine.process_turn(sample_context)
+        assert response.variable_updates["k"] == "high"
+        assert sample_context.blackboard.get_var("k") == "high"
+
+    def test_agent_meta_populated_at_register_time(self, engine):
+        """_agent_meta caches (priority, registration-order) for O(1) merge lookup."""
+        a = MockAgent("a", priority=3)
+        b = MockAgent("b", priority=7)
+        engine.register_agent(a)
+        engine.register_agent(b)
+
+        assert engine._agent_meta[a.config.id] == (3, 0)
+        assert engine._agent_meta[b.config.id] == (7, 1)
+
+    def test_unresolvable_agent_id_logs_warning(self, engine, sample_context):
+        """A response whose source_agent_id is not registered logs a warning and
+        defaults to priority/order 0 (latent ordering bug observability)."""
+        blackboard = sample_context.blackboard
+        final = AgentResponse()
+        orphan = AgentResponse(
+            source_agent_id="ghost_agent",
+            variable_updates={"orphan_var": "value"},
+        )
+
+        with patch("xubb_agents.core.engine.logger") as mock_log:
+            engine._merge_responses([orphan], blackboard, final)
+
+        assert any(
+            "ghost_agent" in str(c) for c in mock_log.warning.call_args_list
+        ), "Expected a warning naming the unresolvable agent_id"
+        # The update is still applied (graceful degradation).
+        assert blackboard.get_var("orphan_var") == "value"

@@ -1,6 +1,5 @@
 import os
 import json
-import time
 from jinja2.sandbox import SandboxedEnvironment
 from ..core.agent import BaseAgent, AgentConfig
 from ..core.models import AgentContext, AgentResponse, InsightType, TriggerType, Event, Fact
@@ -151,6 +150,81 @@ class DynamicAgent(BaseAgent):
                 "type_field": "type"
             }
         }
+
+    @staticmethod
+    def _coerce_confidence(raw) -> float:
+        """A-3: Coerce model-supplied confidence to a float in [0,1].
+
+        Accepts ints/floats/numeric strings. Clamps out-of-range values into
+        [0,1]. Returns 1.0 for anything non-numeric (e.g. "high") or NaN so a
+        bad value never propagates into AgentInsight's ge=0,le=1 validator.
+        """
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            return 1.0
+        # Reject NaN (NaN != NaN); inf clamps below.
+        if val != val:
+            return 1.0
+        if val < 0.0:
+            return 0.0
+        if val > 1.0:
+            return 1.0
+        return val
+
+    @staticmethod
+    def _coerce_expiry(raw):
+        """S-1: Coerce model-supplied expiry to a positive int (seconds).
+
+        Returns None (→ AgentInsight default of 15s) for missing/invalid/
+        non-positive values so a bad value never crashes the insight.
+        """
+        if raw is None:
+            return None
+        try:
+            val = int(float(raw))
+        except (TypeError, ValueError):
+            return None
+        if val <= 0:
+            return None
+        return val
+
+    @staticmethod
+    def _coerce_action_label(raw):
+        """S-1: Coerce model-supplied action_label to a non-empty str or None."""
+        if raw is None:
+            return None
+        try:
+            text = str(raw).strip()
+        except Exception:
+            return None
+        return text or None
+
+    def _session_now(self, context: AgentContext) -> float:
+        """A-2 / INV-13: best-available session-relative 'now' in seconds.
+
+        The documented convention (SPEC_V2 §timestamps) is that ALL model
+        timestamps — TranscriptSegment, Event, Fact — are session-relative
+        seconds, not wall-clock epoch. The engine does not currently thread a
+        dedicated session-start reference into the agent, so the cleanest
+        non-invasive reference reachable here is the conversation itself: the
+        most recent segment's (already session-relative) timestamp is the
+        current session-relative time.
+
+        LIMITATION: if the context carries no segments (e.g. an event-only
+        Phase-2 run with an empty window), we fall back to 0.0 (session start)
+        rather than wall-clock. This is a deliberate minimal-safe choice: it
+        guarantees we NEVER emit a raw epoch, at the cost of a 0.0 stamp in the
+        rare no-segment case. A future signature change threading an explicit
+        session clock would remove this fallback.
+        """
+        try:
+            segments = context.recent_segments or []
+            if segments:
+                return float(max(seg.timestamp for seg in segments))
+        except Exception:
+            pass
+        return 0.0
 
     async def evaluate(self, context: AgentContext) -> AgentResponse:
         if not self.llm:
@@ -315,14 +389,28 @@ class DynamicAgent(BaseAgent):
                         # Map common aliases if needed, or default
                         insight_type = InsightType.SUGGESTION
                     
-                    # Confidence
+                    # Confidence (A-3): coerce to float and clamp to [0,1].
+                    # A bad LLM value (e.g. 1.5 or "high") must NOT turn a good
+                    # insight into a validation ERROR — default to 1.0 on failure.
                     conf_key = self.mapping.get("confidence_field", "confidence")
-                    confidence = root_data.get(conf_key, 1.0)
-                    
+                    confidence = self._coerce_confidence(root_data.get(conf_key, 1.0))
+
+                    # expiry / action_label (S-1): schemas instruct the model to
+                    # return these, so honor the contract and pass them through.
+                    # Coerce safely; a bad value must not crash the insight.
+                    expiry = self._coerce_expiry(
+                        root_data.get(self.mapping.get("expiry_field", "expiry"))
+                    )
+                    action_label = self._coerce_action_label(
+                        root_data.get(self.mapping.get("action_label_field", "action_label"))
+                    )
+
                     insight = self.create_insight(
                         content=content,
                         type=insight_type,
-                        confidence=confidence
+                        confidence=confidence,
+                        expiry=expiry,
+                        action_label=action_label,
                     )
                     
                     # Metadata Extraction
@@ -374,7 +462,7 @@ class DynamicAgent(BaseAgent):
             events_field = self.mapping.get("events_field", "events")
             raw_events = result.get(events_field, [])
             if raw_events and isinstance(raw_events, list):
-                current_time = time.time()  # Session-relative would need context
+                current_time = self._session_now(context)  # A-2: session-relative, not epoch
                 for evt in raw_events:
                     if isinstance(evt, dict):
                         event = Event(
@@ -415,7 +503,7 @@ class DynamicAgent(BaseAgent):
             facts_field = self.mapping.get("facts_field", "facts")
             raw_facts = result.get(facts_field, [])
             if raw_facts and isinstance(raw_facts, list):
-                current_time = time.time()
+                current_time = self._session_now(context)  # A-2: session-relative, not epoch
                 for f in raw_facts:
                     if isinstance(f, dict):
                         fact = Fact(
