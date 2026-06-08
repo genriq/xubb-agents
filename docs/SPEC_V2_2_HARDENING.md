@@ -68,7 +68,7 @@ These extend the v2.1 invariant set (INV-1 … INV-8). Each is currently violate
 
 | ID | Invariant | Current Status |
 |----|-----------|---------------|
-| **INV-9** | Fact conflict resolution is **deterministic** and honors the documented precedence: higher agent **priority** wins; ties broken by **confidence**; remaining ties by **registration order**. | **Violated** (F-1 — confidence-only) |
+| **INV-9** | Fact conflict resolution is **deterministic** and honors the documented precedence: higher agent **priority** wins; ties broken by **confidence**; remaining ties by **registration order**. | **Resolved** (F-1 — v2.2; `Fact.priority` + engine stamp + `(priority,confidence)` gate; guarded by PROBE-F1) |
 | **INV-10** | Every external LLM call is **time-bounded** and fails with **typed, distinguishable** outcomes (timeout vs rate-limit vs auth vs server vs malformed), never an undifferentiated silent `None`. | **Violated** (R-1) |
 | **INV-11** | An agent stays **silent** when its schema's gate says so. The **absence** of a gate field must never *force* speech; gate-less schemas default to a safe, documented policy. | **Violated** (A-1 — gate-less schemas always speak) |
 | **INV-12** | Any engine mutation of **host-owned context** (`trigger_type`, `phase`, …) is **always restored**, even when the turn raises mid-phase. | **Violated** (E-1 — no `try/finally`) |

@@ -474,8 +474,12 @@ class AgentEngine:
                     final_response.queue_pushes[queue_name] = []
                 final_response.queue_pushes[queue_name].extend(items)
             
-            # Apply facts to blackboard (deduplication handled by Blackboard)
+            # Apply facts to blackboard. Stamp the emitting agent's priority so add_fact
+            # resolves (type,key) conflicts by (priority, confidence) per INV-9 — higher
+            # priority wins regardless of confidence; confidence is only the tiebreaker
+            # within equal priority. (deduplication handled by Blackboard.add_fact)
             for fact in resp.facts:
+                fact.priority = priority
                 blackboard.add_fact(fact)
             final_response.facts.extend(resp.facts)
             

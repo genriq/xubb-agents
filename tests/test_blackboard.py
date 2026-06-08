@@ -205,6 +205,80 @@ class TestBlackboardFacts:
         # Get missing
         assert bb.get_fact("missing") is None
 
+    # ---- F-1 / INV-9: conflict resolution honors (priority, confidence, order) ----
+
+    def test_higher_priority_wins_over_higher_confidence(self):
+        """INV-9 rule 1: higher priority wins even at LOWER confidence."""
+        bb = Blackboard()
+        bb.add_fact(Fact(
+            type="budget", key="primary", value="low_prio",
+            confidence=0.9, priority=1, source_agent="a", timestamp=1.0,
+        ))
+        bb.add_fact(Fact(
+            type="budget", key="primary", value="high_prio",
+            confidence=0.5, priority=10, source_agent="b", timestamp=2.0,
+        ))
+        assert bb.get_fact("budget", "primary").value == "high_prio"
+
+    def test_lower_priority_does_not_override(self):
+        """A lower-priority fact must NOT replace a higher-priority incumbent."""
+        bb = Blackboard()
+        bb.add_fact(Fact(
+            type="budget", key="primary", value="high_prio",
+            confidence=0.5, priority=10, source_agent="a", timestamp=1.0,
+        ))
+        bb.add_fact(Fact(
+            type="budget", key="primary", value="low_prio",
+            confidence=0.99, priority=1, source_agent="b", timestamp=2.0,
+        ))
+        assert bb.get_fact("budget", "primary").value == "high_prio"
+
+    def test_equal_priority_higher_confidence_wins(self):
+        """INV-9 rule 2: within equal priority, higher confidence wins."""
+        bb = Blackboard()
+        bb.add_fact(Fact(
+            type="budget", key="primary", value="lower_conf",
+            confidence=0.6, priority=5, source_agent="a", timestamp=1.0,
+        ))
+        bb.add_fact(Fact(
+            type="budget", key="primary", value="higher_conf",
+            confidence=0.8, priority=5, source_agent="b", timestamp=2.0,
+        ))
+        assert bb.get_fact("budget", "primary").value == "higher_conf"
+        # And a subsequent equal-priority LOWER-confidence write must not replace it.
+        bb.add_fact(Fact(
+            type="budget", key="primary", value="even_lower",
+            confidence=0.4, priority=5, source_agent="c", timestamp=3.0,
+        ))
+        assert bb.get_fact("budget", "primary").value == "higher_conf"
+
+    def test_equal_priority_equal_confidence_later_registration_wins(self):
+        """INV-9 rule 3: full tie → later registration (later add_fact call) wins."""
+        bb = Blackboard()
+        bb.add_fact(Fact(
+            type="budget", key="primary", value="first",
+            confidence=0.7, priority=5, source_agent="a", timestamp=1.0,
+        ))
+        bb.add_fact(Fact(
+            type="budget", key="primary", value="second",
+            confidence=0.7, priority=5, source_agent="b", timestamp=2.0,
+        ))
+        assert bb.get_fact("budget", "primary").value == "second"
+
+    def test_priority_resolution_applies_to_keyless_singleton(self):
+        """key=None singleton resolution obeys the same (priority, confidence) rule."""
+        bb = Blackboard()
+        bb.add_fact(Fact(
+            type="phase", key=None, value="low_prio",
+            confidence=0.95, priority=1, source_agent="a", timestamp=1.0,
+        ))
+        bb.add_fact(Fact(
+            type="phase", key=None, value="high_prio",
+            confidence=0.5, priority=10, source_agent="b", timestamp=2.0,
+        ))
+        assert len(bb.get_facts_by_type("phase")) == 1
+        assert bb.get_fact("phase").value == "high_prio"
+
 
 class TestBlackboardMemory:
     """Test memory operations."""
