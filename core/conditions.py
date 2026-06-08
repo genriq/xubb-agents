@@ -153,12 +153,15 @@ class ConditionEvaluator:
                 return actual is not None and actual <= expected
             
             elif op == "in":
-                # Value in list
-                return actual in expected if expected else False
-            
+                # Value in list. Guard on `is None` (not truthiness) so a
+                # legitimately-falsy expected (e.g. 0, "") still runs a real
+                # membership test rather than short-circuiting to False.
+                return actual in expected if expected is not None else False
+
             elif op == "not_in":
-                # Value not in list
-                return actual not in expected if expected else True
+                # Value not in list. Guard on `is None` (not truthiness) so a
+                # legitimately-falsy expected still runs a real membership test.
+                return actual not in expected if expected is not None else True
             
             elif op == "contains":
                 # List/string/dict contains value
@@ -197,15 +200,19 @@ class ConditionEvaluator:
             elif op == "mod":
                 # Modulo operation: turn_count % 5 == 0
                 result = rule.get("result", 0)
-                if actual is None or expected is None:
+                # Guard locally: None operands or a zero divisor fail closed
+                # here (intentional, local) rather than raising
+                # ZeroDivisionError into the distant blanket except.
+                if actual is None or expected is None or expected == 0:
                     return False
                 return (actual % expected) == result
             
-            # Unknown operator - treat as pass
+            # Unknown operator - fail CLOSED (the module's stated philosophy).
+            # A typo'd operator must not fire the agent every turn.
             logger.warning(f"Unknown condition operator: {op}")
-            return True
-            
-        except (TypeError, ValueError, AttributeError) as e:
+            return False
+
+        except (TypeError, ValueError, AttributeError, ZeroDivisionError) as e:
             # Type mismatch or invalid operation → condition fails
             logger.debug(f"Condition comparison error for op '{op}': {e}")
             return False

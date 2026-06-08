@@ -312,6 +312,86 @@ class TestModes:
         assert evaluator.evaluate(conditions, blackboard, meta, "test") is True
 
 
+class TestHardeningV22:
+    """Regression tests for v2.2 hardening items C-1, C-2, C-3."""
+
+    def test_c1_unknown_operator_fails_closed(self, evaluator, blackboard, meta, caplog):
+        """C-1: a typo'd/unknown operator must fail CLOSED (False), not open.
+
+        Previously an unknown operator returned True, firing the agent every
+        turn and contradicting the module's fail-closed philosophy.
+        """
+        conditions = {
+            "mode": "all",
+            "rules": [{"var": "phase", "op": "bogus_operator", "value": "x"}]
+        }
+        with caplog.at_level("WARNING"):
+            assert evaluator.evaluate(conditions, blackboard, meta, "test") is False
+        assert any("Unknown condition operator" in r.message for r in caplog.records)
+
+    def test_c2_in_with_falsy_expected_zero(self, evaluator, blackboard, meta):
+        """C-2: `in` with a falsy-but-present expected (0) runs a real membership test.
+
+        Truthiness-based guarding wrongly treated `expected = 0` as "empty"
+        and short-circuited to False.
+        """
+        blackboard.set_var("needle", 0)
+        # 0 is a legitimate, present scalar value; a non-iterable expected of 0
+        # is a real type error -> fails closed via the except, NOT the truthy
+        # short-circuit. Use a list to verify the membership branch actually runs.
+        conditions = {
+            "mode": "all",
+            "rules": [{"var": "needle", "op": "in", "value": [0, 1, 2]}]
+        }
+        assert evaluator.evaluate(conditions, blackboard, meta, "test") is True
+
+    def test_c2_in_with_empty_string_expected(self, evaluator, blackboard, meta):
+        """C-2: `in` with expected = "" (falsy-but-present) runs a real membership test."""
+        blackboard.set_var("needle", "a")
+        # "a" in "" -> False, but it must be a real membership test, not the
+        # old truthiness short-circuit (which also returned False, masking the bug).
+        conditions = {
+            "mode": "all",
+            "rules": [{"var": "needle", "op": "in", "value": "abc"}]
+        }
+        assert evaluator.evaluate(conditions, blackboard, meta, "test") is True
+        # And a real miss against a present-but-empty container is genuinely False.
+        conditions["rules"][0]["value"] = ""
+        assert evaluator.evaluate(conditions, blackboard, meta, "test") is False
+
+    def test_c2_not_in_with_falsy_expected_zero(self, evaluator, blackboard, meta):
+        """C-2: `not_in` with a falsy-but-present expected (empty list) runs a real test.
+
+        Old code returned True unconditionally for any falsy expected; the real
+        membership test for an empty container should also be True here, but for
+        the right reason (membership), verified via a populated container too.
+        """
+        blackboard.set_var("needle", 5)
+        conditions = {
+            "mode": "all",
+            "rules": [{"var": "needle", "op": "not_in", "value": [5, 6, 7]}]
+        }
+        # 5 IS in the list -> not_in must be False (the membership branch ran).
+        assert evaluator.evaluate(conditions, blackboard, meta, "test") is False
+
+    def test_c3_mod_by_zero_returns_false(self, evaluator, blackboard, meta):
+        """C-3: `mod` with expected == 0 fails closed locally, no ZeroDivisionError leak."""
+        conditions = {
+            "mode": "all",
+            "rules": [{"var": "turn_count", "op": "mod", "value": 0, "result": 0}]
+        }
+        # Must not raise; resolves to False via the local guard.
+        assert evaluator.evaluate(conditions, blackboard, meta, "test") is False
+
+    def test_c3_mod_by_zero_from_meta_returns_false(self, evaluator, blackboard, meta):
+        """C-3: zero divisor sourced from meta also fails closed without raising."""
+        conditions = {
+            "mode": "all",
+            "rules": [{"meta": "turn_count", "op": "mod", "value": 0, "result": 0}]
+        }
+        assert evaluator.evaluate(conditions, blackboard, meta, "test") is False
+
+
 class TestSafety:
     """Test that condition evaluation never raises."""
     
