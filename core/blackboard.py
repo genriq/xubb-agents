@@ -73,9 +73,11 @@ class Blackboard(BaseModel):
     def set_var(self, key: str, value: Any, _engine_internal: bool = False) -> None:
         """Set a session variable.
 
-        Keys starting with 'sys.' are reserved for engine use.
-        Non-engine writes to sys.* emit a warning (v2.1) and will
-        become a hard error in v2.2.
+        Keys starting with 'sys.' are engine-reserved. Non-engine writes to
+        sys.* emit a warning but are still applied (the write is not blocked).
+        sys.* keys are excluded from the legacy ``shared_state`` sync (E-2),
+        so an engine-managed sys.* value never round-trips back through a v1
+        agent's state_updates.
         """
         if key.startswith("sys.") and not _engine_internal:
             _bb_logger.warning(
