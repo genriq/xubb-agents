@@ -27,6 +27,11 @@ schema_version: 1
 baseline_commit: "47f742d"
 seeded: "2026-06-08 (R0)"
 
+# Debt ratchet: the gate fails if the number of to_verify/uncovered/pending entries
+# exceeds this baseline. Debt may SHRINK (lower this when you promote an entry to
+# covered) but never silently grow. Current debt: 8 to_verify + 1 uncovered (INV-5).
+debt_baseline: 9
+
 contracts:
 
   # ---- The headline contract: the F-1 escape this whole registry exists to prevent ----
@@ -165,11 +170,48 @@ contracts:
     test: "tests/test_engine.py::TestV22Closeout::test_mr1_blackboard_memory_synced_to_shared_state"
     status: covered   # v2.2 MR-1 (Amendment 1): engine syncs blackboard.memory -> shared_state.
 
+  # ---- L0 process gate (R1): the gate enforces its OWN contracts ----
+  - id: REGISTRY-WELLFORMED
+    statement: >
+      The shipped CONTRACTS.yaml is structurally valid: unique ids, a valid status
+      per entry, and every covered/to_verify/failing_probe entry names a test.
+    source: ["DEVELOPMENT_PROCESS.md: §4.1", "tools/check_contracts.py: validate_registry"]
+    test: "tests/test_check_contracts.py::TestWellformed::test_real_registry_is_wellformed"
+    status: covered   # R1: check_contracts.py validate_registry guards this on every run.
+
+  - id: GATE-INFRASTRUCTURE
+    statement: >
+      The contract gate fails the build for any `covered` contract whose named test
+      is missing, skipped, or failing (G1/G3); a passing test is required.
+    source: ["DEVELOPMENT_PROCESS.md: §4.1 / §4.3", "tools/check_contracts.py: evaluate"]
+    invariant: G1
+    test: "tests/test_check_contracts.py::TestGate::test_gate_fails_on_uncovered_contract"
+    status: covered   # R1: tools/check_contracts.py landed (L0).
+
+  - id: CONTRACT-BIJECTION
+    statement: >
+      Every `covered` contract maps to a test that exists, is not skipped, and
+      passes; skipped/failed/missing all hard-fail the gate (G2 bijection).
+    source: ["DEVELOPMENT_PROCESS.md: §4.2", "tools/check_contracts.py: evaluate"]
+    invariant: G2
+    test: "tests/test_check_contracts.py::TestGate::test_contract_test_bijection"
+    status: covered   # R1.
+
+  - id: RELEASE-GATE-CI
+    statement: >
+      A CI workflow runs tools/check_contracts.py so a broken covered contract or a
+      malformed registry blocks merge (the gate is enforced, not advisory).
+    source: ["DEVELOPMENT_PROCESS.md: §4.1 / §7", ".github/workflows/contract-gate.yml"]
+    test: "tests/test_check_contracts.py::TestReleaseGateCI::test_ci_workflow_exists_and_invokes_gate"
+    status: covered   # R1.
+
 # ---- Coverage summary (informational; R1 `check_contracts.py` computes this authoritatively) ----
-# covered:        7   (FACT-PRECEDENCE/F-1, INV-8'/M-1, INV-13/A-2, INV-10/R-1, INV-11/A-1, INV-12/E-1, INV-14/MR-1)
+# covered:       11   (7 v2.2 invariants + 4 L0 gate: REGISTRY-WELLFORMED, GATE-INFRASTRUCTURE,
+#                      CONTRACT-BIJECTION, RELEASE-GATE-CI)
 # to_verify:      8   (R1 bijection back-fill)
 # failing_probe:  0
 # pending_v2.2:   0
 # uncovered:      1   (INV-5 — tracing-never-crashes; no direct test yet)
-# → All v2.2 HIGH/critical/medium invariants now covered. Remaining: INV-5 + the to_verify
-#   back-fill (R1), and Phase 0/4 (infra, hygiene, docs, version bump).
+# total:         20
+# → L0 (the gate itself) has landed and self-covers. Remaining: INV-5 + the to_verify
+#   back-fill (R1), and the P0–P4 integration contracts as they land.
