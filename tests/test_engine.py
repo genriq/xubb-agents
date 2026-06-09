@@ -1263,3 +1263,68 @@ class TestE1Phase2ExceptionSafety:
         # (2) on_chain_error still fired and the error propagated (B5 contract).
         assert len(tracker.errors) == 1
         assert str(tracker.errors[0]) == "phase2 boom"
+
+
+class TestReplaceAgents:
+    """replace_agents atomically swaps the full registry (P0-3 vault-reload race).
+
+    A vault reload previously did agents.clear() + register loop, which a hot turn
+    iterating self.agents could observe half-cleared. replace_agents rebuilds and
+    rebinds the three structures so readers only ever see a complete set.
+    """
+
+    def test_replace_agents_swaps_registry_and_clears_stale_meta(self, engine):
+        a = MockAgent("alpha", priority=5)
+        b = MockAgent("beta", priority=3)
+        engine.register_agent(a)
+        engine.register_agent(b)
+
+        c = MockAgent("gamma", priority=7)
+        engine.replace_agents([c])
+
+        assert engine.agents == [c]
+        assert engine._agent_meta[c.config.id] == (7, 0)   # (priority, index)
+        assert engine._agent_index[c.config.id] == 0
+        assert c.llm is engine.llm_client                  # llm injected
+        # No stale entries leak from the replaced agents (fresh dicts).
+        assert a.config.id not in engine._agent_meta
+        assert b.config.id not in engine._agent_index
+
+    def test_replace_agents_never_observed_half_cleared(self):
+        """Concurrent readers must only ever see a COMPLETE agent set (old or new),
+        never a partial/zero list mid-swap (the agents.clear() race). Verified with a
+        tiny GIL switch-interval so threads interleave mid-iteration."""
+        import sys
+        import threading
+
+        engine = AgentEngine(api_key="test_key")
+        for i in range(20):
+            engine.register_agent(MockAgent(f"a{i}"))
+
+        errors = []
+        stop = threading.Event()
+
+        def reader():
+            while not stop.is_set():
+                try:
+                    n = sum(1 for _ in engine.agents)
+                    if n not in (20, 30):            # complete old set or complete new set
+                        errors.append(f"partial read: {n}")
+                except Exception as exc:             # noqa: BLE001
+                    errors.append(repr(exc))
+
+        old = sys.getswitchinterval()
+        sys.setswitchinterval(1e-7)
+        try:
+            readers = [threading.Thread(target=reader) for _ in range(6)]
+            for t in readers:
+                t.start()
+            for _ in range(200):
+                engine.replace_agents([MockAgent(f"b{j}") for j in range(30)])
+            stop.set()
+            for t in readers:
+                t.join()
+        finally:
+            sys.setswitchinterval(old)
+
+        assert not errors, errors[:5]

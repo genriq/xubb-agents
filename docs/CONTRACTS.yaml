@@ -205,6 +205,19 @@ contracts:
     test: "tests/test_check_contracts.py::TestReleaseGateCI::test_ci_workflow_exists_and_invokes_gate"
     status: covered   # R1.
 
+  - id: AGENT-REGISTRY-ATOMIC-SWAP
+    statement: >
+      AgentEngine.replace_agents() swaps the full registry atomically: a concurrent
+      turn iterating self.agents (or reading _agent_meta) never observes a
+      half-cleared registry. The three structures (agents, _agent_index, _agent_meta)
+      are rebuilt fresh and rebound (agents last) — never mutated in place — so a
+      reader sees a complete old or complete new set, with no stale-meta leak.
+    source:
+      - "core/engine.py: replace_agents"
+    test: "tests/test_engine.py::TestReplaceAgents::test_replace_agents_swaps_registry_and_clears_stale_meta"
+    test_concurrent: "tests/test_engine.py::TestReplaceAgents::test_replace_agents_never_observed_half_cleared"
+    status: covered   # supports the backend P0-3 vault-reload-race fix.
+
 # ---- Coverage summary (informational; R1 `check_contracts.py` computes this authoritatively) ----
 # covered:       11   (7 v2.2 invariants + 4 L0 gate: REGISTRY-WELLFORMED, GATE-INFRASTRUCTURE,
 #                      CONTRACT-BIJECTION, RELEASE-GATE-CI)
