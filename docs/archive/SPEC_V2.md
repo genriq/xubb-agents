@@ -1,7 +1,7 @@
 # Xubb Agents Framework v2.0
 ## Techno-Functional-Implementation Specification
 
-> **ARCHIVED** — This document describes the v2.0 design as originally shipped. The current version is **v2.1.1**. For all changes since v2.0, see [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) (v2.1 bug fixes and security hardening) and [SPEC_V2_1_1_BUGFIX.md](SPEC_V2_1_1_BUGFIX.md) (v2.1.1 bug fixes and improvements). This spec remains the authoritative reference for v2.0 architectural decisions and design rationale.
+> **ARCHIVED** — This document describes the v2.0 design as originally shipped. The current version is **v2.2.0** ([SPEC_V2_2_HARDENING.md](../SPEC_V2_2_HARDENING.md)). It remains the authoritative reference for v2.0 architectural decisions and design rationale, but **its code/pseudocode must not be used as a reference for current behavior** — e.g. the §6.5.4 fact-resolution pseudocode shows the old confidence-only logic that the v2.2 **F-1** fix corrected (current rule: priority → confidence → registration order). For the live contract see [CONTRACTS.yaml](../CONTRACTS.yaml) and the [CHANGELOG](../../CHANGELOG.md). Intermediate history: [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md), [SPEC_V2_1_1_BUGFIX.md](SPEC_V2_1_1_BUGFIX.md).
 
 **Version:** 2.0.3
 **Status:** Archived (superseded by v2.1 for behavioral details)
