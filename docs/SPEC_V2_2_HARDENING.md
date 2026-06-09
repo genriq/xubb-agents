@@ -3,7 +3,7 @@
 
 **Version:** 2.2.0
 **Status:** IMPLEMENTED — 2026-06-08. All 33 items + Amendment 1 (MR-1) landed across 3 PRs
-(F-1 + medium; HIGH; Phase 0/4 closeout). Suite 105 → 230+. See CHANGELOG `[2.2.0]`.
+(F-1 + medium; HIGH; Phase 0/4 closeout). Suite 105 → 224. See CHANGELOG `[2.2.0]`.
 **Date:** June 8, 2026
 **Process Tier:** **Tier 1** (contract change + silent-regression risk → master spec before code; see `process-development-workflow`)
 **Scope:** One confirmed critical contract bug, four high-severity robustness gaps, a cluster of medium contract/robustness fixes, and code/doc hygiene — identified during a 5-agent comprehensive audit of v2.1.1.
@@ -75,8 +75,11 @@ These extend the v2.1 invariant set (INV-1 … INV-8). Each is currently violate
 | **INV-12** | Any engine mutation of **host-owned context** (`trigger_type`, `phase`, …) is **always restored**, even when the turn raises mid-phase. | **Resolved** (E-1 — v2.2; Phase-2 block wrapped in `try/finally`) |
 | **INV-8′** | INV-8 extended: agent memory values are copies on **write** as well as on read. A caller mutating an object it passed into `set_memory`/`update_memory` must not mutate blackboard state. | **Resolved** (M-1 — v2.2; deep-copy on write) |
 | **INV-13** | Timestamps on `Event` and `Fact` follow the **single documented convention** (session-relative seconds). No code path emits wall-clock epoch where the model documents session-relative. | **Resolved** (A-2 — v2.2; session-relative in DynamicAgent) |
+| **INV-14** | Agent persistent memory committed to the blackboard is visible on the next turn's read-path (`shared_state["memory_<id>"]`) independent of whether the agent instance is reused. | **Resolved** (MR-1 — v2.2; engine syncs `blackboard.memory` → `shared_state[memory_<id>]`; see Amendment 1) |
 
-Post-release, all invariants (INV-1 … INV-13, INV-8′) must hold. A regression violating any invariant blocks the release.
+> **Numbering note (INV-9/INV-10 cross-spec collision).** The archived `SPEC_V2_1_1_BUGFIX` used **INV-9/INV-10** for *observability* invariants (agent-execute-or-report; `on_chain_error`-fires). That numbering was **provisional and is superseded**: this spec (SPEC_V2_2) reuses **INV-9** for fact-precedence and **INV-10** for the LLM time-bound. The canonical, current invariant numbering is the one defined in this spec and in `docs/CONTRACTS.yaml`; the v2.1.1 INV-9/INV-10 labels should be read as historical.
+
+Post-release, all invariants (INV-1 … INV-13, INV-8′ + INV-14) must hold. A regression violating any invariant blocks the release.
 
 ---
 
@@ -238,7 +241,7 @@ INV-9 holds. The new engine-level test fails on `47f742d` and passes after F-1. 
 **Tests:** monkeypatch the client to raise each typed error and a timeout; assert the call returns the documented sentinel/結果 without raising and logs the correct category; assert `max_tokens`/`timeout` are passed.
 
 ### 6.2 A-1 — Silence contract for gate-less schemas
-`library/dynamic.py:291-300`. When a mapping has **no `check_field`** and no `root_key`, `should_speak` currently defaults to `True` whenever content is present — so a custom schema that omits a gate spams every turn. Fix: define and implement a **safe, documented default policy** for gate-less schemas, and **warn at load time** when a schema's instruction references a gate field that the mapping omits. Honors **INV-11**. (Note: `default_v2.json` already sets `check_field: has_insight` and is unaffected; this protects user-authored schemas, which the prompt guide explicitly invites.)
+`library/dynamic.py:291-300`. When a mapping has **no `check_field`** and no `root_key`, `should_speak` currently defaults to `True` whenever content is present — so a custom schema that omits a gate spams every turn. Fix: define and implement a **safe, documented default policy** for gate-less schemas, and **warn at load time** when a schema's instruction references a gate field that the mapping omits. Honors **INV-11**. **Shipped mechanism:** a gate-less + rootless schema defaults to silence unless its mapping sets the explicit opt-in flag **`speak_without_gate: true`**, which restores the speak-on-content-alone behavior intentionally rather than by accident. (Note: `default_v2.json` already sets `check_field: has_insight` and is unaffected; this protects user-authored schemas, which the prompt guide explicitly invites.)
 **Tests:** DynamicAgent with a gate-less schema returning content → respects the documented default (no unintended speech); load-time warning fires on gate-field/mapping mismatch.
 
 ### 6.3 E-1 — Phase-2 mutation exception safety
@@ -357,7 +360,7 @@ A phase is **Done** when **all** hold:
 1. **Code:** every item in the phase implemented per its section.
 2. **Tests:** each item has ≥1 regression test; for F-1, the engine-level repro demonstrably failed pre-fix and passes post-fix.
 3. **Suite green:** `python -m pytest -q` passes with **zero** failures/errors and **no new warnings** (Phase 4 also drives the existing Pydantic warnings to zero via G-1).
-4. **Invariants:** no invariant (INV-1…INV-13, INV-8′) regressed; invariants the phase targets now hold.
+4. **Invariants:** no invariant (INV-1…INV-13, INV-8′ + INV-14) regressed; invariants the phase targets now hold.
 5. **Docs in lockstep:** any contract touched in the phase has its doc/docstring updated in the **same** phase (no deferred doc debt).
 6. **CHANGELOG:** the `[2.2.0]` section updated with the phase's items (running, not end-loaded).
 7. **Self-review:** diff reviewed for scope creep; no unrelated changes.
@@ -412,7 +415,7 @@ Release-level DoD (end of Phase 4): full suite green, coverage added for `Dynami
 2. F-1 engine repro present and passing; `test_higher_priority_wins` still green.
 3. `DynamicAgent` + tracer coverage present (T-1).
 4. Version `2.2.0` consistent across `pyproject.toml`, `__init__.py`, README, CHANGELOG, this spec.
-5. All INV-1…INV-13 + INV-8′ hold (checklist reviewed).
+5. All INV-1…INV-13 + INV-8′ + INV-14 hold (checklist reviewed).
 6. CHANGELOG `[2.2.0]` complete; Migration Notes (F-1) called out for hosts.
 
 **Success metrics:**

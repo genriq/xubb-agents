@@ -3,7 +3,7 @@
 **Version:** 2.2.0
 **Status:** Production-Ready
 **Scope:** `xubb_agents` Library
-**Compatibility:** Backward compatible with v1.0/v2.0 agents, with one deliberate v2.2 contract correction (fact conflict resolution, F-1). See [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) for v2.1 behavioral normalizations and [SPEC_V2_2_HARDENING.md](SPEC_V2_2_HARDENING.md) for the v2.2 hardening items and migration notes.
+**Compatibility:** Backward compatible with v1.0/v2.0 agents, with one deliberate v2.2 contract correction (fact conflict resolution, F-1). See [SPEC_V2_1_HARDENING.md](archive/SPEC_V2_1_HARDENING.md) (archived) for v2.1 behavioral normalizations and [SPEC_V2_2_HARDENING.md](SPEC_V2_2_HARDENING.md) for the v2.2 hardening items and migration notes.
 
 ---
 
@@ -623,9 +623,12 @@ xubb_agents/
 │   ├── technical_spec_agents.md    # This document
 │   ├── prompt_engineering_guide.md # Prompt writing guide
 │   ├── EXECUTIVE_SUMMARY.md        # Strategic overview
-│   ├── SPEC_V2.md                  # Full v2.0 specification (archived)
-│   ├── SPEC_V2_1_HARDENING.md      # v2.1 hardening spec
-│   └── SPEC_V2_1_1_BUGFIX.md       # v2.1.1 bugfix spec
+│   ├── CONTRACTS.yaml              # Contract registry (live, machine-checkable)
+│   ├── SPEC_V2_2_HARDENING.md      # Current spec (v2.2)
+│   └── archive/                    # Superseded specs (v2.0 / v2.1 / v2.1.1)
+│       ├── SPEC_V2.md
+│       ├── SPEC_V2_1_HARDENING.md
+│       └── SPEC_V2_1_1_BUGFIX.md
 ├── __init__.py
 ├── README.md
 └── CHANGELOG.md

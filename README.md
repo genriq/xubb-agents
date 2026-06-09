@@ -43,51 +43,11 @@ context = AgentContext(
 response = await engine.process_turn(context, trigger_type=TriggerType.TURN_BASED)
 ```
 
-## What's New in v2.0
+## Release History
 
-| Feature | v1.0 | v2.0 |
-|---------|------|------|
-| State management | Flat dictionary | Structured Blackboard |
-| Agent coordination | Parallel only | Event-driven pub/sub |
-| Trigger conditions | None | Blackboard-aware preconditions |
-| Execution phases | Single pass | Multi-phase (normal → event-triggered) |
-| Data containers | Unstructured | Variables, Events, Queues, Facts, Memory |
-| Response caching | Hash-based LLM cache | **Removed** (cooldowns + conditions are better) |
-
-## What's New in v2.1
-
-v2.1 is a **hardening release** — no new features, only bug fixes and production-grade improvements:
-
-| Change | Impact |
-|--------|--------|
-| Jinja2 templates now sandboxed (`SandboxedEnvironment`) | SSTI vulnerability eliminated |
-| `source_agent_id` field on `AgentResponse` | Reliable agent identity (no more insight-based inference) |
-| `get_memory()` returns deep copy | Snapshot isolation enforced |
-| `to_dict()` returns deep copies | No mutable reference leaks |
-| Callbacks fire exactly once per agent | Previously fired 2x (engine + agent) |
-| Cooldown enforced after errors | Prevents runaway retries on persistent failures |
-| `on_phase_start`, `on_phase_end`, `on_agent_skipped` callbacks added | Previously crashed with `AttributeError` |
-| `AgentCallbackHandler` is no longer `ABC` | Subclasses don't need to implement anything |
-| `sys.*` write protection on Blackboard | Warns on non-engine writes to reserved keys |
-
-> **See [SPEC_V2_1_HARDENING.md](docs/SPEC_V2_1_HARDENING.md) for full details.**
-
-## What's New in v2.1.1
-
-v2.1.1 is a **bugfix release** — 4 bug fixes, 3 defense-in-depth improvements, and 1 test correction:
-
-| Change | Type | Impact |
-|--------|------|--------|
-| `get_event_subscribers()` now validates `TriggerType.EVENT` | Bug fix | Agents with `subscribed_events` but missing `EVENT` trigger type are excluded with a warning |
-| `_sync_state_to_legacy()` runs before Phase 2 | Bug fix | v1 agents in Phase 2 now see correct `shared_state` |
-| `memory_updates_by_agent` field on `AgentResponse` | Bug fix | Per-agent keyed memory available on aggregated responses (additive — `memory_updates` unchanged) |
-| `process_turn` wrapped for `on_chain_error` | Bug fix | `on_chain_error` callback now fires on unhandled exceptions |
-| Prompt whitespace elimination in `DynamicAgent` | Defense | Eliminates blank sections when optional context is absent |
-| Class-level `SandboxedEnvironment` in `DynamicAgent` | Defense | Single Jinja2 env instance instead of per-call allocation |
-| v2 fields added to `StructuredLogTracer` | Defense | Traces now include events, facts, queues, variables, memory |
-| `DynamicAgent` auto-adds `TriggerType.EVENT` | Convenience | Agents with `subscribed_events` get `EVENT` trigger type automatically |
-
-> **See [SPEC_V2_1_1_BUGFIX.md](docs/SPEC_V2_1_1_BUGFIX.md) for full details.**
+Earlier releases — v2.0 (structured-blackboard rewrite), v2.1 (hardening), v2.1.1 (bugfixes) —
+are summarized in the [CHANGELOG](CHANGELOG.md); their specs are archived under
+[docs/archive/](docs/archive/). Current-release highlights below.
 
 ## What's New in v2.2
 
@@ -104,6 +64,10 @@ v2.2 is a **hardening release** driven by a 5-agent audit — one critical contr
 | Conditions fail **closed** on unknown operators (C-1) | Bug fix | A typo'd operator no longer fires the agent every turn. |
 | `Event`/`Fact` timestamps are session-relative (A-2) | Bug fix | `DynamicAgent` no longer stamps wall-clock epoch. |
 | `expiry`/`action_label` parsed from LLM output (S-1) | Bug fix | Previously requested by schemas but dropped. |
+| Model-supplied `confidence` is clamped to `[0,1]` (A-3) | Bug fix | A bad value no longer turns a good insight into an error. |
+| `max_phases` accepts only `1` or `2` (E-7) | Hardening | Unsupported values are clamped with a warning instead of silently ignored. |
+| Keyword matching documented as case-insensitive **substring** (E-8) | Docs | Behavior was previously unspecified. |
+| Zero-deprecation-warning suite + robust import config (G-1, T-2) | Hardening | Pydantic `ConfigDict` migration; suite importable independent of the checkout dir name. |
 | Provider clarified as **OpenAI / OpenAI-compatible** (DOC-1) | Docs | The LLM client wraps `AsyncOpenAI`; a future Anthropic adapter is out of scope. |
 
 > **See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md) for full details.**
@@ -899,12 +863,10 @@ class AgentInsight(BaseModel):
 
 **v2.2 behavioral change (F-1):** Facts that collide on `(type, key)` now resolve by **priority** first (then confidence, then registration order), matching the always-documented contract. Consumers that depended on the prior confidence-only behavior may see a different fact win. `Fact.priority` is a new defaulted field — serialized v2.1.1 facts load unchanged with `priority=0`. All other v2.2 changes are additive or internal. See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md) §13 (Migration Notes).
 
-v2.1 is backward compatible. Existing agents work unchanged, with these behavioral normalizations:
-
-- **Callback count halved**: Callbacks now fire once per agent (was 2x due to a bug). Dashboards tracking callback counts will see a 50% drop — this is correct.
-- **`get_memory()` returns a copy**: Code that mutated the returned dict as a shortcut must now use `update_memory()` explicitly.
-- **Jinja2 sandboxed**: Templates accessing Python internals (`__class__`, `__globals__`) will raise `SecurityError`. All documented template patterns continue to work.
-- **Cooldown after errors**: Agents that fail now respect cooldown (previously retried every turn).
+v2.0/v2.1 remain backward compatible; existing agents work unchanged. The v2.1 behavioral
+normalizations (callbacks fire once, `get_memory()` returns a copy, Jinja2 sandboxed, cooldown
+after errors) are detailed in the [CHANGELOG](CHANGELOG.md) and [archived specs](docs/archive/).
+The v1.0 → v2 mapping is auto-applied:
 
 | v1.0 Pattern | v2.0 Equivalent | Auto-Mapped? |
 |--------------|-----------------|--------------|
@@ -923,4 +885,4 @@ v2.1 is backward compatible. Existing agents work unchanged, with these behavior
 
 ## License
 
-See main project license.
+MIT — see [LICENSE](LICENSE).
