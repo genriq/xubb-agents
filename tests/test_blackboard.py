@@ -33,6 +33,23 @@ class TestBlackboardVariables:
         assert bb.has_var("key") is True
         assert bb.has_var("missing") is False
 
+    def test_unauthorized_sys_write_is_flagged(self, caplog):
+        """INV-4: a non-engine write to a reserved sys.* key is flagged with a warning
+        (but still applied — the write is governed, not blocked); the engine's own
+        _engine_internal writes are NOT flagged."""
+        import logging
+
+        bb = Blackboard()
+        with caplog.at_level(logging.WARNING):
+            bb.set_var("sys.injected", "x")  # non-engine write to a reserved key
+        assert any("reserved key" in r.message.lower() for r in caplog.records)
+        assert bb.get_var("sys.injected") == "x"  # applied, not blocked
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            bb.set_var("sys.turn_count", 1, _engine_internal=True)  # engine-governed write
+        assert not any("reserved key" in r.message.lower() for r in caplog.records)
+
 
 class TestBlackboardEvents:
     """Test event operations."""

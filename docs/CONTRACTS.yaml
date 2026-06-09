@@ -66,11 +66,9 @@ contracts:
     statement: "Each agent lifecycle callback fires at most once per execution attempt."
     source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-1"]
     invariant: INV-1
-    # Closest real, collectible node: asserts on_chain_error fires exactly once
-    # (len(errors) == 1). Covers the on_chain_error path only, not every lifecycle
-    # callback — bijection still to confirm in R1.
-    test: "tests/test_engine.py::TestB5OnChainError::test_on_chain_error_fires_on_engine_failure"
-    status: to_verify
+    test: "tests/test_engine.py::TestCallbackInvariants::test_lifecycle_callbacks_fire_once"
+    test_on_chain_error: "tests/test_engine.py::TestB5OnChainError::test_on_chain_error_fires_on_engine_failure"
+    status: covered   # counting handler: turn_start/end + agent_start/finish each fire once.
 
   - id: INV-2-snapshot-isolation
     statement: "Snapshot state is immutable from the perspective of peer agents in the same phase."
@@ -90,15 +88,16 @@ contracts:
     statement: "Reserved sys.* keys are engine-governed; unauthorized writes are detected/flagged."
     source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-4"]
     invariant: INV-4
-    test: "tests/test_engine.py::test_sys_variables_set"
-    status: to_verify
+    test: "tests/test_blackboard.py::TestBlackboardVariables::test_unauthorized_sys_write_is_flagged"
+    test_engine_sets: "tests/test_engine.py::TestProcessTurn::test_sys_variables_set"
+    status: covered   # non-engine sys.* write is flagged (warning); engine writes aren't.
 
   - id: INV-5-tracing-never-crashes
     statement: "A serialization/tracing failure must never prevent insight delivery."
     source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-5"]
     invariant: INV-5
-    test: "MISSING"
-    status: uncovered
+    test: "tests/test_engine.py::TestCallbackInvariants::test_tracing_failure_does_not_block_insight_delivery"
+    status: covered   # a broken tracer/callback can't block insight delivery (try/except-wrapped).
 
   - id: INV-6-graceful-degradation
     statement: "A failed agent must not produce orphaned side effects (atomic discard)."
@@ -111,8 +110,8 @@ contracts:
     statement: "The callback base class defines all methods the engine calls; subclasses never crash."
     source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-7"]
     invariant: INV-7
-    test: "tests/test_compatibility.py"   # to confirm in R1
-    status: to_verify
+    test: "tests/test_engine.py::TestCallbackInvariants::test_noop_callback_subclass_survives_a_turn"
+    status: covered   # a no-op AgentCallbackHandler subclass survives a full turn.
 
   - id: INV-8-memory-copy-on-read
     statement: "Agent memory values returned by the Blackboard are copies, not references."
@@ -219,13 +218,13 @@ contracts:
     status: covered   # supports the backend P0-3 vault-reload-race fix.
 
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       17   (P4-1 pass 1: FACT-DEDUP-KEY, INV-2, INV-3, INV-6, INV-8 promoted —
-#                      bijection node-paths fixed + None-key/copy-on-read gaps closed)
-# to_verify:      3   (INV-1, INV-4, INV-7 — pending P4-1 pass 2)
+# covered:       21   (P4-1 COMPLETE — every contract & invariant names a passing,
+#                      rule-asserting test; the R1 bijection back-fill is closed)
+# to_verify:      0
 # failing_probe:  0
 # pending_v2.2:   0
-# uncovered:      1   (INV-5 — tracing-never-crashes; test pending P4-1 pass 2)
+# uncovered:      0
 # total:         21
-# → P4-1 certification in progress. Pass 1 closed the blackboard-level backlog; pass 2
-#   covers the engine/tracing invariants (INV-1 callbacks-once, INV-4 sys-key flagging,
-#   INV-5 tracing-resilience, INV-7 callback-base-complete).
+# → P4-1 certification DONE. Pass 1 (blackboard) + pass 2 (engine/tracing: INV-1
+#   callbacks-once, INV-4 sys-key flagging, INV-5 tracing-resilience, INV-7
+#   callback-base-complete). Framework contract registry is fully covered.

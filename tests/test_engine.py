@@ -1328,3 +1328,80 @@ class TestReplaceAgents:
             sys.setswitchinterval(old)
 
         assert not errors, errors[:5]
+
+
+class TestCallbackInvariants:
+    """INV-1 / INV-5 / INV-7 — lifecycle callbacks fire at most once, a no-op callback
+    subclass never crashes a turn, and a tracing/callback failure never blocks insight
+    delivery (the engine wraps every callback call in try/except)."""
+
+    @pytest.mark.asyncio
+    async def test_noop_callback_subclass_survives_a_turn(self, engine, sample_context):
+        """INV-7: the callback base defines every method the engine calls — a subclass
+        that overrides nothing never crashes a turn."""
+        from xubb_agents.core.callbacks import AgentCallbackHandler
+
+        class NoOp(AgentCallbackHandler):
+            pass
+
+        engine.callbacks = [NoOp()]
+        engine.register_agent(MockAgent("a"))
+
+        response = await engine.process_turn(sample_context)  # must not raise
+        assert response is not None
+
+    @pytest.mark.asyncio
+    async def test_lifecycle_callbacks_fire_once(self, engine, sample_context):
+        """INV-1: each lifecycle callback fires at most once per execution attempt."""
+        from collections import Counter
+        from xubb_agents.core.callbacks import AgentCallbackHandler
+
+        counts = Counter()
+
+        class Counting(AgentCallbackHandler):
+            async def on_turn_start(self, context):
+                counts["turn_start"] += 1
+
+            async def on_turn_end(self, response, duration):
+                counts["turn_end"] += 1
+
+            async def on_agent_start(self, agent_name, context):
+                counts["agent_start"] += 1
+
+            async def on_agent_finish(self, agent_name, response, duration):
+                counts["agent_finish"] += 1
+
+        engine.callbacks = [Counting()]
+        engine.register_agent(MockAgent("solo"))
+
+        await engine.process_turn(sample_context)
+
+        assert counts["turn_start"] == 1
+        assert counts["turn_end"] == 1
+        assert counts["agent_start"] == 1  # exactly one agent ran ...
+        assert counts["agent_finish"] == 1  # ... and no callback double-fired
+
+    @pytest.mark.asyncio
+    async def test_tracing_failure_does_not_block_insight_delivery(self, engine, sample_context):
+        """INV-5: a serialization/tracing failure must never prevent insight delivery."""
+        from xubb_agents.core.callbacks import AgentCallbackHandler
+
+        class BrokenTracer(AgentCallbackHandler):
+            async def on_agent_finish(self, agent_name, response, duration):
+                raise RuntimeError("trace serialization blew up")
+
+            async def on_turn_end(self, response, duration):
+                raise RuntimeError("trace finalize blew up")
+
+        def speak(context, agent):
+            return AgentResponse(insights=[AgentInsight(
+                agent_id="a", agent_name="a", type=InsightType.SUGGESTION, content="hello",
+            )])
+
+        engine.callbacks = [BrokenTracer()]
+        engine.register_agent(MockAgent("a", response_fn=speak))
+
+        response = await engine.process_turn(sample_context)  # must not raise
+
+        # The insight is delivered despite the tracer exploding mid-turn.
+        assert any(i.content == "hello" for i in response.insights)
