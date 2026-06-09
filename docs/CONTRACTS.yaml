@@ -36,9 +36,9 @@ contracts:
       confidence; remaining ties by later registration order.
     source:
       - "core/models.py: Fact docstring"
-      - "docs/SPEC_V2.md: §6.5.4"
+      - "docs/archive/SPEC_V2.md: §6.5.4"
       - "docs/SPEC_V2_2_HARDENING.md: INV-9 / §5"
-      - "README.md: ~L720"
+      - "README.md: fact-precedence rule (~L526 / ~L870)"
     invariant: INV-9
     test: "tests/qa_probes/test_probe_f1_facts_priority.py::test_probe_f1_higher_priority_fact_wins_over_higher_confidence"
     test_engine: "tests/test_engine.py::TestMergeOrdering::test_priority_beats_confidence_on_facts"
@@ -51,49 +51,52 @@ contracts:
       singleton).
     source:
       - "core/blackboard.py: add_fact"
-      - "docs/SPEC_V2.md: §6.5.4"
-    test: "tests/test_blackboard.py::TestFactOperations::test_dedupe_by_type_key_pair"
+      - "docs/archive/SPEC_V2.md: §6.5.4"
+    test: "tests/test_blackboard.py::TestBlackboardFacts::test_dedupe_by_type_key_pair"
     status: to_verify   # test asserts dedup happens, not the full precedence rule.
 
   # ---- v2.1 invariants (INV-1..8) — candidate tests exist; R1 verifies bijection ----
   - id: INV-1-callbacks-fire-once
     statement: "Each agent lifecycle callback fires at most once per execution attempt."
-    source: ["docs/SPEC_V2_1_HARDENING.md: INV-1"]
+    source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-1"]
     invariant: INV-1
-    test: "tests/test_engine.py::TestCallbacks"   # to confirm in R1
+    # Closest real, collectible node: asserts on_chain_error fires exactly once
+    # (len(errors) == 1). Covers the on_chain_error path only, not every lifecycle
+    # callback — bijection still to confirm in R1.
+    test: "tests/test_engine.py::TestB5OnChainError::test_on_chain_error_fires_on_engine_failure"
     status: to_verify
 
   - id: INV-2-snapshot-isolation
     statement: "Snapshot state is immutable from the perspective of peer agents in the same phase."
-    source: ["docs/SPEC_V2_1_HARDENING.md: INV-2"]
+    source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-2"]
     invariant: INV-2
     test: "tests/test_engine.py::test_agents_see_snapshot"
     status: to_verify
 
   - id: INV-3-explicit-identity
     statement: "Agent identity is explicit (source_agent_id), never inferred from payload content."
-    source: ["docs/SPEC_V2_1_HARDENING.md: INV-3"]
+    source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-3"]
     invariant: INV-3
     test: "tests/test_engine.py::test_memory_updates_by_agent_preserves_attribution"
     status: to_verify
 
   - id: INV-4-sys-keys-governed
     statement: "Reserved sys.* keys are engine-governed; unauthorized writes are detected/flagged."
-    source: ["docs/SPEC_V2_1_HARDENING.md: INV-4"]
+    source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-4"]
     invariant: INV-4
     test: "tests/test_engine.py::test_sys_variables_set"
     status: to_verify
 
   - id: INV-5-tracing-never-crashes
     statement: "A serialization/tracing failure must never prevent insight delivery."
-    source: ["docs/SPEC_V2_1_HARDENING.md: INV-5"]
+    source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-5"]
     invariant: INV-5
     test: "MISSING"
     status: uncovered
 
   - id: INV-6-graceful-degradation
     statement: "A failed agent must not produce orphaned side effects (atomic discard)."
-    source: ["docs/SPEC_V2_1_HARDENING.md: INV-6"]
+    source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-6"]
     invariant: INV-6
     # NOTE: the v2.2 audit found test_failed_agent_updates_discarded UNDER-asserts this
     # (item T-3). Marked to_verify, not covered, deliberately.
@@ -102,16 +105,16 @@ contracts:
 
   - id: INV-7-callback-base-complete
     statement: "The callback base class defines all methods the engine calls; subclasses never crash."
-    source: ["docs/SPEC_V2_1_HARDENING.md: INV-7"]
+    source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-7"]
     invariant: INV-7
     test: "tests/test_compatibility.py"   # to confirm in R1
     status: to_verify
 
   - id: INV-8-memory-copy-on-read
     statement: "Agent memory values returned by the Blackboard are copies, not references."
-    source: ["docs/SPEC_V2_1_HARDENING.md: INV-8"]
+    source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-8"]
     invariant: INV-8
-    test: "tests/test_blackboard.py::TestMemoryOperations::test_get_and_set_memory"
+    test: "tests/test_blackboard.py::TestBlackboardMemory::test_get_and_set_memory"
     status: to_verify
 
   # ---- v2.2 invariants (INV-8'..13) — pending the v2.2 hardening items ----
@@ -164,7 +167,7 @@ contracts:
 
 # ---- Coverage summary (informational; R1 `check_contracts.py` computes this authoritatively) ----
 # covered:        7   (FACT-PRECEDENCE/F-1, INV-8'/M-1, INV-13/A-2, INV-10/R-1, INV-11/A-1, INV-12/E-1, INV-14/MR-1)
-# to_verify:      9   (R1 bijection back-fill)
+# to_verify:      8   (R1 bijection back-fill)
 # failing_probe:  0
 # pending_v2.2:   0
 # uncovered:      1   (INV-5 — tracing-never-crashes; no direct test yet)
