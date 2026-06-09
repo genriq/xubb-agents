@@ -54,7 +54,11 @@ A copilot that speaks on 5% of turns and is right beats one that speaks every tu
 - **Chapter 10** is production: cost, latency, resilience, observability, scale, and the host loop.
 - **The Capstone** designs a complete copilot agent suite end-to-end, threading every chapter together — the secret formula made concrete.
 
+The playbook is in two parts. **Part I — The Doctrine** (Chapters 1–10 + the Capstone) is *why* and *how to think*. **Part II — The Operating Manual** is the checklists, blueprints, metrics, tests, and review gates that make the doctrine daily practice and hard to violate. Read Part I to understand; live in Part II.
+
 ## Table of contents
+
+### Part I — The Doctrine
 
 1. [Philosophy & Mental Models](#chapter-1--philosophy--mental-models)
 2. [Agent Archetypes & Single-Agent Design](#chapter-2--agent-archetypes--single-agent-design)
@@ -67,6 +71,19 @@ A copilot that speaks on 5% of turns and is right beats one that speaks every tu
 9. [Roles, Configuration & Adaptability](#chapter-9--roles-configuration--adaptability)
 10. [Production: Cost, Latency, Resilience, Observability & Scale](#chapter-10--production-cost-latency-resilience-observability--scale)
 11. [Capstone: Designing a Complete Copilot Agent Suite](#capstone--designing-a-complete-copilot-agent-suite)
+
+### Part II — The Operating Manual
+
+12. [Agent Design Checklist: From Idea to Production](#agent-design-checklist--from-idea-to-production)
+13. [Xubb Agent Patterns & Smells](#xubb-agent-patterns--smells)
+14. [The Insight Curator: The Final Authority Before the HUD](#the-insight-curator--the-final-authority-before-the-hud)
+15. [The Minimum Viable Swarm](#the-minimum-viable-swarm)
+16. [The Golden Path: Build a Price-Objection Suite in 30 Minutes](#the-golden-path--build-a-price-objection-agent-suite-in-30-minutes)
+17. [Testing Templates: Prove It Works (Especially the Silence)](#testing-templates--prove-it-works-especially-the-silence)
+18. [Quality Metrics: Making Restraint Measurable](#quality-metrics--making-restraint-measurable)
+19. [Definition of Done: For an Agent](#definition-of-done--for-an-agent)
+20. [The Agent Review Board](#the-agent-review-board)
+21. [Product Experience Doctrine](#product-experience-doctrine)
 
 ---
 # Chapter 1 — Philosophy & Mental Models
@@ -3585,4 +3602,1550 @@ Build every copilot this way and it will feel less like a chatbot bolted onto a 
 
 ---
 
-*End of the Xubb Agents Playbook. The framework gives you the primitives; the formula is how you wield them. Now go build something that earns its two seconds.*
+*This concludes **Part I — The Doctrine**. Part II turns it into an operating manual — the checklists, blueprints, metrics, and review gates that make the doctrine hard to violate.*
+---
+
+# Part II — The Operating Manual
+
+Part I is doctrine: *why* a Xubb copilot is a restrained, blackboard-coordinated swarm, and the architecture that makes it so. Part II is the **operating manual** — the checklists, blueprints, metrics, and review gates that turn the doctrine into daily engineering practice.
+
+The point of Part II is not to re-explain the philosophy. It is to make the philosophy **hard to violate**. A team can read Part I, nod, and still ship a chatty, ungated, mega-agent swarm. Part II exists so that the *easy* path — the checklist, the template, the Definition of Done, the review questions — is also the *correct* path.
+
+Use it like this:
+
+- **Designing a new agent?** Run the [Agent Design Checklist](#agent-design-checklist--from-idea-to-production) and check it against the [Patterns & Smells](#xubb-agent-patterns--smells).
+- **Starting a copilot from zero?** Build the [Minimum Viable Swarm](#the-minimum-viable-swarm), then walk the [Golden Path](#the-golden-path--build-a-price-objection-agent-suite-in-30-minutes).
+- **Shipping?** Gate on the [Definition of Done](#definition-of-done--for-an-agent), the [Testing Templates](#testing-templates--prove-it-works-especially-the-silence), and the [Quality Metrics](#quality-metrics--making-restraint-measurable).
+- **Reviewing a teammate's agent?** Convene the [Agent Review Board](#the-agent-review-board).
+- **Always:** hold the [Product Experience Doctrine](#product-experience-doctrine) as the bar.
+
+Every artifact below is grounded in the real v2.2 framework, and every one serves the same end: a copilot that earns its two seconds.
+
+### Part II contents
+
+- [Agent Design Checklist: From Idea to Production](#agent-design-checklist--from-idea-to-production)
+- [Xubb Agent Patterns & Smells](#xubb-agent-patterns--smells)
+- [The Insight Curator: The Final Authority Before the HUD](#the-insight-curator--the-final-authority-before-the-hud)
+- [The Minimum Viable Swarm](#the-minimum-viable-swarm)
+- [The Golden Path: Build a Price-Objection Suite in 30 Minutes](#the-golden-path--build-a-price-objection-agent-suite-in-30-minutes)
+- [Testing Templates: Prove It Works (Especially the Silence)](#testing-templates--prove-it-works-especially-the-silence)
+- [Quality Metrics: Making Restraint Measurable](#quality-metrics--making-restraint-measurable)
+- [Definition of Done: For an Agent](#definition-of-done--for-an-agent)
+- [The Agent Review Board](#the-agent-review-board)
+- [Product Experience Doctrine](#product-experience-doctrine)
+
+---
+## Agent Design Checklist — From Idea to Production
+
+Before you write a line of config, force yourself to answer these thirteen questions. If you cannot answer one cleanly, the agent isn't designed yet. Each maps to a real framework mechanism — answering them *is* the design.
+
+| # | Question | Why it matters (the framework hook) |
+|---|----------|-------------------------------------|
+| 1 | **What is the agent's one-sentence job?** | If the sentence needs an "and," it's two agents. Single-responsibility is what makes gating, failure, and cost independent (Ch. 2). |
+| 2 | **Is it a Detector, Extractor, Advisor, or Monitor?** | The archetype decides everything else: which `AgentResponse` channels it writes (events / facts / variables / insights) and whether it's allowed to speak (Ch. 2). |
+| 3 | **What Blackboard containers does it READ?** | Declares its inputs: `variables`, `facts`, `queues`, `memory`. Reads happen against an immutable per-phase snapshot (Ch. 3). |
+| 4 | **What Blackboard containers does it WRITE?** | Declares its outputs. Detectors write `events`/`queues`; Extractors write `facts`; Monitors write `variables`; Advisors write `insights`. Writing the wrong container is the #1 design error (Ch. 3). |
+| 5 | **What trigger wakes it?** | `TURN_BASED`, `KEYWORD`, `SILENCE`, `INTERVAL`, `EVENT`, or `FORCE`. EVENT (subscribing another agent's signal) is how the cheap→premium cascade works (Ch. 4–5). |
+| 6 | **What conditions prevent it from running?** | `trigger_conditions` run **before any LLM call** — the single biggest cost lever. Push every cheap precondition here (phase, fact-presence, queue-not-empty, turn cadence). No conditions = runs every eligible turn (Ch. 4). |
+| 7 | **What model does it use, and why?** | Default `gpt-4o-mini`. Premium (`gpt-4o`) is *by exception* — only the few Advisors that have earned it via an event. "Premium everywhere" is a cost smell (Ch. 2, 10). |
+| 8 | **What is its cooldown?** | The timing backstop (default 10s, floor 5s with a Role modifier). Detectors often `cooldown=0`; Advisors are higher. Cooldown is enforced even on a silent/failed run (Ch. 4). |
+| 9 | **Can it stay silent?** | The most important question. Detectors/Extractors/Monitors should emit **zero insights** most turns; Advisors should decline via the schema's `check_field` (`has_insight: false`). Silence must be the easy path (Ch. 6, 8). |
+| 10 | **What would be a false positive?** | An interruption the user didn't need. The cost of a false positive in a HUD is *lost trust*, not a wrong answer. Tune conditions/confidence to make it rare (Ch. 8). |
+| 11 | **What would be a false negative?** | A missed critical moment — the one failure where silence is *wrong*. The deliberate counterweight to restraint. Decide which moments you must never miss (Ch. 8, Metrics). |
+| 12 | **What should be logged for observability?** | Hook the lifecycle callbacks / tracer: did it run, skip (and why), speak, or error? Per-agent insight rate and skip reason are the signal (Ch. 10, Metrics). |
+| 13 | **What test transcript proves it works — including that it correctly stays silent?** | At least three transcripts: one where it should fire, one where it must *not*, one edge case. The silence test is non-negotiable (Testing Templates). |
+
+### Fill-in template (copy per agent)
+
+```
+Agent: ______________________
+1.  Job (one sentence): ______________________
+2.  Archetype:  Detector | Extractor | Advisor | Monitor
+3.  Reads:   variables[...] facts[...] queues[...] memory[...]
+4.  Writes:  events[...] facts[...] variables[...] queues[...] insights? Y/N
+5.  Trigger: TURN_BASED | KEYWORD | SILENCE | INTERVAL | EVENT(<event>) | FORCE
+6.  Conditions (pre-LLM gate): ______________________
+7.  Model: gpt-4o-mini | gpt-4o  — because: ______________________
+8.  Cooldown: ___s
+9.  Silent path: ______________________  (how it says nothing)
+10. False positive looks like: ______________________
+11. False negative looks like: ______________________
+12. Observability: ______________________
+13. Test transcripts: [fires] ___  [SILENT] ___  [edge] ___
+```
+
+If row 9 or row 13's "[SILENT]" is blank, the agent is not ready to build.
+## Xubb Agent Patterns & Smells
+
+Part I argues the anti-patterns in prose. Here they are as a scannable, teachable checklist — pin it above your desk. If a design matches a pattern, you're on the path. If it matches a smell, stop.
+
+### ✅ Good patterns
+
+| Pattern | What it is |
+|---------|-----------|
+| **Silent Observer** | An agent that enriches the Blackboard (facts/events/variables) and emits **zero** insights. Understanding compounds; the HUD stays calm. |
+| **Cheap Detector → Premium Advisor** | A `gpt-4o-mini` detector notices every turn and emits an event; a `gpt-4o` advisor fires only in Phase 2 when the event earns it. The core cost pattern. |
+| **Event Doorbell + Queue Inbox** | A detector rings a doorbell (`emit_event`) *and* drops a durable note (`push_queue`). The reactor wakes on the doorbell; the inbox survives for later. |
+| **One-Insight Curator** | The host curates `response.insights` down to a single rendered insight. The list is a menu, not a render queue (Law 10). |
+| **Phase-Based Escalation** | Observation in Phase 1, reaction in Phase 2 — never a same-phase read. Cross-agent reaction routes through an event. |
+| **Role Override, Not Fork** | Adapt behavior per user/context with `AgentConfigOverride` (cooldown / context / instructions). The base swarm never changes. |
+| **Blackboard-First Design** | Design the five-container world-model *before* the agents. It's the architecture and the host contract in one. |
+| **Authority by Priority** | Make an extractor canonical by raising its **agent priority**, so its facts win merges regardless of a noisier agent's confidence. |
+| **Gate in Config, Not Code** | The silence gate (`check_field`/`has_insight`) lives in the schema; declining to speak is a returned field, not a branch. |
+
+### 🚩 Bad smells
+
+| Smell | Why it's wrong |
+|-------|----------------|
+| **Agent purpose has an "and" in it** | It's a mega-agent. Split it; let the halves talk through events and facts. |
+| **Agent emits an insight every time it runs** | No silence gate. It will spam the HUD and erode trust. |
+| **Agent uses a premium model for detection** | You're paying `gpt-4o` to do a `gpt-4o-mini` job on every turn. Tier it. |
+| **Agent writes durable state into an event** | Events are cleared after the turn. Durable knowledge belongs in facts/variables. |
+| **Agent has no cooldown (and isn't a pure detector)** | It can fire back-to-back. Cost and HUD-spam risk. |
+| **Agent needs another agent to call it directly** | There is no agent-to-agent call. Coordinate through an event or the board. |
+| **Agent reads another agent's same-phase write** | It won't see it — agents run against a frozen snapshot. Route the dependency through Phase 2. |
+| **Agent requires the HUD to understand agent-specific logic** | Rendering should depend only on `InsightType` + standard fields + `metadata` hints, never on which agent produced it. |
+| **No `trigger_conditions` on a non-detector** | It runs every eligible turn and burns calls. Push preconditions into the free, pre-LLM gate. |
+| **Confidence used as authority** | Priority wins fact merges; confidence is only the tiebreaker within equal priority. A high-confidence low-priority agent is not authoritative. |
+
+> **The one-line test:** if you can't say *what the agent reads, what it writes, what wakes it, what stops it, and how it stays silent* in five short phrases, it has a smell you haven't named yet.
+## The Insight Curator — The Final Authority Before the HUD
+
+> *The swarm earns insights. The curator decides which one — if any — the user
+> is allowed to see. It is the last gate between a roomful of cheap observers and
+> a single human's two seconds of attention. The insight list is a menu, not a
+> render queue (Law 10); the curator is the host-side authority that reads the
+> menu and orders one dish.*
+
+This is a Part II operating-manual pattern: a **first-class, host-side
+component** that every serious deployment needs and the framework deliberately
+does not ship. The framework's job ends at a typed list of earned insights. The
+curator's job begins there and ends at the HUD.
+
+---
+
+### 1. Why the curator is the missing bridge
+
+The architecture chapters end at a clean contract: `AgentResponse.insights:
+List[AgentInsight]`. The product law (Chapter 8, Law 10) is equally clean: the
+HUD shows **at most one** earned insight, and silence the rest of the time.
+Between those two facts sits a gap that nothing in the framework closes — and the
+curator is what closes it.
+
+Walk the pipeline and watch the gap appear:
+
+1. **The agent gates itself.** `DynamicAgent.evaluate` (`library/dynamic.py`)
+   runs the INV-11 silence gate — `check_field` / `root_key` / gate-less default
+   — so an agent that has nothing to say creates *no insight at all*. This is the
+   **first gate**, and it operates on one agent in isolation.
+2. **The engine appends — it does not curate.** `Engine._merge_responses`
+   (`core/engine.py`) collects every agent's response and does, literally:
+
+   ```python
+   # core/engine.py — _merge_responses
+   for priority, index, agent_id, resp in updates:
+       # Merge insights
+       final_response.insights.extend(resp.insights)
+   ```
+
+   That is the *entire* insight-handling step. Responses are sorted by
+   `(priority, registration_order)` for deterministic *ordering*, but every
+   surviving insight is **appended**. The engine never drops, ranks, dedups, or
+   caps anything. Curation is explicitly **not** the engine's responsibility —
+   it is the host's.
+3. **The HUD can show only one.** A copilot overlay is a 2-second glanceable
+   stage, not a log (Chapter 8 §1).
+
+Now the gap is obvious. Each agent gated itself honestly, the engine faithfully
+appended, and on a *busy turn* — a hot moment in the conversation where an
+objection, a buying signal, and a coachable habit all land at once — three
+different agents each legitimately produce one insight. The first gate did its
+job per-agent; nothing checked the **cross-agent** total. The host receives:
+
+```python
+response.insights == [
+    AgentInsight(agent_id="risk_watcher",  type=WARNING,     content="Claim about pricing is wrong", confidence=0.82, ...),
+    AgentInsight(agent_id="closer",        type=OPPORTUNITY, content="They just asked about onboarding — ask for the close", confidence=0.74, ...),
+    AgentInsight(agent_id="coach",         type=SUGGESTION,  content="You're talking over them", confidence=0.66, ...),
+]
+```
+
+A perfectly-gated swarm just handed the host three insights. With no curator, the
+naive consumer writes the canonical spam bug — `for i in response.insights:
+hud.show(i)` — and the HUD stacks three cards. The one that mattered is buried;
+the user's trust in the glow erodes; restraint, the actual product, is gone.
+
+**The curator is the second gate: the cross-agent gate.** The silence gate
+filters *within* an agent (`library/dynamic.py`); the curator filters *across*
+agents, on the host side, immediately before render. It is the component that
+turns "the engine handed me a menu" into "the user sees one earned insight, or
+nothing." Without it, the architecture is correct and the product is noisy.
+
+---
+
+### 2. Where it sits — after `process_turn`, before render
+
+The curator is a single, well-defined seam in the host's turn loop:
+
+```
+swarm (gated per-agent)
+      │   each agent: INV-11 silence gate  →  0 or 1 insight
+      ▼
+Engine.process_turn(...)  ──▶  AgentResponse.insights : List[AgentInsight]   (APPENDED, not curated)
+      │
+      ▼
+╔══════════════════════════════════════════════╗
+║  InsightCurator.curate(response, now)         ║   ◀── the second, cross-agent gate (THIS pattern)
+║   floor → rank → dedup → suppress → cap to 1  ║
+╚══════════════════════════════════════════════╝
+      │
+      ▼
+Optional[AgentInsight]   ──▶  HUD.present(...)   or   silence
+```
+
+It runs **after** the engine has finished aggregating the turn and **before** a
+single pixel is rendered. It is pure host policy: the glanceability budget is not
+a framework concern (the framework can't know your overlay), so the law that "the
+HUD shows at most one" can only be enforced here.
+
+One responsibility split worth stating plainly, because it is the whole point of
+the pattern:
+
+| Layer | Owns | Lives in |
+| --- | --- | --- |
+| Agent silence gate | "Should *I* speak this turn?" (per-agent) | `library/dynamic.py` (framework) |
+| Engine merge | Deterministic ordering + blackboard application; **append** insights | `core/engine.py` (framework) |
+| **Insight Curator** | "Of everything the swarm earned, what does the **user** see?" (cross-agent, ≤ 1) | **host** (this pattern) |
+
+---
+
+### 3. The ranking model — grounded in the real fields
+
+The curator ranks on the fields that actually exist on `AgentInsight`
+(`core/models.py`): `type`, `confidence`, `action_label`, `agent_id`, `content`,
+`expiry`. No invented fields. Four levers, in priority order:
+
+**Lever 1 — Urgency tier (from the `InsightType` enum).** The enum carries zone
+semantics in its own comments (`OPPORTUNITY = "opportunity"  # Zone A: Urgent
+Positive`). That gradient *is* the ranking spine — prefer urgent over
+interesting:
+
+| `InsightType` | Tier | Rationale (from enum/zone semantics) |
+| --- | --- | --- |
+| `WARNING` | 4 — Urgent Negative | Risk in flight; interrupt-worthy. |
+| `OPPORTUNITY` | 3 — Zone A: Urgent Positive | A door just opened; time-critical good news. |
+| `SUGGESTION` | 2 — Advisory | A calm nudge; default coaching. |
+| `PRAISE` | 1 — Reinforcement | Warm, never urgent. |
+| `FACT` | 0 — Ambient | Durable knowledge, not a stage interrupt. |
+| `ERROR` | — | **Not a coaching insight.** Framework failure channel (auto-emitted by `BaseAgent.process` on exception). Split to a system tray; never ranked for the stage. |
+
+**Lever 2 — Actionable beats descriptive.** `action_label` is `Optional[str]`. An
+insight that ships a button (`action_label` present) gives the user something to
+*do*; among equal urgency, prefer it. This is a real field-presence signal, not a
+heuristic.
+
+**Lever 3 — Confidence.** `confidence` (`0.0–1.0`, default `1.0`, clamped by A-3)
+is the tiebreaker *and* the floor. As a floor it kills noise before ranking; as a
+tiebreaker, among equal urgency and equal actionability, the more-confident
+insight wins.
+
+**Lever 4 — Recency / repetition (cross-turn).** The framework gives no
+cross-turn memory, so the curator keeps a small short-term history keyed by
+`agent_id` and a normalized `content` signature. This enforces "prevent repeated
+coaching": don't re-show the same agent's point turn after turn, even when it
+keeps re-winning the rank.
+
+Composite sort key (descending): `(urgency_tier, actionable, confidence)`. Then
+dedup, suppress against history, and **cap to one**.
+
+---
+
+### 4. Reference implementation — a runnable `InsightCurator`
+
+Drop-in host-side class. It depends only on the real public surface
+(`AgentInsight`, `InsightType`, `AgentResponse`) and the standard library. It
+applies a per-type confidence floor, ranks on the model above, dedups by
+`agent_id` and by content similarity, suppresses recently-shown insights and
+repeated coaching across turns, enforces one-at-a-time, and honors `expiry` as a
+TTL.
+
+```python
+import time
+import re
+from dataclasses import dataclass, field
+from difflib import SequenceMatcher
+from typing import Optional, List, Dict, Tuple
+
+from core.models import AgentInsight, InsightType, AgentResponse
+
+
+# Urgency tiers — straight from the InsightType enum's zone comments.
+# Higher = more deserving of the user's 2 seconds.
+URGENCY_TIER: Dict[InsightType, int] = {
+    InsightType.WARNING: 4,      # Urgent Negative
+    InsightType.OPPORTUNITY: 3,  # Zone A: Urgent Positive
+    InsightType.SUGGESTION: 2,   # Advisory
+    InsightType.PRAISE: 1,       # Reinforcement
+    InsightType.FACT: 0,         # Ambient / reference
+    # ERROR intentionally absent — never competes for the coaching stage.
+}
+
+# Per-type confidence floor. The floor kills noise; ranking picks the winner.
+MIN_CONFIDENCE: Dict[InsightType, float] = {
+    InsightType.WARNING: 0.55,      # warnings may be speculative — better safe
+    InsightType.OPPORTUNITY: 0.70,
+    InsightType.SUGGESTION: 0.75,   # nudges must be earned
+    InsightType.PRAISE: 0.80,
+    InsightType.FACT: 0.80,         # don't pollute the knowledge zone with guesses
+}
+DEFAULT_FLOOR = 0.75
+
+# How long a shown insight blocks near-duplicates from the same source / topic.
+SOURCE_COOLDOWN_S = 20.0      # same agent_id can't re-take the stage this fast
+REPEAT_COOLDOWN_S = 45.0      # same *content* (any agent) — anti repeated-coaching
+SIMILARITY_THRESHOLD = 0.82   # content dedup / repeat-detection cutoff
+
+
+def _signature(text: str) -> str:
+    """Normalize content for similarity comparison (lowercase, collapse space)."""
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _similar(a: str, b: str) -> float:
+    return SequenceMatcher(None, _signature(a), _signature(b)).ratio()
+
+
+@dataclass
+class _Shown:
+    agent_id: str
+    signature: str
+    shown_at: float
+
+
+@dataclass
+class InsightCurator:
+    """The final authority before the HUD (Law 10, Chapter 8 §6).
+
+    The engine APPENDS every earned insight into AgentResponse.insights and does
+    not curate (see core/engine.py::_merge_responses). This class is the host's
+    second, cross-agent gate: it consumes that list plus a short-term history and
+    returns AT MOST ONE insight to render — or None (silence, the common case).
+    """
+    history: List[_Shown] = field(default_factory=list)
+    history_limit: int = 32
+
+    def curate(
+        self,
+        response: AgentResponse,
+        now: Optional[float] = None,
+    ) -> Optional[AgentInsight]:
+        """Return the single insight to render this turn, or None for silence."""
+        now = time.time() if now is None else now
+        self._evict_expired_history(now)
+
+        # 0. ERROR is the framework's failure channel, not a coaching insight.
+        #    Pull it out here; the host routes it to a system tray, not the stage.
+        candidates = [i for i in response.insights if i.type != InsightType.ERROR]
+        if not candidates:
+            return None
+
+        # 1. Confidence floor — kill noise before ranking.
+        candidates = [
+            i for i in candidates
+            if i.confidence >= MIN_CONFIDENCE.get(i.type, DEFAULT_FLOOR)
+        ]
+        if not candidates:
+            return None
+
+        # 2. Rank: urgency tier, then actionable (action_label present),
+        #    then confidence. All descending.
+        candidates.sort(key=self._rank_key, reverse=True)
+
+        # 3. Within-turn dedup: one insight per agent_id (highest-ranked wins),
+        #    then drop near-duplicate CONTENT from *different* agents so two
+        #    observers saying the same thing don't both occupy a slot.
+        candidates = self._dedup(candidates)
+
+        # 4. Cross-turn suppression: skip anything we just showed (same source
+        #    too recently) or any repeated coaching (same content too recently).
+        for insight in candidates:
+            if self._suppressed(insight, now):
+                continue
+            # 5. One-at-a-time: the first survivor IS the turn's single insight.
+            self._remember(insight, now)
+            return insight
+
+        # Everything that survived the floor was a recent repeat — stay silent.
+        return None
+
+    # ----- ranking -------------------------------------------------------
+
+    @staticmethod
+    def _rank_key(i: AgentInsight) -> Tuple[int, int, float]:
+        urgency = URGENCY_TIER.get(i.type, 0)
+        actionable = 1 if i.action_label else 0   # actionable beats descriptive
+        return (urgency, actionable, i.confidence)
+
+    # ----- dedup ---------------------------------------------------------
+
+    @staticmethod
+    def _dedup(ranked: List[AgentInsight]) -> List[AgentInsight]:
+        kept: List[AgentInsight] = []
+        seen_agents: set = set()
+        for i in ranked:
+            if i.agent_id in seen_agents:
+                continue  # one slot per source; ranked order means best survives
+            if any(_similar(i.content, k.content) >= SIMILARITY_THRESHOLD for k in kept):
+                continue  # near-duplicate topic already represented this turn
+            kept.append(i)
+            seen_agents.add(i.agent_id)
+        return kept
+
+    # ----- cross-turn suppression ---------------------------------------
+
+    def _suppressed(self, insight: AgentInsight, now: float) -> bool:
+        sig = _signature(insight.content)
+        for shown in self.history:
+            same_source = shown.agent_id == insight.agent_id
+            if same_source and (now - shown.shown_at) < SOURCE_COOLDOWN_S:
+                return True  # this observer just had the stage
+            if (now - shown.shown_at) < REPEAT_COOLDOWN_S:
+                if SequenceMatcher(None, sig, shown.signature).ratio() >= SIMILARITY_THRESHOLD:
+                    return True  # repeated coaching — already said this recently
+        return False
+
+    def _remember(self, insight: AgentInsight, now: float) -> None:
+        self.history.append(
+            _Shown(agent_id=insight.agent_id,
+                   signature=_signature(insight.content),
+                   shown_at=now)
+        )
+        if len(self.history) > self.history_limit:
+            self.history = self.history[-self.history_limit:]
+
+    def _evict_expired_history(self, now: float) -> None:
+        horizon = max(SOURCE_COOLDOWN_S, REPEAT_COOLDOWN_S)
+        self.history = [s for s in self.history if (now - s.shown_at) <= horizon]
+```
+
+Wiring it into the turn loop — the curator owns the menu, the HUD honors
+`expiry` as a TTL so the moment dissolves itself:
+
+```python
+curator = InsightCurator()   # one instance per session; it holds the short-term history
+
+async def on_turn(self, response: AgentResponse):
+    # System alerts never touch the coaching stage.
+    for a in (i for i in response.insights if i.type == InsightType.ERROR):
+        self.system_tray.flash(a.content)
+
+    top = curator.curate(response)         # the second, cross-agent gate
+    if top is None:
+        return                             # the common, correct case: silence
+
+    self.hud.present(
+        text=top.content,
+        zone=top.metadata.get("zone", ZONE_BY_TYPE[top.type]),
+        ttl_seconds=top.expiry,            # expiry is the self-clean TTL (default 15s)
+        button=top.action_label,           # None ⇒ no button
+    )
+```
+
+Notes on the contract honored here:
+
+- **`expiry` as TTL.** `AgentInsight.expiry` (default `15`, "Seconds to display")
+  is passed straight to the HUD's `ttl_seconds`. The curator picks *what* shows;
+  `expiry` guarantees it *un*-shows itself, returning the stage to silence with
+  no further host action.
+- **One-at-a-time is structural.** `curate` returns `Optional[AgentInsight]`, not
+  a list. The type signature makes "the HUD shows at most one" unrepresentable to
+  violate — there is no list to accidentally `for`-loop over.
+- **Defaults are honest.** `confidence` defaults to `1.0` and is A-3-clamped, so
+  the floor never throws; `action_label` defaults to `None`, so the actionable
+  lever is a true presence check; `expiry` is S-1-coerced upstream, so the TTL is
+  always a sane positive int.
+
+---
+
+### 5. Tie-in: Law 10 and Chapter 8
+
+This pattern is the *implementation* of two things the playbook asserts but
+locates on the host side:
+
+- **Law 10 — "The insight list is a menu, not a render queue."** The engine hands
+  the host `List[AgentInsight]` *precisely so it can curate to one*. The
+  `InsightCurator` is the named component that reads the menu and orders exactly
+  one dish (or declines). `for i in insights: hud.show(i)` — the canonical spam
+  bug Law 10 warns against — is structurally impossible once `curate` returns an
+  `Optional`, not a list.
+- **Chapter 8 §6 — "the host owns curation and render."** Chapter 8 sketches the
+  consumption loop and the fifth restraint layer (curate-to-one + dedup by
+  `agent_id`). This pattern promotes that sketch into a **first-class, reusable,
+  testable** component with cross-turn memory — the layer that Chapter 8 says the
+  host *must* add on top of the framework's four (gate → confidence → cooldown →
+  expiry).
+
+The swarm is a reactive crowd of cheap observers; restraint is the product; and
+the Insight Curator is the single host-side authority that enforces it at the
+last possible moment — the final gate before the HUD.
+## The Minimum Viable Swarm
+
+"Build many cheap agents" is good advice that paralyzes a team on day one. So here is the concrete starting point — the first production-grade swarm for a conversational copilot. Three layers, twelve agents, only a few of which ever speak. Start here, then specialize.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ CORE OBSERVER LAYER  — cheap, every turn, mostly silent      │
+│   question_detector        Detector   mini   emits event+queue│
+│   objection_detector       Detector   mini   emits event+queue│
+│   sentiment_monitor        Monitor    mini   writes variable  │
+│   fact_extractor           Extractor  mini   writes facts (hi-pri)│
+│   action_item_extractor    Extractor  mini   writes facts/queue│
+├─────────────────────────────────────────────────────────────┤
+│ REASONING LAYER — premium, EVENT/condition-gated, the voices │
+│   question_response_coach  Advisor    4o     EVENT: question  │
+│   objection_strategy_coach Advisor    4o     EVENT: objection │
+│   meeting_momentum_coach   Advisor    4o     condition-gated  │
+├─────────────────────────────────────────────────────────────┤
+│ CONTROL LAYER — guards the experience & the budget           │
+│   insight_curator          host-side  —      curate to ONE    │
+│   repetition_guard         pattern    —      memory-based dedup│
+│   silence_guard            Advisor    mini   SILENCE trigger  │
+│   cost_monitor             callback   —      metrics/alerts   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**How to read the layers**
+
+- **Observer layer (5):** the senses. All cheap (`gpt-4o-mini` or deterministic), all run often, all (except a rare sentiment WARNING) **silent**. They turn raw transcript into a structured world-model — events, facts, variables, queues. This layer is where 90% of your agents will eventually live.
+- **Reasoning layer (3):** the voices. Premium models, but they almost never run — each is gated by an event the observers raise or by accumulated state (`trigger_conditions`). On a quiet turn, this entire layer costs **zero**.
+- **Control layer (4):** the conscience. Not "more intelligence" — *restraint infrastructure*. The `insight_curator` (host-side) enforces one visible insight; the `repetition_guard` (a memory pattern, not always a separate agent) stops repeated coaching; the `silence_guard` handles dead air gently; the `cost_monitor` (a callback handler) watches the budget and the insight rate.
+
+**Why this is the *minimum* viable swarm:** drop any observer and the copilot goes blind to a signal; drop a reasoning agent and it can't act on one; drop the control layer and a good swarm still produces noise. It is also genuinely *viable* — each agent is a few lines of config, and the whole thing runs at near-zero cost on quiet turns.
+
+**The growth path:** specialize the observer layer first (a `competitor_detector`, a `buying_signal_detector`, a `commitment_extractor`), then add reasoning agents only when an observer raises a signal nothing yet handles. You will add ten observers before you add a second voice — and that ratio is the formula working.
+## The Golden Path — Build a Price-Objection Agent Suite in 30 Minutes
+
+This is the worked build. By the end you have four agents that, together, watch a sales call and — only when a real price objection lands — surface **one** short, non-repeating coaching line to the rep. Everything else stays silent. That restraint is the product.
+
+The suite is a textbook **detect-cheap → analyze-expensive cascade**: three `gpt-4o-mini` observers do the cheap watching and write structured signals to the blackboard; a single `gpt-4o` strategist wakes up *only* when an objection event fires, and a memory guard keeps it from repeating itself. Three of the four agents never touch the HUD at all.
+
+Every config, schema field, condition operator, and channel below is the real v2.2 surface — grounded in `library/dynamic.py`, `library/schemas/*.json`, `core/agent.py`, `core/models.py`, `core/engine.py`, `core/blackboard.py`, and `core/conditions.py`. Where the host has to supply glue, it is flagged **[HOST GLUE]**.
+
+---
+
+### The cast
+
+| Agent | Model | Trigger | Phase | Writes | HUD? |
+|---|---|---|---|---|---|
+| `price_objection_detector` | `gpt-4o-mini` | `turn_based` | 1 | event `price_objection_raised` + queue push | **No** |
+| `deal_fact_extractor` | `gpt-4o-mini` | `turn_based` | 1 | facts (`budget`/`urgency`/`stakeholder`/`competitor`), priority 10 | **No** |
+| `price_objection_strategist` | `gpt-4o` | `event` (subscribes detector's event) | 2 | exactly one insight + writes its own memory | **Yes (≤1)** |
+| `repetition_guard` | — (no LLM) | — | host pre-filter | reads/writes strategist memory | No |
+
+A note on the fourth agent: `repetition_guard` is **not a separate `DynamicAgent`**. Cross-turn de-duplication is implemented inside the strategist by *reading its own memory* (the last advice fingerprint) and *writing it back* — the MR-1 memory read-path. We show both the in-agent recipe (zero host glue, recommended) and, as an alternative, a true standalone guard that needs **[HOST GLUE]**. Pick one.
+
+---
+
+### The blackboard schema this suite uses
+
+The shared world-model these four agents read and write. Naming follows the `domain.detail` convention.
+
+**Events** (transient, dispatched Phase 1 → Phase 2):
+- `price_objection_raised` — emitted by the detector; payload `{ "quote": "<verbatim rep/prospect line>", "severity": "soft" | "hard" }`. The strategist subscribes to this name.
+
+**Queues** (FIFO work log):
+- `objections` — each detected objection pushed as `{ "quote": "...", "severity": "..." }`. Lets the host render an objection history panel and lets conditions test "has anything been raised".
+
+**Facts** (deduplicated by `(type, key)`, conflict resolved by emitting-agent priority then confidence — INV-9):
+- `budget` (key `budget.primary`) — value e.g. `"$40k ceiling"`.
+- `urgency` (key `urgency.timeline`) — value e.g. `"end of quarter"`.
+- `stakeholder` (key per role, e.g. `stakeholder.economic_buyer`) — value e.g. `"VP Finance"`.
+- `competitor` (key per name, e.g. `competitor.acme`) — value e.g. `"evaluating Acme"`.
+
+The extractor runs at **priority 10** so its facts are canonical: if any other agent ever emits a conflicting `budget`/`urgency` fact, the extractor's wins regardless of confidence (the engine stamps `fact.priority = agent.priority` at merge time, then `Blackboard.add_fact` resolves `(priority, confidence)` — `core/engine.py` `_merge_responses`, `core/blackboard.py` `add_fact`).
+
+**Memory** (agent-private, per `agent_id`):
+- `memory_price_objection_strategist` — `{ "last_advice_topic": "<short tag>", "last_quote": "<the objection it last coached on>" }`. This is the repetition guard's state. Read via `shared_state["memory_price_objection_strategist"]` (synced from the blackboard by the engine every phase — INV-14).
+
+**Variables** (optional, for HUD/host):
+- `deal.stage` — host may set/read; the strategist can read it via `{{ blackboard.variables['deal.stage'] }}` for tone.
+
+---
+
+### Schema files: pick the right gate for each job
+
+Three of these agents must stay silent on the HUD. The silence gate in `dynamic.py` (`evaluate`, the `should_speak` block) gives you three structural options — choose deliberately:
+
+1. **`check_field` present** (e.g. `has_insight`) → the boolean drives speech. Missing/false ⇒ silence. This is `default_v2`.
+2. **`root_key` present, no `check_field`** → presence of a non-empty root object is the gate.
+3. **Neither** → defaults to **silence** unless you set `"speak_without_gate": true`. (A-1/INV-11. Don't do this here.)
+
+The detector and extractor must emit **events/queues/facts but never an insight**. The trick: use a schema whose `check_field` gate stays `false`, while events/queue/facts are parsed from the **result root** regardless of the gate (steps 6–9 in `evaluate` run unconditionally, independent of `should_speak`). So we reuse `default_v2.json` and instruct the model to keep `has_insight=false`.
+
+> **Why this is safe:** in `dynamic.py`, the insight is only appended when `should_speak` is true (step 2–3). Events (step 6), queue pushes (step 8), and facts (step 9) are extracted from `result` outside that gate. A `has_insight:false` response with a populated `events`/`facts`/`queue_pushes` array produces **zero insights and full coordination output**. This is the canonical "detector emits signal, not noise" pattern.
+
+#### Schema A — `default_v2.json` (SHIPS WITH THE FRAMEWORK — used by detector + extractor)
+
+Already in `library/schemas/default_v2.json`. Its mapping (verbatim):
+
+```json
+{
+  "mapping": {
+    "root_key": null,
+    "check_field": "has_insight",
+    "content_field": "content",
+    "type_field": "type",
+    "confidence_field": "confidence",
+    "metadata_field": "metadata",
+    "events_field": "events",
+    "variable_updates_field": "variable_updates",
+    "queue_field": "queue_pushes",
+    "facts_field": "facts",
+    "memory_field": "memory_updates",
+    "state_field": null
+  }
+}
+```
+
+The detector and extractor both set `output_format: "default_v2"`. They never set `has_insight:true`, so they never reach the HUD — but their `events`, `queue_pushes`, and `facts` flow to the blackboard.
+
+#### Schema B — `coaching_v2.json` (NEW FILE — used by the strategist)
+
+The strategist needs the gated insight contract **plus** `expiry`/`action_label` pass-through (S-1) so it can ship a self-expiring, actionable HUD card, **plus** the ability to write its own memory (the repetition fingerprint). `dynamic.py` reads `expiry`/`action_label` from `mapping.get("expiry_field","expiry")` / `mapping.get("action_label_field","action_label")` — so with the default field names, the model just emits `expiry` and `action_label` at the insight root and they pass through `_coerce_expiry` / `_coerce_action_label`.
+
+Create `library/schemas/coaching_v2.json`:
+
+```json
+{
+  "id": "coaching_v2",
+  "description": "Gated single-insight coaching schema with expiry + action_label pass-through and private memory.",
+  "instruction": "\nIMPORTANT: Return a valid JSON object. Emit AT MOST ONE coaching insight, and ONLY if it is genuinely useful right now.\n\nOUTPUT FORMAT:\n{\n    \"has_insight\": boolean,        // false = stay silent (PREFERRED when unsure)\n    \"type\": \"suggestion\" | \"warning\" | \"opportunity\",\n    \"content\": \"One short coaching line for the rep (<= 18 words).\",\n    \"confidence\": 0.0-1.0,\n    \"expiry\": 20,                  // seconds the card stays on the HUD\n    \"action_label\": \"Try this\",   // optional button text, omit if none\n    \"memory_updates\": {            // your private scratchpad (repetition guard)\n        \"last_advice_topic\": \"<short tag, e.g. 'anchor-on-value'>\",\n        \"last_quote\": \"<the objection you just coached on>\"\n    }\n}\n\nRULES:\n- Set has_insight=false if your advice would repeat last_advice_topic in YOUR MEMORY.\n- Never emit more than one insight.\n- Keep content punchy; the rep reads it mid-call.\n",
+  "mapping": {
+    "root_key": null,
+    "check_field": "has_insight",
+    "content_field": "content",
+    "type_field": "type",
+    "confidence_field": "confidence",
+    "expiry_field": "expiry",
+    "action_label_field": "action_label",
+    "memory_field": "memory_updates",
+    "metadata_field": "metadata",
+    "state_field": null
+  }
+}
+```
+
+> **On the fourth agent:** because `coaching_v2` instructs the model to set `has_insight=false` when its advice would repeat `last_advice_topic` (read from `[YOUR MEMORY]`, which the engine populates from `shared_state["memory_<id>"]`), the strategist **is** its own repetition guard. The `memory_updates` it returns are merged to `blackboard.memory["price_objection_strategist"]` (engine `_merge_responses`) and re-synced into `shared_state` next turn (INV-14). No separate agent, no host glue.
+
+---
+
+### The four agent configs (real `DynamicAgent` config dicts)
+
+These are the dicts you pass to `DynamicAgent(config_dict)`. Field names are exactly what `dynamic.py.__init__` reads: `id`, `name`, `model`, `text` (the system prompt), `output_format`, `trigger_config` (`mode`, `cooldown`, `priority`, `subscribed_events`), and top-level `trigger_conditions`.
+
+#### 1. `price_objection_detector` — cheap, silent, event-only
+
+```json
+{
+  "id": "price_objection_detector",
+  "name": "Price Objection Detector",
+  "model": "gpt-4o-mini",
+  "output_format": "default_v2",
+  "trigger_config": {
+    "mode": "turn_based",
+    "cooldown": 8,
+    "priority": 0
+  },
+  "text": "You are a fast detector on a live sales call. Your ONLY job is to spot when the PROSPECT raises a PRICE or BUDGET objection (too expensive, can't afford, need a discount, not in budget, sticker shock). You do NOT give advice. Keep has_insight=false ALWAYS.\n\nIf and only if a price objection is present in the latest turns, emit:\n- one event named 'price_objection_raised' with payload {\"quote\": \"<verbatim line>\", \"severity\": \"soft\"|\"hard\"}\n- one queue_push to 'objections' with {\"quote\": \"<verbatim line>\", \"severity\": \"soft\"|\"hard\"}\nIf there is NO price objection, return {\"has_insight\": false} and nothing else."
+}
+```
+
+Note: `subscribed_events` is omitted, so this stays a pure `turn_based` Phase-1 agent (the engine only auto-adds `TriggerType.EVENT` when `subscribed_events` is non-empty — `dynamic.py` lines 80–81).
+
+What a positive turn returns from the LLM (parsed by `default_v2` mapping):
+
+```json
+{
+  "has_insight": false,
+  "events": [
+    {"name": "price_objection_raised", "payload": {"quote": "Honestly that's way over our budget.", "severity": "hard"}}
+  ],
+  "queue_pushes": {
+    "objections": [{"quote": "Honestly that's way over our budget.", "severity": "hard"}]
+  }
+}
+```
+
+`has_insight:false` ⇒ no HUD card. The event and queue push still land on the blackboard.
+
+#### 2. `deal_fact_extractor` — cheap, silent, canonical facts (priority 10)
+
+```json
+{
+  "id": "deal_fact_extractor",
+  "name": "Deal Fact Extractor",
+  "model": "gpt-4o-mini",
+  "output_format": "default_v2",
+  "trigger_config": {
+    "mode": "turn_based",
+    "cooldown": 12,
+    "priority": 10
+  },
+  "trigger_conditions": {
+    "mode": "any",
+    "rules": [
+      {"queue": "objections", "op": "not_empty"},
+      {"meta": "turn_count", "op": "mod", "value": 3, "result": 0}
+    ]
+  },
+  "text": "You extract durable deal facts from a live sales call. You NEVER give advice. Keep has_insight=false ALWAYS.\n\nExtract any of these as facts (only when clearly stated):\n- budget   (key 'budget.primary')           value: the budget/price ceiling stated\n- urgency  (key 'urgency.timeline')          value: the deadline / time pressure\n- stakeholder (key 'stakeholder.<role>')     value: name/role of a decision-maker\n- competitor  (key 'competitor.<name>')      value: a competitor being evaluated\n\nReturn facts as: {\"facts\": [{\"type\": \"budget\", \"key\": \"budget.primary\", \"value\": \"$40k ceiling\", \"confidence\": 0.9}, ...]}.\nIf nothing durable is stated, return {\"has_insight\": false}."
+}
+```
+
+The `trigger_conditions` (gating, evaluated by `core/conditions.py`) say: run if the `objections` queue is non-empty **OR** every 3rd turn (`turn_count % 3 == 0`). This is the cheap-precondition gate that keeps the extractor from burning a call on every turn while still catching facts around objections. Operators `not_empty` and `mod` are real (`conditions.py` `_compare`); `mod` reads `value` as divisor and `result` as the expected remainder.
+
+Priority 10 makes its facts canonical (F-1 / INV-9). Example emission:
+
+```json
+{
+  "has_insight": false,
+  "facts": [
+    {"type": "budget", "key": "budget.primary", "value": "$40k ceiling", "confidence": 0.9},
+    {"type": "urgency", "key": "urgency.timeline", "value": "end of quarter", "confidence": 0.8}
+  ]
+}
+```
+
+#### 3. `price_objection_strategist` — premium, event-triggered, exactly one insight
+
+```json
+{
+  "id": "price_objection_strategist",
+  "name": "Price Objection Strategist",
+  "model": "gpt-4o",
+  "output_format": "coaching_v2",
+  "trigger_config": {
+    "mode": "event",
+    "cooldown": 20,
+    "priority": 5,
+    "subscribed_events": ["price_objection_raised"]
+  },
+  "trigger_conditions": {
+    "mode": "all",
+    "rules": [
+      {"queue": "objections", "op": "not_empty"}
+    ]
+  },
+  "text": "You are a senior sales coach. You ONLY run when a price objection has just been raised. Read the latest objection (in the queue and the transcript) and the deal facts on the blackboard:\n- Budget ceiling: {{ blackboard.get_fact('budget','budget.primary').value if blackboard.has_fact('budget','budget.primary') else 'unknown' }}\n- Timeline: {{ blackboard.get_fact('urgency','urgency.timeline').value if blackboard.has_fact('urgency','urgency.timeline') else 'unknown' }}\n\nYOUR MEMORY shows your last coaching ('last_advice_topic', 'last_quote'). DO NOT repeat the same angle twice in a row: if your new advice would reuse last_advice_topic, set has_insight=false.\n\nIf you DO coach, emit exactly ONE short line (<=18 words), set an expiry of 20s and an action_label, and write memory_updates with the new last_advice_topic and last_quote."
+}
+```
+
+`mode: "event"` plus `subscribed_events: ["price_objection_raised"]` is the wiring. Even though `mode` already sets `TriggerType.EVENT`, the non-empty `subscribed_events` would auto-add it anyway (belt and suspenders). Because it's an EVENT agent, it is **excluded from Phase 1** (Phase 1 routes only matching trigger types — `_is_eligible` checks `trigger_type in agent.config.trigger_types`; the turn's trigger is `turn_based`). It only runs in Phase 2, and only if the detector actually emitted `price_objection_raised`.
+
+A coaching turn returns:
+
+```json
+{
+  "has_insight": true,
+  "type": "suggestion",
+  "content": "Reframe on ROI: tie the price to the end-of-quarter deadline they just named.",
+  "confidence": 0.86,
+  "expiry": 20,
+  "action_label": "Anchor on value",
+  "memory_updates": {"last_advice_topic": "anchor-on-value", "last_quote": "way over our budget"}
+}
+```
+
+That yields exactly one `AgentInsight` (`expiry=20`, `action_label="Anchor on value"` via S-1 pass-through), and writes the fingerprint to memory.
+
+#### 4. `repetition_guard` — the in-agent recipe (recommended) vs. standalone (alternative)
+
+**Recommended (already done, zero glue):** the guard *is* the strategist's memory loop. Turn N writes `last_advice_topic`; the engine merges it to `blackboard.memory["price_objection_strategist"]`; turn N+1's `_sync_state_to_legacy` copies it into `shared_state["memory_price_objection_strategist"]`; `dynamic.py.evaluate` loads it into `[YOUR MEMORY]`; the prompt rule suppresses a repeat by setting `has_insight=false`. This is MR-1 cross-turn memory working exactly as designed.
+
+**Alternative (standalone agent):** if you want a *structural* guard rather than a prompt rule, add an `event`-triggered guard that subscribes the same event, runs at higher priority than the strategist, and uses a `trigger_conditions` memory check to short-circuit. But note: conditions can only **suppress the guard itself**, not the strategist — so a true standalone guard needs **[HOST GLUE]**: the host must read `final_response.insights`, compare each strategist insight's topic against `blackboard.get_memory("price_objection_strategist")["last_advice_topic"]`, and drop duplicates before rendering. Config skeleton if you go this route:
+
+```json
+{
+  "id": "repetition_guard",
+  "name": "Repetition Guard",
+  "model": "gpt-4o-mini",
+  "output_format": "default_v2",
+  "trigger_config": {
+    "mode": "event",
+    "cooldown": 5,
+    "priority": 9,
+    "subscribed_events": ["price_objection_raised"]
+  },
+  "trigger_conditions": {
+    "mode": "all",
+    "rules": [
+      {"memory": "last_advice_topic", "op": "present"}
+    ]
+  },
+  "text": "You guard against repeated coaching. Read YOUR MEMORY's last_advice_topic. If the incoming objection would draw the same advice, emit variable_updates {\"coaching.suppress\": true}; else {\"coaching.suppress\": false}."
+}
+```
+
+The `{"memory": "last_advice_topic", "op": "present"}` rule reads **this agent's own** memory (`conditions.py` `_get_value`, `memory` branch — own-memory access when there's no `.`). The host then honors `coaching.suppress`. **The in-agent recipe is simpler and is what we ship.**
+
+---
+
+### The event wiring (detector emits → strategist subscribes)
+
+```
+TURN (trigger_type = turn_based)
+        │
+   ┌────┴───────────── PHASE 1 (parallel, snapshot-isolated) ─────────────┐
+   │  price_objection_detector  (turn_based)  ── emits Event ─────────┐    │
+   │  deal_fact_extractor       (turn_based, cond) ── writes Facts    │    │
+   └─────────────────────────────────────────────────────────────────┼────┘
+                                                                      │
+              engine collects events, blackboard.emit_event(...)      │
+              event name = "price_objection_raised"                   │
+                                                                      ▼
+   ┌──────────── PHASE 2 (only if events emitted, max_phases>=2) ──────────┐
+   │  get_event_subscribers(["price_objection_raised"])                    │
+   │     → price_objection_strategist (mode=event, subscribed) ── insight  │
+   │       (re-sync memory_<id> into shared_state first — INV-14)          │
+   └───────────────────────────────────────────────────────────────────────┘
+        │
+   merge (ascending priority), clear events, return AgentResponse
+```
+
+The contract, line by line in `core/engine.py`:
+- Phase 1 responses' `.events` are collected (`all_events`) and applied via `blackboard.emit_event` (lines ~328–333).
+- If `all_events` and `max_phases >= 2`, the engine re-syncs memory into `shared_state` (INV-14), sets `context.trigger_type = EVENT`, `phase = 2`, and calls `get_event_subscribers(event_names)` (lines ~346–366).
+- `get_event_subscribers` returns only agents that have `price_objection_raised` in `subscribed_events` **and** `TriggerType.EVENT` in `trigger_types` (else it warns once and skips — E-6).
+- Phase-2 eligibility also re-checks `trigger_conditions` (`_is_eligible_for_phase2`).
+- After Phase 2, the engine restores `trigger_type`/`phase` in a `finally` (E-1/INV-12) so the next turn isn't corrupted.
+
+**[HOST GLUE] required for the cascade to fire at all:** the host must construct the `AgentEngine` with `max_phases=2` (the default), `register_agent(...)` all four, and call `process_turn(context, trigger_type=TriggerType.TURN_BASED)` each turn. Phase 2 is engine-internal once events exist — you do not invoke it.
+
+---
+
+### Turn-by-turn trace: one price objection
+
+Setup: rep and prospect have been talking; on an earlier turn the prospect said *"We're trying to wrap this up before end of quarter."* The extractor already wrote `urgency = "end of quarter"`. `deal.stage = "negotiation"`.
+
+**Turn 7 — the objection lands.** Latest transcript: `PROSPECT: Honestly, $52k a year is way over our budget.`
+
+`process_turn(context, trigger_type=TURN_BASED)`:
+
+*Phase 1* (snapshot taken; detector + extractor run in parallel against the same frozen blackboard):
+- `price_objection_detector` (cooldown ok, turn_based) → LLM returns `has_insight:false` + event `price_objection_raised {quote:"...way over our budget", severity:"hard"}` + queue push to `objections`. **No insight.** Engine collects the event.
+- `deal_fact_extractor` (condition: `objections` not_empty was false *in the snapshot* — but `turn_count % 3` → 7%3≠0, so it ran only if the queue was already non-empty from a prior turn; assume it ran on the mod gate on turn 6). On turn 7 the `mod` rule is false and the snapshot queue was empty at phase start, so **extractor is skipped** (`conditions_not_met`, `on_agent_skipped` fires). Facts already on board from before stand.
+
+Merge: detector's event applied to blackboard; queue `objections` now `[{quote,severity}]`. No insights yet.
+
+*Phase 2* (events present, `max_phases=2`):
+- Engine re-syncs memory → `shared_state["memory_price_objection_strategist"]` (empty so far — first objection of the call).
+- `get_event_subscribers(["price_objection_raised"])` → `price_objection_strategist` (has EVENT + subscription). Eligibility: `trigger_conditions` `objections not_empty` → **true** (queue was filled in Phase 1, and Phase 2 reads the merged board). Runs.
+- Strategist (`gpt-4o`) reads the objection from queue+transcript, sees `urgency = "end of quarter"` via Jinja `blackboard.get_fact(...)`, `[YOUR MEMORY]` empty → no repeat risk. Returns:
+  - `has_insight:true`, content `"Reframe on ROI — tie the cost to the end-of-quarter deadline they need to hit."`, `type:"suggestion"`, `expiry:20`, `action_label:"Anchor on value"`, `memory_updates:{last_advice_topic:"anchor-on-value", last_quote:"way over our budget"}`.
+
+Merge: one `AgentInsight` appended to `final_response.insights`; `memory_updates` merged to `blackboard.memory["price_objection_strategist"]`. Events cleared.
+
+**What the rep sees on turn 7:** a single HUD card — *"Reframe on ROI — tie the cost to the end-of-quarter deadline they need to hit."* with an "Anchor on value" button, auto-expiring after 20s. One card. From four agents. That is the whole point.
+
+**Turn 8 — prospect pushes again on price.** `PROSPECT: I just don't see how we justify that number.`
+
+*Phase 1:* detector fires again → new `price_objection_raised` event + queue push (queue now length 2). Extractor: `objections not_empty` → **true**, runs, may refine `budget.primary = "$52k/yr, over budget"` (priority 10, becomes canonical).
+
+*Phase 2:* strategist eligible again (cooldown 20s — **[NOTE]** if turn 8 is within 20s of turn 7, `BaseAgent.process` cooldown gates it out and **nothing is emitted** — silence by design). Assume >20s passed. Now `[YOUR MEMORY]` shows `last_advice_topic:"anchor-on-value"`. The prompt rule says: if the new advice repeats that angle, `has_insight=false`. The model judges its best move is *still* value-anchoring → returns `has_insight:false`. **No second card.** The repetition guard worked — the rep is not nagged with the same advice twice.
+
+If instead the model finds a genuinely new angle (e.g. payment-terms split), it emits one new card and updates `last_advice_topic:"payment-terms"`.
+
+**Net over two objection turns:** exactly one (occasionally two, never duplicate) coaching cards; a populated `objections` queue the host can render as history; canonical `budget`/`urgency` facts; zero HUD noise from the two cheap observers.
+
+---
+
+### The 30-minute build checklist
+
+1. **(2 min)** Confirm framework v2.2 and that `library/schemas/default_v2.json` exists. Construct `AgentEngine(api_key=..., max_phases=2)`. **[HOST GLUE]**
+2. **(3 min)** Create `library/schemas/coaching_v2.json` exactly as above (gated `check_field: has_insight`, `expiry_field`, `action_label_field`, `memory_field`).
+3. **(4 min)** Write the `price_objection_detector` config dict (`default_v2`, `turn_based`, cooldown 8). Prompt: detect price objection → emit `price_objection_raised` event + push to `objections` queue, `has_insight` always false.
+4. **(4 min)** Write the `deal_fact_extractor` config (`default_v2`, `turn_based`, **priority 10**, `trigger_conditions` = `objections not_empty` OR `turn_count mod 3`). Prompt: extract `budget`/`urgency`/`stakeholder`/`competitor` as facts, never an insight.
+5. **(5 min)** Write the `price_objection_strategist` config (`coaching_v2`, `mode:"event"`, `subscribed_events:["price_objection_raised"]`, cooldown 20, priority 5, `trigger_conditions` = `objections not_empty`). Prompt: read queue+facts via Jinja, read `[YOUR MEMORY]`, emit ≤1 line, set `expiry`/`action_label`, write `last_advice_topic`/`last_quote` to `memory_updates`. **This is also your repetition guard.**
+6. **(2 min)** Decide on the guard: keep the in-agent memory recipe (default — done in step 5) OR add the standalone `repetition_guard` and wire the host to honor `coaching.suppress`. **[HOST GLUE if standalone]**
+7. **(3 min)** `DynamicAgent(cfg)` for each; `engine.register_agent(...)` in this order: detector, extractor, strategist (registration order is the merge tie-breaker within equal priority). **[HOST GLUE]**
+8. **(3 min)** Per turn: build `AgentContext` (`session_id`, `recent_segments`, optional `user_context`/`language_directive`), then `await engine.process_turn(context, trigger_type=TriggerType.TURN_BASED)`. **[HOST GLUE]**
+9. **(2 min)** Render `final_response.insights` on the HUD (respect each insight's `expiry` and `action_label`). Optionally render the `objections` queue and `budget`/`urgency` facts in a side panel. **[HOST GLUE]**
+10. **(2 min)** Smoke test: feed a transcript with a clear price objection. Assert exactly one insight on the objection turn, zero on a neutral turn, and no duplicate insight when the same objection repeats inside the strategist cooldown / same advice topic.
+
+**Total ≈ 30 min.** The only code you write is one schema file and the host loop; the four agents are pure config.
+
+---
+
+### Things to flag before you ship
+
+- **Cooldown vs. silence:** the strategist's 20s cooldown (`BaseAgent.process`) is a hard gate *before* the LLM runs — it produces silence, not a deferred card. Tune it to your call cadence.
+- **Detector substring caution:** if you ever move objection detection to the engine's `check_keyword_triggers` helper, note it's case-insensitive **substring** matching (E-8) — `"car"` matches `"scared"`. Here we use an LLM detector, so this doesn't bite, but don't swap in keyword triggers naively.
+- **Fact priority is host-owned when you call `add_fact` directly:** the priority-10 canonicality only holds for facts that flow through `process_turn` merge (engine stamps `fact.priority`). If the host writes facts straight to the blackboard, it owns `fact.priority` (default 0).
+- **`expiry`/`action_label` pass-through depends on the model actually emitting them.** Bad/missing values are coerced safely (`_coerce_expiry` → default 15s; `_coerce_action_label` → None), so a sloppy model degrades gracefully rather than crashing the insight.
+- **Phase-2 events are recorded but not re-dispatched** — the strategist can't trigger a Phase-3 cascade. If you need chained analysis, do it within the strategist or via a host-driven second `process_turn`.
+## Testing Templates — Prove It Works (Especially the Silence)
+
+> **Thesis recap.** XUBB AGENTS is a reactive swarm of cheap observers. Restraint
+> is the product. The HUD is worth more for what it *doesn't* say than for what it
+> does. So the most important test you will ever write for an agent is not "does it
+> produce the right insight?" — it is **"does it correctly produce NOTHING?"**
+>
+> This chapter gives you transcript-based test templates grounded in how *this
+> repo's* tests actually run: you build an `AgentContext` out of
+> `TranscriptSegment`s, mock the one external dependency (`LLMClient.generate_json`),
+> run the agent, and assert on the channels of the returned `AgentResponse` —
+> including the empty ones.
+
+---
+
+### How an agent actually runs (and what you mock)
+
+Before the templates, anchor on the real execution path, because the templates
+assert against exactly these surfaces.
+
+1. The engine injects an LLM client onto the agent (`agent.llm`). In tests you
+   replace it with a fake.
+2. `BaseAgent.process()` does the gatekeeping (trigger-type match, cooldown) and
+   then calls `evaluate()`. For unit tests you almost always call `evaluate()`
+   **directly** — it skips cooldown/trigger bookkeeping and exercises the agent's
+   brain. (Call `process()` only when the behavior under test *is* the cooldown or
+   trigger-type gate.)
+3. `DynamicAgent.evaluate()` builds the prompt, calls
+   `await self.llm.generate_json(model=..., messages=...)`, and parses the returned
+   dict into an `AgentResponse` according to its **schema mapping**.
+4. The schema mapping is the whole game for silence. The parser decides
+   `should_speak` from the mapping (`core/llm.py` is just transport; the *gate*
+   lives in `library/dynamic.py`):
+   - **`check_field` present** (e.g. `default_v2` → `has_insight`): the boolean
+     gate drives it. Missing/false ⇒ **silence**.
+   - **`root_key` present, no `check_field`** (e.g. `v2_raw` → `insight`): a
+     non-empty root object is the gate. Empty/absent ⇒ **silence**.
+   - **neither** (a hand-rolled custom schema): default policy is **silence**
+     unless the author sets `speak_without_gate: true`.
+
+**The only thing you mock is `generate_json`.** It is an `async` method that
+returns a parsed `dict` (or `None`). Everything downstream — gating, confidence
+clamping, event/fact/queue extraction — is pure local code you *want* to exercise
+for real.
+
+The canonical fake, lifted straight from `tests/test_dynamic_agent.py`:
+
+```python
+class FakeLLM:
+    """Stand-in for the engine-injected LLM client. generate_json returns a
+    pre-canned dict, mimicking a parsed JSON response — no network."""
+    def __init__(self, result):
+        self._result = result
+        self.calls = []
+
+    async def generate_json(self, model=None, messages=None, **kwargs):
+        self.calls.append({"model": model, "messages": messages})
+        return self._result
+```
+
+For engine-level / multi-agent tests, the repo instead uses a `MockAgent`
+subclass of `BaseAgent` with an injectable `response_fn(context, agent) ->
+AgentResponse` (see `tests/test_engine.py`). Use `FakeLLM` + `DynamicAgent` when
+you're testing *parsing/gating*; use `MockAgent` when you're testing *engine
+orchestration* (event routing, priority, cooldown).
+
+---
+
+### The Silence Test — the test that protects the thesis
+
+A reactive swarm that speaks on every turn is worse than no swarm at all: it
+trains the operator to ignore the HUD. Every other guarantee in this codebase —
+cooldowns, gates, the `has_insight` boolean, the gate-less default-to-silence
+policy — exists to make silence the *default* and speech the *exception*. **If you
+don't test the silence path, you are not testing the product.**
+
+There are three concrete ways an agent stays silent, and each has a distinct
+assertion. Memorize these — every silence test is one of them.
+
+| # | Silence mechanism | What the LLM returns (mock) | The assertion |
+|---|---|---|---|
+| 1 | **Gated, gate says no** (`check_field`, e.g. `has_insight=false`) | `{"has_insight": False, ...}` | `assert resp.insights == []` |
+| 2 | **Root-keyed, empty root** (`root_key`, no `check_field`) | `{"insight": {}}` | `assert resp.insights == []` |
+| 3 | **Gate-less + rootless, no opt-in** (custom schema, INV-11) | `{"content": "...", "type": "..."}` | `assert resp.insights == []` |
+
+The crucial subtlety in case 1: an agent can **emit signal while staying silent on
+the HUD**. `has_insight=False` suppresses the *insight*, but the same response may
+still carry `events`, `facts`, `variable_updates`, and `queue_pushes`. That is the
+intended shape of a Detector or Extractor — it changes shared state and fires
+events for other agents without ever interrupting the human. So the canonical
+silence assertion for those archetypes is the **paired** form:
+
+```python
+# The agent did its job WITHOUT speaking:
+assert resp.insights == []          # produced NOTHING on the HUD
+assert len(resp.events) == 1        # but DID emit the coordination signal
+```
+
+Why `== []` and not `not resp.insights`? Because an empty-list assertion fails
+loudly with a readable diff when an agent regresses into chattiness — it prints
+the exact unwanted insight. That diagnostic is the difference between catching HUD
+spam in CI and shipping it.
+
+One more guard worth a dedicated test: the **gate-less misconfiguration**. A
+custom schema whose *prose* tells the model to emit `has_insight` but whose
+*mapping* forgets to wire `check_field` silently loses the gate. The repo asserts
+the load-time warning fires (`test_warning_fires_on_gate_field_in_instruction_but_no_check_field`).
+If you author custom schemas, copy that test — a lost gate is invisible until it
+spams production.
+
+---
+
+### Per-archetype test templates
+
+The four archetypes differ almost entirely in **which response channels they are
+allowed to touch**, and therefore in what your test asserts is present vs. empty.
+The "Expected SILENCE" column is not optional — it is the load-bearing column.
+
+> Legend: `variable_updates` = blackboard var writes; `queue_pushes` = work-queue
+> appends; `events` = coordination signals; `facts` = deduped knowledge;
+> `insights` = HUD output. "—" means *assert empty*.
+
+| Archetype | Input transcript (mock returns) | Expected `variable_updates` | Expected `queue_pushes` | Expected `events` | Expected `facts` | Expected `insights` | **Expected SILENCE** |
+|---|---|---|---|---|---|---|---|
+| **Detector** (sees a thing, signals others; never speaks) | A turn containing the trigger (e.g. a question). Mock: `{"has_insight": false, "events":[{"name":"question_detected","payload":{...}}]}` | — | — | **1** event, `name=="question_detected"`, `source_agent==agent.id`, `timestamp` session-relative | — | **— (none)** | **YES — primary.** `assert resp.insights == []` while `assert len(resp.events)==1`. A Detector that produces an insight is a bug. |
+| **Extractor** (pulls structured facts into the blackboard) | A turn stating a fact (e.g. "budget is 50k"). Mock: `{"has_insight": false, "facts":[{"type":"budget","key":"primary","value":50000,"confidence":0.9}]}` | optional | optional | optional | **1** fact, `type=="budget"`, `key=="primary"`, `value==50000`, `source_agent==agent.id` | **— (none)** | **YES — primary.** `assert resp.insights == []`. Extraction is a state change, not an interruption. Assert the fact landed AND the HUD stayed quiet. |
+| **Advisor** (the only archetype whose *job* is to speak — rarely) | Two cases. Quiet: `{"has_insight": false}`. Speak: `{"has_insight": true, "type":"warning", "content":"...", "expiry":30}` | — | — | — | — | **0 in the quiet case; exactly 1** in the speak case (assert `type`, `content`, `expiry`) | **YES — and this is the default case.** The quiet-turn test (`has_insight=false ⇒ 0 insights`) is the *more important* of the two. Most turns must be silent. |
+| **Monitor** (interval/silence-triggered watcher; tracks state, speaks only on threshold breach) | Below threshold: `{"has_insight": false, "variable_updates":{"idle_turns": 3}}`. Breach: `{"has_insight": true, "type":"opportunity", "content":"..."}` | **1** (`idle_turns` updated) in the below-threshold case | — | optional | — | **0 below threshold; 1** on breach | **YES — primary.** A Monitor must update its tracked variable *without speaking* on every quiet tick. Assert `variable_updates` changed but `insights == []`. |
+
+Reading the table the right way: for **Detector, Extractor, and Monitor**, the
+"speak" column is mostly empty and the **SILENCE column is the spec**. Only the
+**Advisor** is allowed to put text on the HUD — and even there, the test you must
+not skip is the *quiet* one.
+
+---
+
+### Runnable example 1 — Detector: emits an event, says NOTHING
+
+This is the archetypal silence test. The agent detects a customer question, fires
+a `question_detected` event for downstream agents to react to, and **produces zero
+insights**. We use the real `DynamicAgent` with the `default_v2` schema (whose
+gate is `has_insight`), mock `generate_json` to return a detection with
+`has_insight: false`, and assert the paired contract.
+
+```python
+import asyncio
+import pytest
+from xubb_agents.library.dynamic import DynamicAgent
+from xubb_agents.core.models import AgentContext, TranscriptSegment, TriggerType
+
+
+class FakeLLM:
+    def __init__(self, result):
+        self._result = result
+        self.calls = []
+    async def generate_json(self, model=None, messages=None, **kwargs):
+        self.calls.append({"model": model, "messages": messages})
+        return self._result
+
+
+def make_detector(result):
+    agent = DynamicAgent({
+        "id": "question_detector",
+        "name": "Question Detector",
+        "text": "Emit a 'question_detected' event when the customer asks something. Never speak.",
+        "output_format": "default_v2",   # gate = has_insight
+        "trigger_config": {"cooldown": 0},
+    })
+    agent.llm = FakeLLM(result)
+    return agent
+
+
+def test_detector_emits_event_and_stays_silent():
+    # The customer asks a question. The detector signals — but must not speak.
+    context = AgentContext(
+        session_id="sess_detector",
+        recent_segments=[
+            TranscriptSegment(speaker="AGENT",    text="How can I help?",        timestamp=10.0),
+            TranscriptSegment(speaker="CUSTOMER", text="What does this cost?",    timestamp=12.0),
+        ],
+        trigger_type=TriggerType.TURN_BASED,
+    )
+
+    # The LLM "detects" the question: it fires an event, with has_insight=False.
+    llm_result = {
+        "has_insight": False,
+        "events": [
+            {"name": "question_detected", "payload": {"text": "What does this cost?"}}
+        ],
+    }
+    agent = make_detector(llm_result)
+
+    resp = asyncio.run(agent.evaluate(context))
+
+    # --- The coordination signal fired ---
+    assert len(resp.events) == 1
+    evt = resp.events[0]
+    assert evt.name == "question_detected"
+    assert evt.payload == {"text": "What does this cost?"}
+    assert evt.source_agent == "question_detector"
+    # A-2 / INV-13: timestamp is session-relative (max segment ts), never wall-clock.
+    assert evt.timestamp == 12.0
+    assert evt.timestamp < 1_000_000_000
+
+    # --- THE SILENCE TEST: produced NOTHING on the HUD ---
+    assert resp.insights == []
+```
+
+What this proves: the Detector does real work (an event other agents subscribe to)
+*through a silent response*. If a future change makes the gate leak — say someone
+swaps the schema for a gate-less one — `resp.insights == []` fails with the exact
+unwanted insight printed.
+
+---
+
+### Runnable example 2 — Advisor: silent by default, one insight on breach
+
+The Advisor is the only archetype allowed on the HUD, so it gets the most rigorous
+silence test: we assert that `has_insight=false` yields **zero** insights, and only
+then that `has_insight=true` yields **exactly one** insight with the expected type
+and expiry. Both halves use the same agent + `default_v2` schema; only the mocked
+LLM result changes.
+
+```python
+import asyncio
+from xubb_agents.library.dynamic import DynamicAgent
+from xubb_agents.core.models import (
+    AgentContext, TranscriptSegment, TriggerType, InsightType,
+)
+
+
+class FakeLLM:
+    def __init__(self, result):
+        self._result = result
+    async def generate_json(self, model=None, messages=None, **kwargs):
+        return self._result
+
+
+def make_advisor(result):
+    agent = DynamicAgent({
+        "id": "objection_advisor",
+        "name": "Objection Advisor",
+        "text": "Warn the rep only when the customer raises a hard objection. Otherwise stay silent.",
+        "output_format": "default_v2",   # gate = has_insight
+        "trigger_config": {"cooldown": 0},
+    })
+    agent.llm = FakeLLM(result)
+    return agent
+
+
+def _context():
+    return AgentContext(
+        session_id="sess_advisor",
+        recent_segments=[
+            TranscriptSegment(speaker="CUSTOMER", text="This is way too expensive.", timestamp=8.0),
+        ],
+        trigger_type=TriggerType.TURN_BASED,
+    )
+
+
+def test_advisor_is_silent_when_gate_is_false():
+    # THE DEFAULT CASE: nothing worth saying → ZERO insights.
+    agent = make_advisor({"has_insight": False, "content": "suppressed draft"})
+    resp = asyncio.run(agent.evaluate(_context()))
+    assert resp.insights == []          # produced NOTHING — the product working as designed
+
+
+def test_advisor_emits_exactly_one_insight_on_breach():
+    # THE EXCEPTION: a real objection → exactly one well-formed insight.
+    agent = make_advisor({
+        "has_insight": True,
+        "type": "warning",
+        "content": "Price objection — anchor on ROI before discounting.",
+        "confidence": 0.9,
+        "expiry": 30,
+    })
+    resp = asyncio.run(agent.evaluate(_context()))
+
+    assert len(resp.insights) == 1
+    insight = resp.insights[0]
+    assert insight.type == InsightType.WARNING
+    assert insight.content == "Price objection — anchor on ROI before discounting."
+    assert insight.confidence == 0.9
+    assert insight.expiry == 30            # S-1: schema expiry passes through
+    assert insight.agent_id == "objection_advisor"
+```
+
+What this proves: the Advisor obeys the gate in *both* directions. The first test
+is the one that protects the thesis — it guarantees the Advisor shuts up when it
+has nothing to add. The second test pins the *shape* of the rare insight so a
+regression can't quietly drop the `expiry` or mislabel the `type`.
+
+---
+
+### Checklist: writing a test for any new agent
+
+1. **Pick the archetype** → that fixes which channels are allowed and which must
+   be asserted empty.
+2. **Write the silence test first.** Mock the LLM to the agent's "nothing to do"
+   output and assert `resp.insights == []` (plus any non-HUD channels that *should*
+   still fire). This is mechanism #1, #2, or #3 from the Silence Test table.
+3. **Then write the speak test** (Advisors) or the **signal test** (Detector event
+   / Extractor fact / Monitor variable). Assert *exactly one* of the expected
+   output and pin its fields (`type`, `expiry`, `name`, `key`, `value`,
+   `source_agent`).
+4. **Assert timestamps are session-relative** for any emitted event/fact
+   (`ts == max segment timestamp`, `ts < 1_000_000_000`) — INV-13 / A-2.
+5. **Call `evaluate()` directly** for parsing/gating; reserve `process()` for when
+   the *cooldown or trigger-type gate itself* is under test.
+6. If the agent uses a **custom schema**, add the gate-less misconfiguration
+   warning test — a lost `check_field` is invisible until it spams the HUD.
+
+If your test file does not contain at least one `assert resp.insights == []`, you
+have not tested the most important property of the agent.
+## Quality Metrics — Making Restraint Measurable
+
+The doctrine of Part I says the product is *restraint*: a reactive swarm of cheap observers whose highest virtue is staying silent. But "be quiet most of the time" is unfalsifiable as written. A swarm that never speaks is trivially restrained and useless; a swarm that speaks every turn is loud and useless. The product lives in the narrow band between, and you cannot tune your way into that band without numbers. This artifact turns the doctrine into instrumentation.
+
+Three metric families, all from the owner's spec, all kept:
+
+- **HUD Quality** — is what reaches the operator worth the interruption?
+- **Cost & Latency** — what did the gating actually save, and is the turn fast enough to be real-time?
+- **Blackboard Quality** — is the shared coordination substrate healthy, or quietly rotting?
+
+Before the catalogue, the single number that matters most.
+
+---
+
+### The headline metric: insight rate (the silence-to-signal ratio)
+
+> **Insight rate** = insights surfaced per 100 turns.
+> **Silence-to-signal ratio** = (turns that produced zero insights) / (total turns).
+
+These are the same fact stated two ways. Insight rate is the *signal* side; the silence-to-signal ratio is its complement and the more honest framing for a product whose value proposition is quiet. If 100 turns produce 8 insights across 6 distinct turns, your silence ratio is 94/100 — 94% of turns the HUD said nothing. **That number being high is the goal, not a failure.** A team shipping a "smart" copilot will instinctively read 94% silence as 94% missed opportunity. In this architecture it is 94% restraint earned.
+
+Direction: there is no universal target, because the *right* rate is host- and role-specific. What you want is a **stable, intentional** rate that you chose by tuning cooldowns, conditions, and confidence floors — not an emergent rate you discovered after the fact. The metric's job is to make the rate visible so drift is detectable. A sudden jump from 6/100 to 30/100 after a prompt change is the alarm; the absolute value is the dial.
+
+How to capture it, framework-side, for free: count turns in `on_turn_start`; count `len(response.insights)` in `on_turn_end`; a turn is "silent" when that count is zero. Both hooks exist and carry exactly these payloads (`on_turn_start(context)`, `on_turn_end(response, duration)`). This is the cheapest, most important counter in the system, and it is two integers.
+
+Everything below refines this headline: the HUD family asks whether the signal was *good*, the cost family asks what the silence *saved*, and the blackboard family asks whether the substrate producing both is *sound*.
+
+---
+
+### A note on where each metric can be measured
+
+The framework gives you three observation surfaces, and every metric belongs to exactly one:
+
+1. **Framework-side (callbacks + tracer)** — counted from `AgentCallbackHandler` hooks and `StructuredLogTracer` output. Cheap, synchronous, no host cooperation needed. This covers production/skip/gate/latency accounting.
+2. **Host-side (UI events)** — acceptance, dismissal, usefulness, "missed moment". The framework emits an insight and forgets it; it never learns whether the operator clicked, ignored, or cursed at it. Only the host UI sees that, so these metrics require the host to log its own events and join them back to insight identity.
+3. **Blackboard inspection** — fact duplication/conflict, queue growth, stale variables. These are properties of `context.blackboard` state, read by snapshotting containers across turns. Not emitted by any callback; you read them.
+
+The instrumentation sketch at the end implements (1) in full and shows the hook points for (2) and (3).
+
+---
+
+### Family 1 — HUD Quality
+
+Does what survived the gate deserve to have survived?
+
+### 1.1 Insight rate per 100 turns
+*(See headline above.)* Production count of insights, normalized per 100 turns. **Good = low and stable.** Framework-side: `len(response.insights)` summed in `on_turn_end`, divided by turn count from `on_turn_start`.
+
+### 1.2 Insight acceptance / usefulness rate
+> Of insights surfaced, the fraction the operator acted on (clicked the `action_label`, expanded, pinned) or later rated useful.
+
+**Good = high.** This is the truest measure of signal quality: an insight that is shown and ignored is noise that happened to clear the gate. Direction caveat — acceptance is not the same as usefulness. An operator may act on a bad suggestion or silently benefit from one they never click. Capture both if the UI affords it: a hard *acceptance* signal (click/act) and a soft *usefulness* signal (thumbs-up, survey, downstream outcome).
+
+**Host-side only.** The framework hands the host `AgentInsight` objects (with `agent_id`, `agent_name`, `type`, `content`, `action_label`). Acceptance is a UI event the host fires when the operator interacts with that rendered insight. To make the join possible, the host must carry a stable insight identity from render to interaction — `AgentInsight` has no `id` field, so the host should mint one at render time (e.g. hash of `agent_id` + `content` + turn) and key its accept/dismiss events on it.
+
+### 1.3 Dismissal rate
+> Fraction of surfaced insights the operator explicitly dismissed (closed before expiry).
+
+**Good = low.** The dual of acceptance, but distinct: a dismissal is an *active rejection*, stronger evidence of noise than a mere non-click. A high dismissal rate on a specific `agent_name` is a precise signal — that observer is mis-tuned, and you can raise its cooldown or confidence floor in isolation. **Host-side.** The host fires a dismiss event; group by `agent_id` to localize the offender.
+
+### 1.4 Repeated-insight rate
+> Fraction of insights whose content substantially repeats an insight surfaced earlier in the same session.
+
+**Good = low.** Repetition is the most common failure mode of a swarm with short cooldowns: the same observer notices the same condition turn after turn and says the same thing. It is corrosive because each repeat is individually plausible but collectively nagging. **Host-side (with framework assist).** The host maintains a per-session set of recently-surfaced contents (or embeddings) and flags near-duplicates. The framework assist: agent-private `memory` (`response.memory_updates`, persisted via `blackboard.update_memory` and read back through `shared_state["memory_<id>"]`, INV-14) lets a well-behaved agent remember "I already said this" and self-suppress — which is the *fix*, while the metric is the *detector*.
+
+### 1.5 Average insight lifetime
+> Mean wall-clock time an insight remains displayed before it expires or is dismissed.
+
+**Good = context-dependent, watched for drift.** `AgentInsight.expiry` defaults to 15 (seconds to display); agents can override per-insight (the `create_insight` `expiry` pass-through, S-1). Two readings: (a) the *configured* lifetime — auditable framework-side by recording `insight.expiry` in `on_turn_end`; (b) the *realized* lifetime — how long it actually stayed up before dismissal, which is host-side. A realized lifetime far below configured expiry means operators are swatting insights away early: a dismissal-rate signal in disguise.
+
+### 1.6 False-positive interruption rate
+> Fraction of *interrupting* insights (high-salience: `WARNING`, `OPPORTUNITY`, or anything the host renders as an alert) that the operator judged unwarranted.
+
+**Good = near zero.** This is the most expensive failure mode in the whole system. A false-positive interruption doesn't just waste a glance — it teaches the operator to distrust the HUD, after which even true positives are ignored. The doctrine's "gate ruthlessly" exists primarily to protect this number. **Host-side**, but the framework localizes it: `InsightType` (`WARNING`/`OPPORTUNITY` vs `SUGGESTION`/`FACT`/`PRAISE`) and `confidence` are on every insight, so the host can compute false-positive rate *per type* and confirm that the loud types clear a higher confidence bar than the quiet ones.
+
+### 1.7 Missed-critical-moment rate
+> Of moments that *should* have produced an insight (objection, buying signal, compliance risk), the fraction where the HUD stayed silent.
+
+**Good = near zero — and this is the one metric where silence is the failure.** Every other HUD metric pushes toward quiet; this one is the counterweight that stops you from tuning the swarm into uselessness. It is the reason the headline metric has no "lower is always better" rule. **Host-side, and the hardest to capture** because it requires ground truth the framework cannot have: a human label, a post-call review, or a downstream outcome (deal lost on an unhandled objection). Pragmatically, sample sessions for manual review and label missed moments; track the rate on that sample. A swarm with an enviable 2/100 insight rate and a 40% missed-critical-moment rate is not restrained — it is asleep.
+
+---
+
+### Family 2 — Cost & Latency
+
+What did the gating buy you, and is the turn fast enough to be real-time?
+
+This family is almost entirely **framework-side and free**, because the engine's whole job is deciding who runs, and it announces every decision through callbacks. The three "skip" metrics below correspond to three real, distinct gates in `engine.py` / `agent.py`, and they decompose the total savings into where each cheap-observer dollar was saved.
+
+### 2.1 Agents skipped before LLM (the gate inventory)
+> Per turn: how many registered agents did **not** run, and why.
+
+**Good = high relative to agents that ran** — most observers should sit out most turns. The engine reports every Phase-1 skip through **`on_agent_skipped(agent_name, reason)`**, fired in `_get_eligible_agents`. The `reason` string is one of a fixed vocabulary from `_is_eligible`, and these are the sub-metrics:
+
+- `"not_in_allow_list"` — host hard-filtered the agent (host policy, e.g. role not active).
+- `"trigger_type_mismatch"` — agent doesn't subscribe to this turn's trigger type.
+- `"conditions_not_met"` — agent's `trigger_conditions` evaluated false against the blackboard.
+
+Capture: increment a counter keyed on `reason` in `on_agent_skipped`. This single hook gives you 2.2 and most of 2.1 directly.
+
+### 2.2 Agents gated by condition
+> Subset of 2.1 where `reason == "conditions_not_met"`.
+
+**Good = high.** This is the blackboard-driven precondition gate doing its job — agents declining to run because the *state* doesn't warrant it (no question pending, budget already known). It's the cheapest possible gate: pure dict/condition evaluation, zero LLM, zero agent body. A low number here on a condition-heavy config means your conditions aren't biting and you're paying to run agent bodies that will no-op. **Framework-side, from the same `on_agent_skipped` reason.**
+
+### 2.3 Agents blocked by cooldown
+> Per turn: agents that were eligible by trigger/condition but did not run because their cooldown window had not elapsed.
+
+**Good = present and steady** — cooldown is the anti-nag throttle, the mechanism most directly responsible for the silence ratio. **This is the one cost metric the callbacks do *not* hand you cleanly**, and it's worth understanding why. Cooldown is enforced *inside* `BaseAgent.process()` (the `(now - self.last_run_time) < effective_cooldown` check), which returns `None` *before* firing `on_agent_start` — but `process()` is only called for agents the engine already deemed eligible, so a cooldown skip is silent: no `on_agent_skipped` (that's engine-side eligibility, and cooldown lives in the agent), and no `on_agent_start`/`on_agent_finish` pair.
+
+You therefore infer it by subtraction. For a turn, let `E` = agents the engine deemed eligible (it logged "Phase 1: Running E eligible agents"; equivalently, registered minus the `on_agent_skipped` count). Let `S` = agents that actually started (`on_agent_start` fires). **Cooldown-blocked = E − S.** A `MetricsCollector` that counts eligibility (via the absence of a skip) and counts `on_agent_start` per turn computes this without touching the agent internals. The gap is exactly the cooldown gate plus the rare Phase-2 trigger-type re-check.
+
+### 2.4 LLM calls per turn
+> Number of actual model invocations (`generate_json`) per turn.
+
+**Good = low**, and it should approximate the number of agents that *ran and chose to think* — not the number registered. This is the real cost driver. The framework doesn't emit a dedicated "LLM call" callback, but `on_agent_start` is a faithful proxy: an agent that starts is an agent that may call the model (a no-op gate already skipped it). For exactness, count agents that started **and** returned a non-`None` response (`on_agent_finish` with a non-null `response` / the tracer's `status: "success"`). Cross-check against provider-side call counts during validation. **Framework-side.**
+
+### 2.5 Premium-model calls per session
+> Count of LLM calls made by agents configured with an expensive model (e.g. a `gpt-4o`-class model vs the `gpt-4o-mini` default).
+
+**Good = low and deliberate** — the swarm doctrine is *cheap* observers; a premium call should be a rare escalation, not a default. `AgentConfig.model` is per-agent and the default is `"gpt-4o-mini"`. Capture: in the `MetricsCollector`, hold a name→model map built at registration (or read `agent.config.model`), and when an agent of a premium model starts/finishes, increment a per-session premium counter. **Framework-side**, given the model map. This metric is the guardrail against "just bump that one agent to the big model" quietly becoming the cost story.
+
+### 2.6 Average `process_turn` latency
+> Mean wall-clock duration of a full turn.
+
+**Good = comfortably under the host's real-time budget** (the LLM client's per-request budget is `DEFAULT_TIMEOUT = 10.0s`, with bounded retries — a turn that routinely approaches that is at risk of HUD stall). Handed to you directly: **`on_turn_end(response, duration)`** carries the turn duration, and `StructuredLogTracer` emits it as `total_latency_ms`. Track mean and, more usefully, the tail (p95/p99) — real-time UX dies on the tail, not the mean. **Framework-side.**
+
+### 2.7 Phase-1 vs Phase-2 latency
+> Turn latency attributed to Phase 1 (primary agents) vs Phase 2 (event-triggered subscribers).
+
+**Good = Phase 2 rare and cheap.** Phase 2 only runs when Phase-1 agents emit events (`if all_events and self.max_phases >= 2`), and it's a second fan-out of LLM calls — the most expensive thing a turn can do. You want to know how often you pay for it. Capture via the phase callbacks: **`on_phase_start(phase, agent_names)`** and **`on_phase_end(phase, event_names)`** bracket each phase; record timestamps on start and diff on end, keyed by `phase`. Frequency of a `phase == 2` start is itself a metric — a session where most turns trigger Phase 2 has an event-happy agent that is effectively doubling cost. **Framework-side.**
+
+### 2.8 Cost per session
+> Total estimated LLM spend for a session.
+
+**Good = low and predictable.** The framework has no pricing knowledge, so this is a host-side rollup: combine 2.4 (calls), 2.5 (premium split), and per-model token estimates (the client caps output at `DEFAULT_MAX_TOKENS = 1024`, which bounds the per-call output cost). The `MetricsCollector` produces the call counts per model; the host multiplies by its price table. **Framework-side counts, host-side pricing.**
+
+---
+
+### Family 3 — Blackboard Quality
+
+Is the coordination substrate healthy? These are properties of `context.blackboard` state, not lifecycle events — **blackboard inspection**, read by snapshotting containers across turns. The blackboard is the swarm's only shared memory; if it rots, every downstream gate makes worse decisions.
+
+### 3.1 Fact duplication rate
+> Fraction of `add_fact` attempts that targeted a `(type, key)` already present.
+
+**Good = low, but interpret carefully.** The blackboard *dedupes by design*: `add_fact` matches on `(type, key)` (or `type` alone when `key is None`) and keeps a single winner. So duplication never bloats storage — but a high *attempt* rate means many agents are independently re-deriving the same fact every turn, which is wasted LLM work upstream of a gate that throws the result away. Capture: the engine doesn't count this, so inspect `blackboard.facts` before/after a turn, or wrap/observe `add_fact`. The signal you want is "N agents emitted `budget` this turn; 1 survived" — that's N−1 wasted extractions. **Blackboard inspection.**
+
+### 3.2 Fact conflict rate
+> Fraction of `add_fact` attempts where an incoming fact *disagreed* (different `value`) with the existing fact at the same `(type, key)` and replaced it (or was rejected).
+
+**Good = low.** Conflict is more serious than duplication: two observers disagree about a fact (different budgets, contradictory stakeholders), and the blackboard silently resolves it by `(priority, confidence)` (INV-9). The resolution is deterministic and correct *mechanically*, but a high conflict rate means your observers are genuinely uncertain or contradictory about the world — and only one side's view survives to drive gates. Capture by inspecting whether an `add_fact` replaced an existing fact whose `value` differed (vs a benign re-assertion of the same value). **Blackboard inspection**, since neither the callback nor the tracer reports replacements.
+
+### 3.3 Queue growth rate
+> Net change in total queue depth (`sum(len(q) for q in blackboard.queues.values())`) per turn.
+
+**Good ≈ zero over time** — queues should be drained as fast as they fill. Queues are FIFO work-item lists; agents `push_queue_items` (visible in the tracer as `queue_pushes`) and consumers `pop_queue`. The tracer reports *pushes* per agent (`step_info["queue_pushes"]`) but not pops, so net growth must be read from blackboard state. Monotonic growth is a leak: producers without consumers, an unbounded backlog that will eventually distort conditions that test queue length. Capture: sample total queue depth in `on_turn_end` and difference across turns. **Blackboard inspection.**
+
+### 3.4 Stale variable rate
+> Fraction of blackboard variables not written for many turns yet still read by conditions/agents.
+
+**Good = low.** Variables are session-scoped and never auto-expire (`set_var` just writes; there's no TTL). A variable set once at turn 3 and still steering a `trigger_conditions` check at turn 200 is a stale-state hazard — the gate is firing on a fact about a conversation that has moved on. Capture: track last-write turn per variable (snapshot `blackboard.variables` keys each turn, record when each value last changed) and flag variables whose age exceeds a host threshold while still being referenced. Exclude the engine-managed `sys.*` keys (`sys.turn_count`, `sys.session_id`, `sys.trigger_type`), which are rewritten every turn by design. **Blackboard inspection.**
+
+### 3.5 Event-to-insight conversion rate
+> Of events emitted in Phase 1, the fraction that ultimately produced an insight via a Phase-2 subscriber.
+
+**Good = high-ish, but not 1.0.** Events are the swarm's internal nervous system: a Phase-1 observer emits `question_detected`, a Phase-2 subscriber reacts. If events fire constantly but rarely convert to an insight, Phase 2 is burning LLM calls (cost!) chasing signals that fizzle — an event-happy agent inflating 2.7. If conversion is suspiciously near 1.0, your Phase-2 agents aren't gating at all and every event becomes a surfaced insight, which will hurt the HUD-quality family. Capture: `on_phase_end(1, event_names)` gives the events emitted in Phase 1; the Phase-2 insights are the delta in `response.insights` attributable to subscribers (or counted from `on_phase_end(2, ...)` plus the per-agent `on_agent_finish` insight counts). **Framework-side**, joining the phase callbacks.
+
+---
+
+### Instrumentation sketch: `MetricsCollector`
+
+A custom `AgentCallbackHandler` that records the cheap framework-side counters per turn and per session. Register it in the `AgentEngine(callbacks=[...])` list alongside (or instead of) the `StructuredLogTracer`. It implements every Family-2 metric and the headline directly; it marks the hook points where host-side and blackboard-inspection metrics attach. This is a sketch to illustrate the *capture points* — the real signatures match `core/callbacks.py` exactly.
+
+```python
+import time
+from collections import Counter, defaultdict
+from xubb_agents.core.callbacks import AgentCallbackHandler
+
+# A premium model is anything not the cheap default; tune to your fleet.
+PREMIUM_MODELS = {"gpt-4o", "gpt-4-turbo", "o1", "o1-mini"}
+
+class MetricsCollector(AgentCallbackHandler):
+    def __init__(self, agent_models: dict[str, str]):
+        # name -> model, built from [a.config.name: a.config.model] at registration.
+        self._models = agent_models
+        self.session = {
+            "turns": 0,
+            "silent_turns": 0,            # HEADLINE: silence-to-signal
+            "insights_total": 0,          # HEADLINE: insight rate
+            "skips_by_reason": Counter(), # 2.1 / 2.2  (from on_agent_skipped)
+            "agents_started": 0,          # 2.4 proxy: agents that ran
+            "agents_produced": 0,         # 2.4 exact: ran AND returned a response
+            "llm_calls_premium": 0,       # 2.5
+            "turn_latencies_ms": [],      # 2.6 (mean + tail)
+            "phase2_turns": 0,            # 2.7 frequency
+            "phase_latency_ms": defaultdict(float),  # 2.7
+        }
+        self._turn_started = 0            # per-turn: eligible-that-actually-started
+        self._turn_skipped = 0            # per-turn: engine eligibility skips
+        self._phase_start_ts = {}
+
+    async def on_turn_start(self, context):
+        self.session["turns"] += 1
+        self._turn_started = 0
+        self._turn_skipped = 0
+
+    async def on_agent_skipped(self, agent_name, reason):
+        # 2.1 / 2.2: engine eligibility gate (allow-list / trigger / conditions)
+        self.session["skips_by_reason"][reason] += 1
+        self._turn_skipped += 1
+
+    async def on_agent_start(self, agent_name, context):
+        # An agent that starts has passed eligibility AND cooldown -> may call LLM.
+        self._turn_started += 1
+        self.session["agents_started"] += 1
+        if self._models.get(agent_name) in PREMIUM_MODELS:
+            self.session["llm_calls_premium"] += 1  # 2.5
+
+    async def on_agent_finish(self, agent_name, response, duration):
+        if response is not None and response.insights is not None:
+            self.session["agents_produced"] += 1     # 2.4 exact
+
+    async def on_phase_start(self, phase, agent_names):
+        self._phase_start_ts[phase] = time.time()
+        if phase == 2:
+            self.session["phase2_turns"] += 1          # 2.7 frequency
+
+    async def on_phase_end(self, phase, event_names):
+        started = self._phase_start_ts.pop(phase, None)
+        if started is not None:
+            self.session["phase_latency_ms"][phase] += (time.time() - started) * 1000
+        # 3.5 hook: stash Phase-1 event_names here, reconcile against
+        #            Phase-2 insights at turn end (event-to-insight conversion).
+
+    async def on_turn_end(self, response, duration):
+        n = len(response.insights)
+        self.session["insights_total"] += n           # HEADLINE numerator
+        if n == 0:
+            self.session["silent_turns"] += 1          # HEADLINE: silence ratio
+        self.session["turn_latencies_ms"].append(duration * 1000)  # 2.6
+
+        # 2.3 cooldown-blocked (inferred, no direct callback):
+        #   eligible = registered_agents - self._turn_skipped
+        #   cooldown_blocked = eligible - self._turn_started
+        # (records the gap; the engine never reports a cooldown skip directly.)
+
+        # BLACKBOARD INSPECTION hooks (Family 3) — read response/blackboard state:
+        #   3.1 fact dup / 3.2 fact conflict: diff blackboard.facts pre/post turn,
+        #       or observe add_fact; compare (type,key) and value.
+        #   3.3 queue growth: sum(len(q) for q in blackboard.queues.values()) delta.
+        #   3.4 stale vars: track last-write turn per non-sys.* variable key.
+
+    async def on_chain_error(self, error):
+        # Turn-fatal error; count separately so it doesn't masquerade as "silence".
+        self.session.setdefault("turn_errors", 0)
+        self.session["turn_errors"] += 1
+```
+
+### What the sketch does *not* capture, and where it lives
+
+- **Family 1 (HUD quality) beyond raw counts** — acceptance, dismissal, repeated-insight, realized lifetime, false-positive interruptions, missed moments — is **host-side UI accounting**. The host renders each `AgentInsight`, mints a stable id (the model has none), and logs interaction events (`accept`, `dismiss`, `rate`, `expire`) keyed on that id and on `agent_id` / `type`. The framework's contribution is identity and classification (`agent_id`, `agent_name`, `type`, `confidence`, `expiry`, `action_label`); the verdict comes from the operator. Missed-critical-moment needs ground truth the framework cannot supply — sample sessions and label them by hand or by downstream outcome.
+- **Family 3 (blackboard quality)** is **blackboard inspection**: snapshot `context.blackboard` containers across turns (facts, queues, variables) and diff. The tracer surfaces *pushes* and *fact counts* per agent but not pops, replacements, or staleness, so these are read from state, not from events. They attach at the `on_turn_end` hook points marked above.
+- **Cooldown-blocked (2.3)** is the one cost metric requiring inference — `E − S`, eligible minus started — because cooldown is enforced inside `BaseAgent.process()` before any callback fires.
+
+### Reading the dashboard
+
+Lead with the headline. Insight rate and the silence-to-signal ratio sit at the top, because every other number is in service of keeping that ratio high *without* letting missed-critical-moment rate climb. The cost family proves the gates are doing real work (high skip/cooldown counts, low LLM-calls-per-turn, rare Phase 2). The HUD family proves the few things that survived the gates were worth it (high acceptance, low dismissal, near-zero false-positive interruptions). The blackboard family proves the substrate feeding all of it is sound. A healthy swarm shows mostly-silence up top, mostly-skips in the middle, mostly-accepted in the small set that got through, and a flat, drained, fresh blackboard underneath. That is restraint, made measurable.
+## Definition of Done — For an Agent
+
+A backend utility is done when it works. A Xubb agent affects a live human's attention, so the bar is higher. An agent is **not production-ready** until every box is checked. This is the gate that protects the system from erosion — it makes the anti-patterns *enforceable*, not just discouraged.
+
+An agent is Done when:
+
+- [ ] **It has a single responsibility** — its job is one sentence with no "and."
+- [ ] **It has at least one pre-LLM gate** — a `trigger_type` plus, for anything but a pure every-turn detector, `trigger_conditions` that reject cheaply before any model call.
+- [ ] **It can return silence** — there is an explicit, tested path where it produces no insight (a Detector/Extractor/Monitor emits zero insights by design; an Advisor declines via `check_field` / `has_insight: false`).
+- [ ] **It has a cooldown** — a deliberate value (not the default by accident), appropriate to its archetype.
+- [ ] **It declares its Blackboard reads/writes** — documented inputs and outputs, and it writes to the *correct* container for its archetype.
+- [ ] **It has at least three test transcripts** — one where it fires, one where it must stay **silent**, one edge case — each asserting the expected channels (events/facts/variables/insights) *and* the expected silence.
+- [ ] **It has observability fields** — its runs, skips (with reason), speaks, and errors are visible via the callbacks/tracer; its insight rate is measurable.
+- [ ] **It has a known failure mode** — you can state what a false positive and a false negative look like, and what the user experiences in each.
+- [ ] **It does not emit HUD output unless it is explicitly an Advisor or Monitor** — Detectors and Extractors are silent by contract; emitting an insight from one is a defect, not a feature.
+
+> **The enforcement principle:** the framework already biases toward silence (gate-less schemas default quiet; conditions fail closed; failed agents are discarded). The Definition of Done makes sure a *human* can't quietly undo that bias by shipping an ungated, chatty, mega-agent. If a PR adds an agent and any box above is unchecked, the PR is not done — it's a draft.
+## The Agent Review Board
+
+Adding a backend endpoint is a code review. Adding an agent is **adding a new voice into the user's ear** — a new claimant on the scarcest resource in the product: attention. It deserves a different kind of scrutiny.
+
+The "board" is not bureaucracy; it's a short, mandatory set of questions any reviewer asks before a new agent (or a meaningful change to one) merges. It exists to enforce the product philosophy that *every visible agent must justify its existence.*
+
+### Agent Review Questions
+
+Ask these of every new or materially-changed agent:
+
+1. **Does this agent deserve to exist?** — What user moment is unserved without it? If you can't name one, don't add it.
+2. **Is it silent by default?** — On a typical turn, does it produce nothing? If it speaks often, it's a redesign, not a review.
+3. **Could this be a deterministic rule instead of an LLM?** — Counting, thresholds, and keyword presence don't need a model. Spend tokens only on judgment.
+4. **Does this create HUD noise?** — Does it compete with existing Advisors for the one slot? How will the curator rank it?
+5. **Does it duplicate another agent?** — Two agents detecting the same thing is two costs and a dedup problem. Merge or differentiate.
+6. **Does it write to the right Blackboard container?** — Events for signals, facts for knowledge, variables for state, queues for work, memory for private continuity. A misplaced write is a latent bug.
+7. **Does it need a premium model?** — Justify `gpt-4o`. The default is `gpt-4o-mini`; premium is earned by an event, not assumed.
+8. **What user harm occurs if it fires at the wrong moment?** — A false-positive interruption costs trust. Is the gating tight enough that this is rare?
+9. **What user harm occurs if it fails silently?** — If this is a must-never-miss moment, silence is the failure. Is that monitored (missed-critical-moment rate)?
+
+### When to convene
+
+- **Always** for a new Advisor or Monitor (anything that can speak).
+- **Always** when raising an agent to a premium model, removing a condition, or lowering a cooldown — each *increases* the agent's claim on attention or budget.
+- **Lightweight** for a new silent Detector/Extractor (verify it's truly silent and writes the right container).
+
+> A new endpoint asks "is the code correct?" A new agent asks "does this voice deserve the user's two seconds?" The first is necessary; the second is what keeps the copilot calm as the team scales.
+## Product Experience Doctrine
+
+Every chapter in this playbook is, ultimately, in service of one feeling. The architecture, the gating, the curation, the metrics — they all exist to make the product feel a particular way to the human wearing it. Name that feeling, and you have the bar that every technical decision answers to.
+
+> **Xubb should feel like a calm intelligence layer, not an eager assistant.**
+
+From that single line, the whole doctrine follows:
+
+- **It should not compete with the conversation.** The user's primary task is talking to another human. The copilot is a second screen, not a second voice. If it ever pulls focus from the live exchange, it has failed — no matter how correct it was.
+- **It should not explain itself while the user is listening.** No preambles, no reasoning, no "I noticed that…". One actionable phrase the user can act on without reading a paragraph. Words are cognitive load; spend them like they're expensive.
+- **It should not create cognitive load.** A glanceable, single, expiring insight — never a list, never a wall of text, never two things at once. The HUD is read in the gaps of a conversation, in under two seconds.
+- **It should surface only the next useful move.** Not everything it knows — the one thing that helps *right now*. Understanding accumulates silently on the Blackboard; only the earned next-step reaches the glass.
+- **It should disappear when it has nothing earned to say.** Which is most of the time. An empty HUD is not a broken HUD — it is a confident one. Silence is the default state, and the product is *better* in it.
+
+### Connecting the doctrine to the architecture
+
+This is not a poster; it is a spec. Each line of the doctrine is enforced by a real mechanism in Part I:
+
+| Doctrine | Enforced by |
+|----------|-------------|
+| Don't compete with the conversation | Reactive, host-driven triggers; the swarm observes, it doesn't converse |
+| Don't explain yourself | `AgentInsight.content` is a short phrase (`min_length` only); `expiry` makes it ephemeral |
+| Don't create cognitive load | The Insight Curator → one visible insight; `expiry` as a TTL |
+| Only the next useful move | Conditions + priority + the cheap→premium cascade earn the one moment worth surfacing |
+| Disappear when nothing's earned | Silence as default: gate-less schemas stay quiet, conditions fail closed, failed agents are discarded |
+
+Hold this doctrine above every design review. When two implementations are equally correct, the one that makes the copilot quieter, calmer, and more glanceable is the right one. **Attention is the budget. Spend it like it's the only currency that matters — because to the user, it is.**
+
+---
+
+## Closing
+
+The framework gives you primitives: agents, a blackboard, triggers, conditions, phases, insights. Part I taught the doctrine for composing them; Part II made that doctrine an operating manual — checklists, blueprints, metrics, and gates that make it hard to build badly.
+
+But the whole playbook reduces to one idea you should be able to recite from memory:
+
+> **A Xubb copilot is a restrained, blackboard-coordinated swarm that earns the right to interrupt. It is silent by default, decomposed into many cheap observers, coordinated through a shared world-model, gated ruthlessly, and curated to a single, perfectly-timed, expiring moment of help.**
+
+Build every agent so that silence is the easy path and a visible insight is rare, earned, and trusted. Do that, and the product won't feel like a chatbot bolted onto a conversation. It will feel like a quiet expert sitting beside the user — which is the only version worth shipping.
+
+*Now go build something that earns its two seconds.*
