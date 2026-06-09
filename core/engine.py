@@ -324,56 +324,66 @@ class AgentEngine:
             # Re-sync shared_state for v1 agents in Phase 2
             self._sync_state_to_legacy(context)
 
-            context.phase = 2
-            meta["phase"] = 2
+            # Capture the host-owned context mutation targets BEFORE mutating so
+            # they can be restored unconditionally. The context is reused across
+            # turns by the host; leaving trigger_type=EVENT / phase=2 behind after
+            # a mid-phase exception would corrupt every subsequent turn (E-1 / INV-12).
+            original_trigger_type = context.trigger_type
+            original_phase = context.phase
+
             # Set trigger_type to EVENT so Phase 2 agents pass their
             # own trigger_type check in BaseAgent.process().
-            original_trigger_type = context.trigger_type
+            context.phase = 2
+            meta["phase"] = 2
             context.trigger_type = TriggerType.EVENT
 
-            event_names = list(set(e.name for e in all_events))
-            phase2_agents = self.get_event_subscribers(event_names)
-            
-            # Filter by allowed_agent_ids and conditions
-            phase2_agents = [
-                a for a in phase2_agents
-                if self._is_eligible_for_phase2(a, context, allowed_agent_ids, meta)
-            ]
-            
-            if phase2_agents:
-                logger.info(f"Phase 2: Running {len(phase2_agents)} event subscribers "
-                           f"for events: {event_names}")
-                
-                # Fire on_phase_start
-                for cb in self.callbacks:
-                    try:
-                        await cb.on_phase_start(2, [a.config.name for a in phase2_agents])
-                    except Exception as e:
-                        logger.error(f"Callback error on_phase_start: {e}")
-                
-                # Run phase 2 and merge results
-                phase2_responses = await self._run_phase(phase2_agents, context)
-                self._merge_responses(phase2_responses, context.blackboard, final_response)
-                
-                # Events emitted in Phase 2 are recorded but NOT dispatched
-                phase2_events = []
-                for resp in phase2_responses:
-                    phase2_events.extend(resp.events)
-                    all_events.extend(resp.events)  # Include in telemetry
-                
-                if phase2_events:
-                    logger.debug(f"Phase 2 emitted {len(phase2_events)} events "
-                                "(recorded but not dispatched)")
-                
-                # Fire on_phase_end
-                for cb in self.callbacks:
-                    try:
-                        await cb.on_phase_end(2, [e.name for e in phase2_events])
-                    except Exception as e:
-                        logger.error(f"Callback error on_phase_end: {e}")
+            try:
+                event_names = list(set(e.name for e in all_events))
+                phase2_agents = self.get_event_subscribers(event_names)
 
-            # Restore original trigger_type for finalization
-            context.trigger_type = original_trigger_type
+                # Filter by allowed_agent_ids and conditions
+                phase2_agents = [
+                    a for a in phase2_agents
+                    if self._is_eligible_for_phase2(a, context, allowed_agent_ids, meta)
+                ]
+
+                if phase2_agents:
+                    logger.info(f"Phase 2: Running {len(phase2_agents)} event subscribers "
+                               f"for events: {event_names}")
+
+                    # Fire on_phase_start
+                    for cb in self.callbacks:
+                        try:
+                            await cb.on_phase_start(2, [a.config.name for a in phase2_agents])
+                        except Exception as e:
+                            logger.error(f"Callback error on_phase_start: {e}")
+
+                    # Run phase 2 and merge results
+                    phase2_responses = await self._run_phase(phase2_agents, context)
+                    self._merge_responses(phase2_responses, context.blackboard, final_response)
+
+                    # Events emitted in Phase 2 are recorded but NOT dispatched
+                    phase2_events = []
+                    for resp in phase2_responses:
+                        phase2_events.extend(resp.events)
+                        all_events.extend(resp.events)  # Include in telemetry
+
+                    if phase2_events:
+                        logger.debug(f"Phase 2 emitted {len(phase2_events)} events "
+                                    "(recorded but not dispatched)")
+
+                    # Fire on_phase_end
+                    for cb in self.callbacks:
+                        try:
+                            await cb.on_phase_end(2, [e.name for e in phase2_events])
+                        except Exception as e:
+                            logger.error(f"Callback error on_phase_end: {e}")
+            finally:
+                # Always restore the host-owned context, even if Phase 2 raised
+                # (E-1 / INV-12). The on_chain_error path (B5) still fires because
+                # the exception propagates out of _process_turn_inner unimpeded.
+                context.trigger_type = original_trigger_type
+                context.phase = original_phase
 
         # =====================================================================
         # Finalization

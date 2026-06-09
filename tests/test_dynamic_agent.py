@@ -246,3 +246,225 @@ class TestSessionRelativeTimestamps:
         ])
         agent = make_agent({"has_insight": False})
         assert agent._session_now(ctx) == 9.5
+
+
+# ---------------------------------------------------------------------------
+# T-1 — B1: subscribed_events auto-adds TriggerType.EVENT
+# ---------------------------------------------------------------------------
+
+class TestEventTriggerAutoAdd:
+    def test_dynamic_agent_auto_adds_event_trigger_type(self):
+        """B1 convenience: a DynamicAgent created with `subscribed_events`
+        auto-adds TriggerType.EVENT even when the mode is the default
+        (turn_based), so the engine can route events to it without the author
+        having to also list "event" in trigger_config.mode."""
+        agent = make_agent(
+            {"has_insight": False},
+            config_extra={
+                "trigger_config": {
+                    "cooldown": 0,
+                    "subscribed_events": ["question_detected"],
+                }
+            },
+        )
+        assert TriggerType.EVENT in agent.config.trigger_types
+        # The default turn_based trigger is still present (auto-add, not replace).
+        assert TriggerType.TURN_BASED in agent.config.trigger_types
+        assert agent.config.subscribed_events == ["question_detected"]
+
+    def test_no_subscribed_events_does_not_add_event_trigger(self):
+        """Guard: without subscribed_events, EVENT is NOT auto-added."""
+        agent = make_agent({"has_insight": False})
+        assert TriggerType.EVENT not in agent.config.trigger_types
+
+    def test_event_trigger_not_duplicated_when_mode_already_event(self):
+        """If the author already declared mode=event AND subscribed_events,
+        EVENT appears exactly once (no duplicate from the auto-add)."""
+        agent = make_agent(
+            {"has_insight": False},
+            config_extra={
+                "trigger_config": {
+                    "cooldown": 0,
+                    "mode": "event",
+                    "subscribed_events": ["question_detected"],
+                }
+            },
+        )
+        assert agent.config.trigger_types.count(TriggerType.EVENT) == 1
+
+
+# ---------------------------------------------------------------------------
+# T-1 — D1: assembled prompt has no leading-whitespace / blank-section bloat
+# ---------------------------------------------------------------------------
+
+class TestPromptAssembly:
+    def _captured_system_prompt(self, agent):
+        """Run one evaluation and return the system message the agent built."""
+        run(agent.evaluate(make_context()))
+        assert agent.llm.calls, "LLM was not invoked"
+        messages = agent.llm.calls[-1]["messages"]
+        system = next(m["content"] for m in messages if m["role"] == "system")
+        return system
+
+    def test_prompt_has_no_leading_whitespace(self):
+        """D1: the assembled system prompt must not start with whitespace/blank
+        lines, and assembly must never join in an empty/whitespace-only section
+        (blank-section bloat). Sections are joined with "\\n\\n"; we assert each
+        joined part carries real content."""
+        agent = make_agent({"has_insight": False})
+        system = self._captured_system_prompt(agent)
+
+        # No leading whitespace / blank lines: the D1 target is that section
+        # assembly must not prepend empty/whitespace-only sections.
+        assert system == system.lstrip(), "prompt has leading whitespace"
+        assert not system.startswith("\n"), "prompt starts with a blank line"
+
+        # No blank-section bloat: every "\n\n"-joined part has real content
+        # (an empty optional section — user_context, language, rag, trigger —
+        # being appended unguarded would surface here as a whitespace-only part).
+        parts = system.split("\n\n")
+        empty_parts = [i for i, p in enumerate(parts) if p.strip() == ""]
+        assert empty_parts == [], (
+            f"prompt has blank-section bloat at joined part(s) {empty_parts}"
+        )
+
+    def test_prompt_includes_core_sections(self):
+        """Sanity: the core sections are present and in order so the
+        no-whitespace assertion isn't passing on an empty prompt."""
+        agent = make_agent({"has_insight": False})
+        system = self._captured_system_prompt(agent)
+        assert "You are a test agent." in system
+        assert "[YOUR MEMORY / SCRATCHPAD]" in system
+        # default_v2 ships a json_instruction (the OUTPUT FORMAT block).
+        assert "has_insight" in system
+
+
+# ---------------------------------------------------------------------------
+# A-1 (INV-11) — gate-less schema silence contract
+# ---------------------------------------------------------------------------
+
+def make_gateless_agent(result, *, mapping=None, instruction="", name="Gateless Agent"):
+    """Build a DynamicAgent then override its schema to simulate a custom
+    user-authored gate-less schema (no schema file needed — we patch the
+    already-loaded mapping/instruction directly, mirroring what _load_schema
+    would have produced for such a JSON)."""
+    agent = make_agent(result)
+    agent.mapping = mapping if mapping is not None else {
+        "content_field": "content",
+        "type_field": "type",
+    }
+    agent.json_instruction = instruction
+    return agent
+
+
+class TestGatelessSilenceContract:
+    def test_gateless_rootless_schema_stays_silent_by_default(self):
+        """A-1 core: a schema with NO check_field and NO root_key must NOT
+        emit an insight every turn just because content is present. The
+        documented default policy is silence."""
+        result = {"content": "I would spam this every turn", "type": "suggestion"}
+        agent = make_gateless_agent(result)
+        resp = run(agent.evaluate(make_context()))
+        assert resp.insights == [], "gate-less schema must default to silence (INV-11)"
+
+    def test_gateless_schema_speaks_when_opted_in(self):
+        """A schema author can explicitly opt into 'content ⇒ speak' via
+        speak_without_gate: true — then content present DOES emit."""
+        result = {"content": "Intentional speech", "type": "suggestion"}
+        agent = make_gateless_agent(
+            result,
+            mapping={
+                "content_field": "content",
+                "type_field": "type",
+                "speak_without_gate": True,
+            },
+        )
+        resp = run(agent.evaluate(make_context()))
+        assert len(resp.insights) == 1
+        assert resp.insights[0].content == "Intentional speech"
+
+    def test_gated_schema_unaffected_speaks_when_true(self):
+        """default_v2 (check_field=has_insight) is UNAFFECTED: has_insight=True
+        still emits."""
+        result = {"has_insight": True, "content": "Real insight"}
+        agent = make_agent(result)  # default_v2
+        resp = run(agent.evaluate(make_context()))
+        assert len(resp.insights) == 1
+        assert resp.insights[0].content == "Real insight"
+
+    def test_gated_schema_unaffected_silent_when_false(self):
+        """default_v2 with has_insight=False stays silent — unchanged."""
+        result = {"has_insight": False, "content": "Should be suppressed"}
+        agent = make_agent(result)
+        resp = run(agent.evaluate(make_context()))
+        assert resp.insights == []
+
+    def test_rootkey_schema_unaffected_speaks_when_present(self):
+        """v2_raw (root_key=insight, no check_field) still speaks by presence
+        of a non-empty root object — unchanged by A-1."""
+        result = {"insight": {"type": "warning", "content": "Present"}}
+        agent = make_agent(result, output_format="v2_raw")
+        resp = run(agent.evaluate(make_context()))
+        assert len(resp.insights) == 1
+        assert resp.insights[0].content == "Present"
+
+    def test_rootkey_schema_silent_when_root_empty(self):
+        """v2_raw with an empty/absent root object stays silent — unchanged."""
+        result = {"insight": {}}
+        agent = make_agent(result, output_format="v2_raw")
+        resp = run(agent.evaluate(make_context()))
+        assert resp.insights == []
+
+
+class TestGatelessLoadTimeWarning:
+    def test_warning_fires_on_gate_field_in_instruction_but_no_check_field(self, caplog):
+        """A-1 load-time guard: a gate-less, rootless schema whose instruction
+        references a gate field (e.g. has_insight) must WARN at load time —
+        this is the misconfiguration that silently loses the silence contract."""
+        agent = make_agent({"has_insight": False})
+        # Simulate the misconfigured custom schema: instruction mentions the
+        # gate, but the mapping forgot to wire check_field.
+        agent.json_instruction = (
+            'Return {"has_insight": boolean, "content": "..."}'
+        )
+        agent.mapping = {"content_field": "content"}
+
+        with caplog.at_level("WARNING"):
+            agent._warn_on_gateless_misconfig("custom_gateless")
+
+        assert any(
+            "gate-less" in rec.message.lower() and "has_insight" in rec.message
+            for rec in caplog.records
+        ), "expected a load-time gate-less misconfiguration warning"
+
+    def test_no_warning_when_check_field_present(self, caplog):
+        """A properly gated schema (default_v2 references has_insight AND wires
+        check_field) must NOT warn."""
+        agent = make_agent({"has_insight": False})  # default_v2
+        with caplog.at_level("WARNING"):
+            agent._warn_on_gateless_misconfig("default_v2")
+        assert not any(
+            "gate-less" in rec.message.lower() for rec in caplog.records
+        ), "gated schema must not trigger the A-1 warning"
+
+    def test_no_warning_when_rootkey_present(self, caplog):
+        """A root-keyed gate-less schema (v2_raw) is properly gated by presence
+        and must NOT warn."""
+        agent = make_agent({"insight": {}}, output_format="v2_raw")
+        with caplog.at_level("WARNING"):
+            agent._warn_on_gateless_misconfig("v2_raw")
+        assert not any(
+            "gate-less" in rec.message.lower() for rec in caplog.records
+        )
+
+    def test_no_warning_when_gateless_but_instruction_has_no_gate_field(self, caplog):
+        """A deliberately gate-less schema whose prose does NOT promise a gate
+        is a valid (opt-in) design — no warning, to avoid noise."""
+        agent = make_agent({"content": "x"})
+        agent.json_instruction = 'Return {"content": "...", "type": "..."}'
+        agent.mapping = {"content_field": "content", "speak_without_gate": True}
+        with caplog.at_level("WARNING"):
+            agent._warn_on_gateless_misconfig("opted_in")
+        assert not any(
+            "gate-less" in rec.message.lower() for rec in caplog.records
+        )
