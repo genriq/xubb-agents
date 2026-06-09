@@ -58,7 +58,8 @@ contracts:
       - "core/blackboard.py: add_fact"
       - "docs/archive/SPEC_V2.md: §6.5.4"
     test: "tests/test_blackboard.py::TestBlackboardFacts::test_dedupe_by_type_key_pair"
-    status: to_verify   # test asserts dedup happens, not the full precedence rule.
+    test_none_key: "tests/test_blackboard.py::TestBlackboardFacts::test_dedupe_none_key_by_type"
+    status: covered   # (type,key) dedup + None-key-by-type singleton both asserted.
 
   # ---- v2.1 invariants (INV-1..8) — candidate tests exist; R1 verifies bijection ----
   - id: INV-1-callbacks-fire-once
@@ -75,15 +76,15 @@ contracts:
     statement: "Snapshot state is immutable from the perspective of peer agents in the same phase."
     source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-2"]
     invariant: INV-2
-    test: "tests/test_engine.py::test_agents_see_snapshot"
-    status: to_verify
+    test: "tests/test_engine.py::TestSnapshotIsolation::test_agents_see_snapshot"
+    status: covered   # peers in a phase see the snapshot value; writes don't leak.
 
   - id: INV-3-explicit-identity
     statement: "Agent identity is explicit (source_agent_id), never inferred from payload content."
     source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-3"]
     invariant: INV-3
-    test: "tests/test_engine.py::test_memory_updates_by_agent_preserves_attribution"
-    status: to_verify
+    test: "tests/test_engine.py::TestB4MemoryUpdatesByAgent::test_memory_updates_by_agent_preserves_attribution"
+    status: covered   # attribution keyed by agent_id, not inferred from payload.
 
   - id: INV-4-sys-keys-governed
     statement: "Reserved sys.* keys are engine-governed; unauthorized writes are detected/flagged."
@@ -103,10 +104,8 @@ contracts:
     statement: "A failed agent must not produce orphaned side effects (atomic discard)."
     source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-6"]
     invariant: INV-6
-    # NOTE: the v2.2 audit found test_failed_agent_updates_discarded UNDER-asserts this
-    # (item T-3). Marked to_verify, not covered, deliberately.
-    test: "tests/test_engine.py::test_failed_agent_updates_discarded"
-    status: to_verify
+    test: "tests/test_engine.py::TestAtomicFailure::test_failed_agent_updates_discarded"
+    status: covered   # T-3 strengthened: a failed agent's observable write never persists.
 
   - id: INV-7-callback-base-complete
     statement: "The callback base class defines all methods the engine calls; subclasses never crash."
@@ -120,7 +119,8 @@ contracts:
     source: ["docs/archive/SPEC_V2_1_HARDENING.md: INV-8"]
     invariant: INV-8
     test: "tests/test_blackboard.py::TestBlackboardMemory::test_get_and_set_memory"
-    status: to_verify
+    test_copy: "tests/test_blackboard.py::TestBlackboardMemory::test_get_memory_returns_copy"
+    status: covered   # copy-on-read asserted: mutating the returned value can't leak.
 
   # ---- v2.2 invariants (INV-8'..13) — pending the v2.2 hardening items ----
   - id: INV-8prime-memory-copy-on-write
@@ -218,13 +218,14 @@ contracts:
     test_concurrent: "tests/test_engine.py::TestReplaceAgents::test_replace_agents_never_observed_half_cleared"
     status: covered   # supports the backend P0-3 vault-reload-race fix.
 
-# ---- Coverage summary (informational; R1 `check_contracts.py` computes this authoritatively) ----
-# covered:       11   (7 v2.2 invariants + 4 L0 gate: REGISTRY-WELLFORMED, GATE-INFRASTRUCTURE,
-#                      CONTRACT-BIJECTION, RELEASE-GATE-CI)
-# to_verify:      8   (R1 bijection back-fill)
+# ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
+# covered:       17   (P4-1 pass 1: FACT-DEDUP-KEY, INV-2, INV-3, INV-6, INV-8 promoted —
+#                      bijection node-paths fixed + None-key/copy-on-read gaps closed)
+# to_verify:      3   (INV-1, INV-4, INV-7 — pending P4-1 pass 2)
 # failing_probe:  0
 # pending_v2.2:   0
-# uncovered:      1   (INV-5 — tracing-never-crashes; no direct test yet)
-# total:         20
-# → L0 (the gate itself) has landed and self-covers. Remaining: INV-5 + the to_verify
-#   back-fill (R1), and the P0–P4 integration contracts as they land.
+# uncovered:      1   (INV-5 — tracing-never-crashes; test pending P4-1 pass 2)
+# total:         21
+# → P4-1 certification in progress. Pass 1 closed the blackboard-level backlog; pass 2
+#   covers the engine/tracing invariants (INV-1 callbacks-once, INV-4 sys-key flagging,
+#   INV-5 tracing-resilience, INV-7 callback-base-complete).
