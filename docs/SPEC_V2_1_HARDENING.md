@@ -165,7 +165,7 @@ These are improvements that carry low risk if deferred.
 | NP12 | Verbose/fragile trigger parsing | Cosmetic, works correctly |
 | NP14 | O(n) queue pop | Requires serialization changes; deferred pending profiling |
 | NP15 | Dev journal comments in production code | Cosmetic |
-| NP16 | `_sync_state_from_legacy` dead code | No runtime impact |
+| NP16 | ~~`_sync_state_from_legacy` dead code~~ — **withdrawn (no such method)** | The method named here never existed; the real engine method is `_sync_state_to_legacy`, which is live and called every turn. No dead code to remove. |
 | NP11 | Excessive whitespace in prompts | Token cost, not correctness |
 | B12 | `default_v2.json` double-write | Harmless redundancy |
 | NP8 | `import json` inside function | Cosmetic |
@@ -1061,11 +1061,9 @@ Lines 9-23 contain stream-of-consciousness design notes. Remove them. Deferred b
 
 ---
 
-### 12.6 NP16 — Dead Code: `_sync_state_from_legacy` (Deferred to v2.2)
+### 12.6 NP16 — ~~Dead Code: `_sync_state_from_legacy`~~ (WITHDRAWN — no such method)
 
-**File:** `core/engine.py` lines 596-605
-
-`_sync_state_from_legacy` is defined but never called. Remove it to avoid confusion. Deferred because no runtime impact.
+**Status (v2.2):** Withdrawn. This item was based on a misreading. There is **no** `_sync_state_from_legacy` method in `core/engine.py` — and there never was. The actual engine method is **`_sync_state_to_legacy`**, which syncs blackboard variables (and, as of v2.2/MR-1, per-agent memory) **into** `shared_state` for v1 agents; it is live and invoked every turn (before Phase 1 and re-invoked before Phase 2). There is no dead code to remove. No action taken.
 
 ---
 
@@ -1351,7 +1349,7 @@ All signatures required before the v2.1.0 tag is cut:
 | NP12 | Low | Maintainability | `dynamic.py` | Verbose/fragile trigger parsing | Defer v2.2 |
 | NP14 | Low | Performance | `blackboard.py` | O(n) queue pop | Defer v2.2 |
 | NP15 | Low | Hygiene | `agent.py` | Dev journal comments in production code | Defer v2.2 |
-| NP16 | Low | Dead code | `engine.py` | `_sync_state_from_legacy` never called | Defer v2.2 |
+| NP16 | Low | Dead code | `engine.py` | ~~`_sync_state_from_legacy` never called~~ — **withdrawn: no such method** (real method `_sync_state_to_legacy` is live) | Withdrawn (v2.2) |
 
 ---
 
