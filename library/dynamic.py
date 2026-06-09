@@ -15,6 +15,17 @@ class DynamicAgent(BaseAgent):
     - subscribed_events: Events that trigger this agent
     - Blackboard access in Jinja2 templates via {{ blackboard }}
     - Parses v2 response fields: events, variable_updates, queue_pushes, facts, memory_updates
+
+    v2.2 hardening:
+    - A-1 silence gate: a gate-less + rootless agent defaults to silence;
+      opt in to speaking via the ``speak_without_gate`` flag.
+    - A-2 session-relative timestamps: time references are anchored to the
+      session, not wall-clock.
+    - A-3 confidence clamp: parsed insight confidence is clamped to [0, 1].
+    - S-1 schema pass-through: ``expiry`` and ``action_label`` are read from
+      the mapped fields and passed through to created insights.
+    - MR-1 memory read-path: persistent memory is read from
+      ``shared_state["memory_<id>"]`` (synced from the blackboard by the engine).
     """
     _jinja_env = SandboxedEnvironment()
     def __init__(self, config_dict: dict):
@@ -486,11 +497,7 @@ class DynamicAgent(BaseAgent):
                         # Look in root_data first, then fallback to result root if needed?
                         # Usually metadata is alongside content
                         insight.metadata = root_data.get(meta_key, {})
-                    else:
-                        # Default behavior: try "metadata" key anyway if present? 
-                        # Or strictly follow schema. Let's start strictly.
-                        pass
-                        
+
                     response.insights.append(insight)
             
             # 4. State/Memory Extraction
