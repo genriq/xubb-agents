@@ -150,8 +150,20 @@ contracts:
     test: "tests/test_dynamic_agent.py::TestSessionRelativeTimestamps::test_event_timestamp_is_session_relative_not_epoch"
     status: covered   # v2.2 A-2 landed: session-relative timestamps in DynamicAgent.
 
+  - id: INV-14-memory-read-path
+    statement: >
+      Agent persistent memory committed to the blackboard is visible on the next turn's
+      read-path (shared_state["memory_<id>"]) regardless of whether the agent instance is
+      reused.
+    source:
+      - "core/engine.py: _sync_state_to_legacy (MR-1)"
+      - "docs/SPEC_V2_2_HARDENING.md: Amendment 1 / INV-14"
+    invariant: INV-14
+    test: "tests/test_engine.py::TestV22Closeout::test_mr1_blackboard_memory_synced_to_shared_state"
+    status: covered   # v2.2 MR-1 (Amendment 1): engine syncs blackboard.memory -> shared_state.
+
 # ---- Coverage summary (informational; R1 `check_contracts.py` computes this authoritatively) ----
-# covered:        6   (FACT-PRECEDENCE/F-1, INV-8'/M-1, INV-13/A-2, INV-10/R-1, INV-11/A-1, INV-12/E-1)
+# covered:        7   (FACT-PRECEDENCE/F-1, INV-8'/M-1, INV-13/A-2, INV-10/R-1, INV-11/A-1, INV-12/E-1, INV-14/MR-1)
 # to_verify:      9   (R1 bijection back-fill)
 # failing_probe:  0
 # pending_v2.2:   0
