@@ -5,6 +5,7 @@ Integration tests for AgentEngine.
 import pytest
 import asyncio
 import time
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from xubb_agents.core.engine import AgentEngine
@@ -14,6 +15,9 @@ from xubb_agents.core.models import (
     TriggerType, TranscriptSegment, Event, Fact
 )
 from xubb_agents.core.blackboard import Blackboard
+
+# T-4: a fixed "now" for deterministic cooldown-elapsed arithmetic (see frozen_clock fixture).
+FROZEN_NOW = 10_000.0
 
 
 class MockAgent(BaseAgent):
@@ -311,29 +315,86 @@ class TestAtomicFailure:
     
     @pytest.mark.asyncio
     async def test_failed_agent_updates_discarded(self, engine, sample_context):
-        """If an agent fails, its updates should not be applied."""
-        
+        """T-3 / INV-6: a failed agent's writes must NOT persist (atomic discard).
+
+        Strengthened from the original (which only checked the *success* agent and so
+        would pass even if a failed agent leaked state). The fail agent now performs an
+        observable write against its snapshot BEFORE raising; that write must not reach
+        the real blackboard — proving both atomic-discard-on-failure and snapshot
+        isolation, the invariant this test names.
+        """
         def succeed(context, agent):
-            return AgentResponse(
-                variable_updates={"success_key": "success_value"}
-            )
-        
+            return AgentResponse(variable_updates={"success_key": "success_value"})
+
         def fail(context, agent):
+            # Observable side effect on the snapshot, then fail. Must be discarded.
+            context.blackboard.set_var("fail_key", "should_not_persist")
             raise Exception("Agent failed!")
-        
+
         success_agent = MockAgent("success", response_fn=succeed)
         fail_agent = MockAgent("fail", response_fn=fail)
-        
+
         engine.register_agent(success_agent)
         engine.register_agent(fail_agent)
-        
-        response = await engine.process_turn(sample_context)
-        
-        # Success agent's updates should be applied
+
+        await engine.process_turn(sample_context)
+
+        # The success agent's updates ARE applied...
         assert sample_context.blackboard.get_var("success_key") == "success_value"
-        
-        # No ERROR insight from the fail_agent in response
-        # (errors are handled by BaseAgent.process, not engine)
+        # ...but the failed agent's write is discarded (never reaches the real blackboard).
+        assert sample_context.blackboard.get_var("fail_key") is None
+
+
+class TestV22Closeout:
+    """Phase 0/4 closeout: MR-1 memory sync, E-6 warn-once, E-7 max_phases clamp."""
+
+    @pytest.mark.asyncio
+    async def test_mr1_blackboard_memory_synced_to_shared_state(self, engine, sample_context):
+        """MR-1: blackboard memory is synced into shared_state['memory_<id>'] before
+        agents run, so cross-turn memory survives even when the agent instance is not
+        reused (the read-path only looked at shared_state)."""
+        sample_context.blackboard.update_memory("agent_x", {"counter": 7})
+        captured = {}
+
+        def capture(context, agent):
+            captured["mem"] = context.shared_state.get("memory_agent_x")
+            return AgentResponse()
+
+        engine.register_agent(MockAgent("reader", response_fn=capture))
+        await engine.process_turn(sample_context)
+        assert captured["mem"] == {"counter": 7}
+
+    @pytest.mark.asyncio
+    async def test_mr1_synced_memory_is_a_copy(self, engine, sample_context):
+        """MR-1 respects INV-8: the synced memory is a copy, not the blackboard's object."""
+        sample_context.blackboard.update_memory("agent_x", {"nested": [1, 2]})
+
+        def mutate(context, agent):
+            context.shared_state["memory_agent_x"]["nested"].append(999)
+            return AgentResponse()
+
+        engine.register_agent(MockAgent("mutator", response_fn=mutate))
+        await engine.process_turn(sample_context)
+        assert sample_context.blackboard.get_memory("agent_x")["nested"] == [1, 2]
+
+    def test_e6_subscriber_misconfig_warns_once(self, engine, caplog):
+        """E-6: a subscriber missing TriggerType.EVENT warns once, not every call."""
+        bad = MockAgent("bad", subscribed_events=["evt"],
+                        trigger_types=[TriggerType.TURN_BASED])
+        engine.register_agent(bad)
+        with caplog.at_level(logging.WARNING, logger="AgentEngine"):
+            for _ in range(3):
+                engine.get_event_subscribers(["evt"])
+        warns = [r for r in caplog.records
+                 if "subscribed_events" in r.getMessage() and "bad" in r.getMessage()]
+        assert len(warns) == 1
+
+    def test_e7_max_phases_clamped(self):
+        """E-7: unsupported max_phases is clamped to a supported value."""
+        assert AgentEngine(api_key="k", max_phases=5).max_phases == 2
+        assert AgentEngine(api_key="k", max_phases=0).max_phases == 1
+        assert AgentEngine(api_key="k", max_phases=1).max_phases == 1
+        assert AgentEngine(api_key="k", max_phases=2).max_phases == 2
 
 
 class TestV1Compatibility:
@@ -528,6 +589,14 @@ class TestForceTrigger:
 class TestAgentConfigOverrides:
     """Test agent_config_overrides mechanics."""
 
+    @pytest.fixture(autouse=True)
+    def frozen_clock(self):
+        """T-4: freeze the cooldown clock so elapsed time is exact and deterministic
+        (no dependence on real wall-clock margins between setting last_run_time and the
+        cooldown check). BaseAgent reads `time.time()` for `now`."""
+        with patch("xubb_agents.core.agent.time.time", return_value=FROZEN_NOW):
+            yield
+
     @pytest.mark.asyncio
     async def test_cooldown_modifier_negative(self, engine):
         """Negative cooldown modifier speeds up agent (floor at 5s)."""
@@ -549,7 +618,7 @@ class TestAgentConfigOverrides:
         assert agent.call_count == 1
 
         # Second call after 6s (> floor 5s, < base 60s) — should run with modifier
-        agent.last_run_time = time.time() - 6  # Simulate 6s elapsed
+        agent.last_run_time = FROZEN_NOW - 6  # exactly 6s elapsed (deterministic)
         ctx2 = AgentContext(
             session_id="s1",
             recent_segments=[TranscriptSegment(speaker="USER", text="Update", timestamp=7.0)],
@@ -579,7 +648,7 @@ class TestAgentConfigOverrides:
         assert agent.call_count == 1
 
         # Set last_run_time to 3s ago (< floor 5s)
-        agent.last_run_time = time.time() - 3
+        agent.last_run_time = FROZEN_NOW - 3
         ctx2 = AgentContext(
             session_id="s1",
             recent_segments=[TranscriptSegment(speaker="USER", text="Again", timestamp=4.0)],
@@ -614,8 +683,8 @@ class TestAgentConfigOverrides:
         assert agent_b.call_count == 1
 
         # After 6s, agent_a (effective=5s) should run, agent_b (base=60s) should not
-        agent_a.last_run_time = time.time() - 6
-        agent_b.last_run_time = time.time() - 6
+        agent_a.last_run_time = FROZEN_NOW - 6
+        agent_b.last_run_time = FROZEN_NOW - 6
 
         ctx2 = AgentContext(
             session_id="s1",
