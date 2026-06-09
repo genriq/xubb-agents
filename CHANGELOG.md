@@ -41,16 +41,6 @@ See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md).
 - **M-1** (INV-8'): `set_memory`/`update_memory` deep-copy on write, closing the
   write-side aliasing gap (memory is now copied in both directions).
 
-### Changed
-
-- **S-2**: removed the dead `is_state_at_root` key from all schemas (never read by the
-  parser).
-- **S-3**: v2 schemas (`v2_raw`, `ui_control`, `widget_control`) route state through
-  `variable_updates_field` for consistency with `default_v2` (v2-only hosts now see their
-  state updates in `variable_updates`).
-- **E-4**: `update_api_key` closes the previous LLM client's session (no pool leak) and
-  documents the no-concurrent-`process_turn` precondition.
-
 - **R-1** (INV-10): the LLM call site (`core/llm.py`) is now resilient — explicit
   request timeout, bounded retries with backoff (429/5xx/timeout), `max_tokens` cap, and
   typed exception handling that logs a distinct failure category (timeout / rate_limit /
@@ -63,11 +53,6 @@ See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md).
 - **E-1** (INV-12): the Phase-2 execution block now restores `context.trigger_type` and
   `context.phase` via `try/finally`, so a Phase-2 exception can no longer leave the
   host-reused context corrupted as `EVENT`/`phase=2`.
-
-### Performance
-
-- **E-5**: `_merge_responses` resolves agent priority via an O(1) `_agent_meta` lookup
-  instead of an O(agents × responses) linear scan; unresolvable agent ids log a warning.
 
 - **MR-1** (INV-14, Amendment 1): cross-turn agent memory now survives even when the host
   re-instantiates agents per turn. Memory is stored on the blackboard but `DynamicAgent`
@@ -129,7 +114,7 @@ See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md).
 
 Bugfix release: 4 bug fixes, 3 defense-in-depth improvements, 1 test correction.
 
-See [SPEC_V2_1_1_BUGFIX.md](docs/SPEC_V2_1_1_BUGFIX.md) for full details.
+See [SPEC_V2_1_1_BUGFIX.md](docs/archive/SPEC_V2_1_1_BUGFIX.md) for full details.
 
 ### Bug Fixes
 
@@ -158,7 +143,7 @@ See [SPEC_V2_1_1_BUGFIX.md](docs/SPEC_V2_1_1_BUGFIX.md) for full details.
 
 Hardening release: no new features, only bug fixes and production-grade improvements.
 
-See [SPEC_V2_1_HARDENING.md](docs/SPEC_V2_1_HARDENING.md) for full details.
+See [SPEC_V2_1_HARDENING.md](docs/archive/SPEC_V2_1_HARDENING.md) for full details.
 
 ### Security
 
@@ -184,7 +169,7 @@ See [SPEC_V2_1_HARDENING.md](docs/SPEC_V2_1_HARDENING.md) for full details.
 
 Major release: structured Blackboard, event-driven agent coordination, multi-phase execution.
 
-See [SPEC_V2.md](docs/SPEC_V2.md) for full details.
+See [SPEC_V2.md](docs/archive/SPEC_V2.md) for full details.
 
 ### Added
 
