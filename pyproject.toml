@@ -36,6 +36,7 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
     "mypy>=1.0.0",
+    "pyyaml>=6.0",          # tools/check_contracts.py parses docs/CONTRACTS.yaml
 ]
 
 [project.urls]
