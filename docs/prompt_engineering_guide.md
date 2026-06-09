@@ -175,15 +175,18 @@ Agents return JSON conforming to an **output schema**. The schema determines how
 
 Located in `library/schemas/`:
 
-| Schema | Use Case | Key Fields |
-|--------|----------|------------|
-| `default` | Standard agents with insights | `has_insight`, `type`, `content`, `confidence` |
-| `v2_raw` | Full v2 structured response | All Blackboard update fields |
-| `widget_control` | Background state agents | `ui_actions`, `state_snapshot` |
+| Schema | Use Case | Insight text key | Blackboard updates? |
+|--------|----------|------------------|---------------------|
+| `default_v2` | **Recommended** — gated insight **plus** full Blackboard updates | `content` | ✅ variables, events, facts, queues, memory |
+| `default` | Legacy — gated insight **only** (no Blackboard updates) | `message` | ❌ |
+| `v2_raw` | Full v2 structured response (insight nested under an `insight` root key) | `content` | ✅ via `state_snapshot` |
+| `widget_control` | Background state agents | — | `ui_actions`, `state_snapshot` |
 
-### Default Schema
+> **Pick `default_v2` for new agents.** It is the richest insight schema and the one this guide's examples use. The older `default` schema maps the insight text to `message` (not `content`) and parses *only* the insight — see the note after the example.
 
-The most common schema. Use when your agent produces insights for the user:
+### The `default_v2` Schema (recommended)
+
+The most capable insight schema. Use it when your agent produces insights for the user — it can emit a gated insight **and** write the Blackboard (variables, events, facts, queues, memory) in the same response. The model emits the insight text under `content`:
 
 ```json
 {
@@ -205,7 +208,11 @@ When nothing to report:
 { "has_insight": false }
 ```
 
+> **Note — the legacy `default` schema.** `default.json` maps the insight text to **`message`** (not `content`) and parses **only** the insight — it ignores `variable_updates`/`events`/`memory_updates`. If you use it, the model must emit `{ "has_insight": true, "message": "...", "type": "...", "confidence": ... }`. For anything that also writes the Blackboard, use `default_v2` (above).
+
 ### Field Reference
+
+> The field reference below describes `default_v2` (insight text key `content`). For the legacy `default` schema, substitute `message` for `content`.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
