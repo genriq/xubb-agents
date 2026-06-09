@@ -5,7 +5,9 @@ Key responsibilities:
 - Registry: Maintains list of active agents
 - Routing: Determines which agents run based on trigger type
 - Condition Evaluation: Checks trigger conditions before running agents
-- Blackboard Management: Manages structured state (in-memory for session lifetime)
+- Blackboard Management: Manages structured state (in-memory for session lifetime);
+  syncs Blackboard variables and per-agent memory into shared_state (the MR-1
+  memory read-path, INV-14) for the legacy v1 surface
 - Event Dispatch: Collects emitted events, triggers subscribers
 - Multi-Phase Execution: Runs normal agents (Phase 1), then event-triggered agents (Phase 2)
 - Response Aggregation: Merges insights, applies state updates by priority
@@ -275,9 +277,10 @@ class AgentEngine:
         context.blackboard.set_var("sys.session_id", context.session_id, _engine_internal=True)
         context.blackboard.set_var("sys.trigger_type", trigger_type.value, _engine_internal=True)
         
-        # Sync Blackboard → shared_state for v1 compatibility
+        # Sync Blackboard → shared_state for v1 compatibility AND the MR-1
+        # memory read-path (memory_<id> keys DynamicAgent reads from; INV-14).
         self._sync_state_to_legacy(context)
-        
+
         # Build execution metadata for condition evaluation
         meta = {
             "turn_count": context.turn_count,
@@ -341,7 +344,8 @@ class AgentEngine:
         # Phase 2: Event-Triggered Execution (if events were emitted)
         # =====================================================================
         if all_events and self.max_phases >= 2:
-            # Re-sync shared_state for v1 agents in Phase 2
+            # Re-sync shared_state for v1 agents AND the MR-1 memory read-path
+            # (memory_<id> keys; INV-14) in Phase 2
             self._sync_state_to_legacy(context)
 
             # Capture the host-owned context mutation targets BEFORE mutating so
