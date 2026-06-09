@@ -33,6 +33,23 @@ class TestBlackboardVariables:
         assert bb.has_var("key") is True
         assert bb.has_var("missing") is False
 
+    def test_unauthorized_sys_write_is_flagged(self, caplog):
+        """INV-4: a non-engine write to a reserved sys.* key is flagged with a warning
+        (but still applied — the write is governed, not blocked); the engine's own
+        _engine_internal writes are NOT flagged."""
+        import logging
+
+        bb = Blackboard()
+        with caplog.at_level(logging.WARNING):
+            bb.set_var("sys.injected", "x")  # non-engine write to a reserved key
+        assert any("reserved key" in r.message.lower() for r in caplog.records)
+        assert bb.get_var("sys.injected") == "x"  # applied, not blocked
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            bb.set_var("sys.turn_count", 1, _engine_internal=True)  # engine-governed write
+        assert not any("reserved key" in r.message.lower() for r in caplog.records)
+
 
 class TestBlackboardEvents:
     """Test event operations."""
@@ -185,7 +202,33 @@ class TestBlackboardFacts:
         assert len(bb.facts) == 2
         cfo_fact = bb.get_fact("stakeholder", "cfo")
         assert cfo_fact.value == "Sarah Chen"
-    
+
+    def test_dedupe_none_key_by_type(self):
+        """FACT-DEDUP-KEY: when key is None, dedupe by type alone (type singleton)."""
+        bb = Blackboard()
+        bb.add_fact(Fact(
+            type="summary", key=None, value="first",
+            confidence=0.9, source_agent="a", timestamp=1.0
+        ))
+        bb.add_fact(Fact(
+            type="summary", key=None, value="second",
+            confidence=0.9, source_agent="a", timestamp=2.0
+        ))
+
+        # Same type + None key collapses to ONE singleton (deduped by type alone)...
+        summaries = [f for f in bb.facts if f.type == "summary"]
+        assert len(summaries) == 1
+        # ...and equal priority+confidence means the later registration wins.
+        assert summaries[0].value == "second"
+
+        # A keyed fact of the SAME type is a distinct entry (not deduped against the
+        # None-key singleton).
+        bb.add_fact(Fact(
+            type="summary", key="q3", value="keyed",
+            confidence=0.9, source_agent="a", timestamp=3.0
+        ))
+        assert len([f for f in bb.facts if f.type == "summary"]) == 2
+
     def test_get_fact(self):
         bb = Blackboard()
         bb.add_fact(Fact(
@@ -286,10 +329,23 @@ class TestBlackboardMemory:
     def test_get_and_set_memory(self):
         bb = Blackboard()
         bb.set_memory("agent1", {"key": "value"})
-        
+
         mem = bb.get_memory("agent1")
         assert mem["key"] == "value"
-    
+
+    def test_get_memory_returns_copy(self):
+        """INV-8: get_memory returns a COPY — mutating it must not change the stored
+        value (memory is copy-on-read, not a live reference)."""
+        bb = Blackboard()
+        bb.set_memory("agent1", {"key": "value"})
+
+        mem = bb.get_memory("agent1")
+        mem["key"] = "mutated"
+        mem["added"] = "x"
+
+        # The stored memory is untouched by mutating the returned object.
+        assert bb.get_memory("agent1") == {"key": "value"}
+
     def test_update_memory(self):
         bb = Blackboard()
         bb.set_memory("agent1", {"a": 1})
