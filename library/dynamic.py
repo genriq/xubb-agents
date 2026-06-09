@@ -1,8 +1,11 @@
 import os
 import json
+import logging
 from jinja2.sandbox import SandboxedEnvironment
 from ..core.agent import BaseAgent, AgentConfig
 from ..core.models import AgentContext, AgentResponse, InsightType, TriggerType, Event, Fact
+
+logger = logging.getLogger(__name__)
 
 class DynamicAgent(BaseAgent):
     """
@@ -70,7 +73,30 @@ class DynamicAgent(BaseAgent):
         
         # Parse silence threshold
         silence_threshold = trigger_conf.get("silence_threshold")
-        
+
+        # Parse interval (seconds between INTERVAL-mode firings). Previously never
+        # read here, so AgentConfig.trigger_interval stayed None and the host's
+        # `if interval and ...` gate never fired an interval-mode agent (DOA for
+        # vault-authored configs). Coerced defensively: a non-numeric or
+        # non-positive value is treated as absent (warn), not a config crash.
+        trigger_interval = trigger_conf.get("trigger_interval")
+        if trigger_interval is not None:
+            try:
+                trigger_interval = int(trigger_interval)
+                if trigger_interval <= 0:
+                    logger.warning(
+                        f"Ignoring non-positive trigger_interval ({trigger_interval}) "
+                        f"for agent '{config_dict.get('name', '?')}'"
+                    )
+                    trigger_interval = None
+            except (TypeError, ValueError):
+                logger.warning(
+                    f"Ignoring non-numeric trigger_interval "
+                    f"({trigger_conf.get('trigger_interval')!r}) for agent "
+                    f"'{config_dict.get('name', '?')}'"
+                )
+                trigger_interval = None
+
         # V2: Parse subscribed events
         subscribed_events = trigger_conf.get("subscribed_events", [])
 
@@ -99,10 +125,11 @@ class DynamicAgent(BaseAgent):
         trigger_conditions = config_dict.get("trigger_conditions")
         
         super().__init__(AgentConfig(
-            name=name, 
-            id=agent_id, 
-            cooldown=cooldown, 
+            name=name,
+            id=agent_id,
+            cooldown=cooldown,
             model=model,
+            trigger_interval=trigger_interval,
             trigger_types=trigger_types,
             trigger_keywords=trigger_keywords,
             silence_threshold=silence_threshold,
