@@ -2,7 +2,8 @@
 ## Hardening & Production-Release Specification
 
 **Version:** 2.2.0
-**Status:** DRAFT — awaiting sign-off (no code written)
+**Status:** IMPLEMENTED — 2026-06-08. All 33 items + Amendment 1 (MR-1) landed across 3 PRs
+(F-1 + medium; HIGH; Phase 0/4 closeout). Suite 105 → 230+. See CHANGELOG `[2.2.0]`.
 **Date:** June 8, 2026
 **Process Tier:** **Tier 1** (contract change + silent-regression risk → master spec before code; see `process-development-workflow`)
 **Scope:** One confirmed critical contract bug, four high-severity robustness gaps, a cluster of medium contract/robustness fixes, and code/doc hygiene — identified during a 5-agent comprehensive audit of v2.1.1.
@@ -434,7 +435,32 @@ Per Tier-1 process: if implementation reveals a needed deviation (e.g., a better
 
 No silent scope changes. Items may be **downgraded/deferred** to v2.2.1 only via an amendment with owner sign-off.
 
-_(No amendments yet.)_
+### Amendment 1 — MR-1: cross-turn memory read-path (pulled forward from v2.2.1)
+
+**Date:** 2026-06-08 · **Reason:** owner requested pulling the deferred memory read-path item
+into the v2.2 closeout. **Sign-off:** owner (PR merge is the human gate for this outward-facing change).
+
+**The defect (INV-14):** Agent memory is *stored* on the blackboard
+(`blackboard.memory[agent_id]`, via `update_memory`), but `DynamicAgent` *reads* its persistent
+memory from `context.shared_state["memory_<id>"]` (`dynamic.py:278`). `_sync_state_to_legacy`
+synced only `blackboard.variables` → `shared_state`, never `memory`. So cross-turn memory survived
+only via an agent's in-process `private_state` and was **silently lost** whenever the host
+re-instantiated agents per turn.
+
+**The fix (engine-only, surgical):** `_sync_state_to_legacy` now also populates
+`shared_state["memory_<agent_id>"]` from `blackboard.memory` (deep-copied, INV-8) before agents run,
+so the documented blackboard store is the source of truth for the read-path regardless of instance
+reuse. No `dynamic.py`/`blackboard.py` change required.
+
+**New invariant — INV-14:** *Agent persistent memory committed to the blackboard is visible on the
+next turn's read-path (`shared_state["memory_<id>"]`) independent of whether the agent instance is
+reused.* Tests: `tests/test_engine.py::TestV22Closeout::test_mr1_blackboard_memory_synced_to_shared_state`
+(+ `_synced_memory_is_a_copy`).
+
+**Migration:** strictly additive for hosts that persist the blackboard across turns. A host that was
+manually writing its own `shared_state["memory_<id>"]` will now have it overwritten by the blackboard
+value before agents run (the blackboard is authoritative) — switch such hosts to writing via
+`blackboard.update_memory`.
 
 ---
 

@@ -1,7 +1,7 @@
 # Xubb Agents Framework
 ## Executive Summary
 
-**Version:** 2.1.1
+**Version:** 2.2.0
 
 ---
 
@@ -127,7 +127,7 @@ Developers focus on the intelligence, not the plumbing.
 
 ### The Architecture
 
-The framework uses a sophisticated **Blackboard Architecture** that enables true multi-agent coordination (introduced in v2.0, hardened in v2.1):
+The framework uses a sophisticated **Blackboard Architecture** that enables true multi-agent coordination (introduced in v2.0, hardened in v2.1 and v2.2):
 
 **Structured State Containers:**
 
@@ -166,7 +166,7 @@ Trigger conditions prevent unnecessary AI calls:
 ### Technical Highlights
 
 - **Async-First:** Built on Python `asyncio` for non-blocking concurrent execution
-- **Model Agnostic:** Works with any OpenAI-compatible API (GPT-4, Claude, local models)
+- **OpenAI / OpenAI-compatible:** The LLM client wraps `AsyncOpenAI`, so it works with OpenAI and any OpenAI-compatible endpoint (e.g. GPT-4o, GPT-4o-mini, or self-hosted models behind an OpenAI-compatible API). A dedicated Anthropic adapter is out of scope for this release.
 - **Pluggable Schemas:** Custom output formats without code changes
 - **Observable:** Rich callback system and structured tracing for debugging
 - **Backward Compatible:** v1.0 agents work unchanged in v2.0
@@ -233,7 +233,7 @@ Whether you're building sales coaching tools, support agent assistants, or inter
 
 ---
 
-**Version:** 2.1
+**Version:** 2.2.0
 **Status:** Production-Ready
 **License:** See main project  
 

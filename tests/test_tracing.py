@@ -356,19 +356,57 @@ class TestDebuggerSchemaCompat:
         t = self._emit(caplog)
         assert isinstance(t["final_state_updates"], dict)
 
-    def test_DBG1_step_state_updates_shape_mismatch(self, caplog):
-        """FINDING for DBG-1 (do NOT fix here).
+    def test_dbg1_debugger_renders_step_state_updates_as_dict(self):
+        """DBG-1 (RESOLVED): tools/debugger.html now renders the per-step
+        trace correctly against the shape the tracer actually emits.
 
         The tracer emits per-step `state_updates` as a DICT
-        (`response.state_updates`), but tools/debugger.html renders it as a
-        LIST of keys: `v-for="key in step.state_updates"` guarded by
-        `step.state_updates.length`. A dict has no `.length`, so the block
-        silently renders nothing. This test PINS the current (dict) shape so
-        the mismatch is captured as a regression anchor; the fix belongs to
-        DBG-1 (debugger side), which this worker must not touch.
+        (`response.state_updates`). The debugger previously rendered it as a
+        LIST of keys (`v-for="key in step.state_updates"` guarded by
+        `step.state_updates.length`); a JS object has no `.length`, so that
+        block silently rendered nothing. DBG-1 fixes the debugger to iterate
+        the dict (`v-for="(val, key) in step.state_updates"` guarded by
+        `Object.keys(...).length`) and to render the v2 per-step fields.
+
+        This test (a) confirms the tracer still emits `state_updates` as a
+        dict, and (b) asserts the debugger template no longer uses the buggy
+        `.length` guard on `step.state_updates` and now references every v2
+        per-step field name the tracer emits.
         """
-        t = self._emit(caplog)
-        step = t["steps"][0]
+        import pathlib
+
+        # (a) Tracer-side: per-step state_updates remains a dict.
+        tracer = StructuredLogTracer()
+        ctx = make_context()
+        resp = make_rich_response()
+        run(tracer.on_turn_start(ctx))
+        run(tracer.on_agent_finish("agent_test", resp, 0.05))
+        step = tracer.current_trace["steps"][0]
         assert isinstance(step["state_updates"], dict)
-        # `.length` (JS) would be undefined on a dict -> debugger shows nothing.
-        # This is the documented DBG-1 mismatch.
+
+        # (b) Debugger-side: assert the template matches the emitted shape.
+        debugger = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "tools" / "debugger.html"
+        )
+        html = debugger.read_text(encoding="utf-8")
+
+        # The buggy list-shape guard on step.state_updates must be gone.
+        assert "step.state_updates.length" not in html, (
+            "debugger still guards step.state_updates with .length (dict has no "
+            ".length) -> the DBG-1 shape mismatch is unresolved"
+        )
+        # The per-step state_updates dict must be iterated as (val, key).
+        assert 'v-for="(val, key) in step.state_updates"' in html
+
+        # All v2 per-step fields the tracer emits must be referenced by the UI.
+        for field in (
+            "step.variable_updates",
+            "step.events_emitted",
+            "step.facts_count",
+            "step.queue_pushes",
+            "step.memory_updates_keys",
+        ):
+            assert field in html, (
+                f"debugger does not render {field}, but the tracer emits it"
+            )
