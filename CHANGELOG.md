@@ -49,10 +49,30 @@ Hardening release driven by the v2.2 5-agent audit. See
 - **E-4**: `update_api_key` closes the previous LLM client's session (no pool leak) and
   documents the no-concurrent-`process_turn` precondition.
 
+- **R-1** (INV-10): the LLM call site (`core/llm.py`) is now resilient — explicit
+  request timeout, bounded retries with backoff (429/5xx/timeout), `max_tokens` cap, and
+  typed exception handling that logs a distinct failure category (timeout / rate_limit /
+  auth / server / malformed) via `last_error_category`. The never-raise / return-`None`
+  contract is preserved (callers unaffected).
+- **A-1** (INV-11): gate-less + rootless schemas now default to **silence** (a schema must
+  opt in via `speak_without_gate: true` to speak on content alone); a load-time warning
+  fires when a schema's instruction references a gate field but the mapping omits
+  `check_field`. Shipped schemas (all gated or root-keyed) are unaffected.
+- **E-1** (INV-12): the Phase-2 execution block now restores `context.trigger_type` and
+  `context.phase` via `try/finally`, so a Phase-2 exception can no longer leave the
+  host-reused context corrupted as `EVENT`/`phase=2`.
+
 ### Performance
 
 - **E-5**: `_merge_responses` resolves agent priority via an O(1) `_agent_meta` lookup
   instead of an O(agents × responses) linear scan; unresolvable agent ids log a warning.
+
+### Tests
+
+- **T-1**: first test coverage for `DynamicAgent` (`tests/test_dynamic_agent.py`, incl. the
+  spec-mandated auto-add-`EVENT` and prompt-no-leading-whitespace cases) and the tracer
+  (`tests/test_tracing.py`, asserting the v2 trace fields + debugger-schema compatibility);
+  resilience tests for `core/llm.py` (`tests/test_llm.py`). Suite 105 → 220.
 
 ---
 
