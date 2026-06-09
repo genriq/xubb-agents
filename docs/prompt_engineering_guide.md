@@ -1,8 +1,8 @@
 # Xubb Agents — Prompt Engineering Guide
 
-**Version:** 3.0
-**Last Updated:** March 20, 2026
-**Status:** Production (xubb_agents v2.1.1)
+**Version:** 3.1
+**Last Updated:** June 8, 2026
+**Status:** Production (xubb_agents v2.2.0)
 
 This guide is the **definitive reference** for writing effective prompts for the Xubb Agents framework. It covers system prompt design, Jinja2 templating, output schemas, trigger configuration, and agent coordination patterns.
 
@@ -232,7 +232,16 @@ When nothing to report:
 
 ### Custom Schemas
 
-Create `library/schemas/my_schema.json` to define custom output formats. The schema file defines the JSON structure the LLM should return and how it maps to `AgentResponse` fields.
+Create `library/schemas/my_schema.json` to define custom output formats. The schema file defines the JSON structure the LLM should return (`instruction`) and how it maps to `AgentResponse` fields (`mapping`).
+
+> **The silence gate (v2.2 — A-1).** An agent decides whether to speak based on its schema's gate, in this precedence:
+> 1. **`check_field` present** (e.g. `has_insight`) → the boolean value of that field drives the decision. This is how the built-in `default`, `default_v2`, and `custom1` schemas work.
+> 2. **No `check_field` but `root_key` present** → the model speaks by *presence*: a non-empty root object is the gate (an absent/empty root means silence). This is how `v2_raw`, `ui_control`, and `widget_control` work.
+> 3. **No `check_field` AND no `root_key`** (a gate-less, rootless custom schema) → the documented default is to stay **silent**, so a schema that omits a gate does not spam an insight every turn. To get "speak whenever there is content," opt in explicitly by adding `"speak_without_gate": true` to the mapping.
+>
+> If your schema's instruction tells the model to emit a gate field (e.g. `has_insight`) but the mapping forgets to wire it up via `check_field`, `DynamicAgent` logs a **load-time warning** — fix it by adding `check_field`, or opt into the speak-on-content default with `speak_without_gate`.
+
+> **Insight robustness (v2.2).** Model-supplied `confidence` is coerced to a float and clamped to `[0, 1]` (defaulting to `1.0` on a non-numeric value), and `expiry`/`action_label` returned by the model are parsed through to the insight — so a malformed value from the LLM no longer turns a good insight into an error or gets silently dropped.
 
 ---
 
@@ -392,6 +401,8 @@ Known budget: {{ fact.value }} (confidence: {{ fact.confidence }})
 {% endif %}
 {% endfor %}
 ```
+
+> **Fact conflict resolution (v2.2 — F-1).** When two agents emit facts that collide on `(type, key)`, the winner is decided by the emitting agent's **priority** first, then **confidence**, then registration order. The engine stamps the fact's `priority` from the agent's config at merge time — you do **not** set `priority` in the JSON. Give an authoritative extractor a higher agent `priority` so it correctly overrides lower-priority agents even when its confidence is lower.
 
 ### Pattern 4: Queue-Based Work Items
 
