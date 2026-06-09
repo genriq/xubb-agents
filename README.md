@@ -7,6 +7,8 @@
 
 > **Note**: This is a **separate product/project** that provides the agent framework. It is consumed by `xubb_server` and other applications that need intelligent conversation agents.
 
+> 📖 **New here? Read [THE PLAYBOOK](docs/PLAYBOOK.md)** — the definitive guide to leveraging this framework to its full potential in a real-time copilot (the design doctrine, patterns, anti-patterns, a checklist, a golden-path build, testing & metrics, and an end-to-end worked agent suite). The README is the reference; the Playbook is how to *wield* it.
+
 ## Installation
 
 ```bash
@@ -133,6 +135,7 @@ v2.2 is a **hardening release** driven by a 5-agent audit — one critical contr
 - **ConditionEvaluator**: Evaluates trigger conditions against Blackboard state
 - **LLMClient**: Isolated OpenAI client for agent LLM calls
 
+> **To learn how to design and compose agents well, see [THE PLAYBOOK](docs/PLAYBOOK.md).**
 > **For detailed implementation and data models, see [technical_spec_agents.md](docs/technical_spec_agents.md).**
 > **For prompt writing best practices, see [prompt_engineering_guide.md](docs/prompt_engineering_guide.md).**
 
