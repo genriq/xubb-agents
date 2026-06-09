@@ -4,10 +4,12 @@ All notable changes to the Xubb Agents Framework are documented here.
 
 ---
 
-## [2.2.0] - in progress
+## [2.2.0] - 2026-06-08
 
-Hardening release driven by the v2.2 5-agent audit. See
-[SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md). Items land incrementally.
+Production-hardening release driven by the v2.2 5-agent audit: 1 critical contract bug,
+4 high-severity gaps, 13 medium fixes, an additive memory-persistence fix (MR-1), plus
+test-infra, hygiene, and a full documentation refresh. Suite 105 → 224, zero warnings.
+See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md).
 
 ### Bug Fixes
 
@@ -67,12 +69,59 @@ Hardening release driven by the v2.2 5-agent audit. See
 - **E-5**: `_merge_responses` resolves agent priority via an O(1) `_agent_meta` lookup
   instead of an O(agents × responses) linear scan; unresolvable agent ids log a warning.
 
-### Tests
+- **MR-1** (INV-14, Amendment 1): cross-turn agent memory now survives even when the host
+  re-instantiates agents per turn. Memory is stored on the blackboard but `DynamicAgent`
+  reads it from `shared_state["memory_<id>"]`; `_sync_state_to_legacy` now populates those
+  keys from `blackboard.memory` (deep-copied) before agents run. **Migration:** hosts that
+  manually wrote `shared_state["memory_<id>"]` should write via `blackboard.update_memory`.
+- **E-6**: misconfigured event-subscriber warning is now emitted once per agent, not every turn.
+- **DBG-1**: `tools/debugger.html` now renders per-step `state_updates` as a dict (was a
+  no-op `.length` guard) and displays the v2 trace fields (`variable_updates`,
+  `events_emitted`, `facts_count`, `queue_pushes`, `memory_updates_keys`).
 
-- **T-1**: first test coverage for `DynamicAgent` (`tests/test_dynamic_agent.py`, incl. the
-  spec-mandated auto-add-`EVENT` and prompt-no-leading-whitespace cases) and the tracer
-  (`tests/test_tracing.py`, asserting the v2 trace fields + debugger-schema compatibility);
-  resilience tests for `core/llm.py` (`tests/test_llm.py`). Suite 105 → 220.
+### Changed
+
+- **S-2**: removed the dead `is_state_at_root` key from all schemas (never read by the parser).
+- **S-3**: v2 schemas (`v2_raw`, `ui_control`, `widget_control`) route state through
+  `variable_updates_field` for consistency with `default_v2`.
+- **E-4**: `update_api_key` closes the previous LLM client's session and documents the
+  no-concurrent-`process_turn` precondition.
+- **E-7**: `max_phases` now only accepts `1` or `2`; other values are clamped with a warning.
+- **G-1**: migrated the deprecated class-based Pydantic `Config` to `ConfigDict` on
+  `Blackboard`/`AgentContext` — eliminates the `PydanticDeprecatedSince20` warnings (suite
+  now runs with **zero warnings**).
+- **G-2**: removed unused imports (`AgentInsight`/`InsightType` in `core/engine.py`); the
+  tracked `__pycache__` bytecode is now untracked.
+- **E-8**: documented that `check_keyword_triggers` uses case-insensitive substring matching.
+
+### Performance
+
+- **E-5**: `_merge_responses` resolves agent priority via an O(1) `_agent_meta` lookup
+  instead of an O(agents × responses) linear scan; unresolvable agent ids log a warning.
+
+### Tests & tooling
+
+- **T-1**: first coverage for `DynamicAgent` (incl. spec-mandated auto-add-`EVENT` and
+  prompt-no-leading-whitespace) and the tracer; resilience tests for `core/llm.py`.
+- **T-2**: added `[tool.pytest.ini_options]` (`asyncio_mode`, registered markers, `pythonpath`)
+  and a repo-root `conftest.py` so the suite is importable independent of the checkout
+  directory name (previously the green suite depended on the dir being named `xubb_agents`).
+- **T-3**: strengthened the atomic-discard test (INV-6) — a failed agent now attempts an
+  observable write that must not persist (was tautological).
+- **T-4**: cooldown tests use a frozen clock for deterministic elapsed time (no wall-clock flakiness).
+- Suite 105 → **224**, zero warnings.
+
+### Documentation
+
+- **DOC-1**: documented OpenAI / OpenAI-compatible as the intended provider (Anthropic adapter
+  out of scope); removed "Claude library" ambiguity.
+- **DOC-2**: version → 2.2.0 across README, EXECUTIVE_SUMMARY, technical spec, prompt guide,
+  `pyproject.toml`, `__init__.py`.
+- **DOC-3**: withdrew the stale NP16 `_sync_state_from_legacy` reference in SPEC_V2_1_HARDENING.
+- **DOC-4**: removed the stale `xubb_v6` install path from the README.
+- **DOC-5**: replaced the aspirational tracer-schema example with the actual emitted shape.
+- Full accuracy sweep of README + docs against the v2.2 code (Fact `priority`, MR-1/M-1
+  memory, R-1 resilience, A-1 silence gate, condition fail-closed, session-relative timestamps).
 
 ---
 

@@ -22,8 +22,7 @@ from copy import deepcopy
 from typing import List, Optional, Dict, Any, Tuple
 
 from .models import (
-    AgentContext, AgentResponse, AgentInsight, InsightType, TriggerType,
-    Event, Fact
+    AgentContext, AgentResponse, TriggerType, Event, Fact
 )
 from .agent import BaseAgent
 from .llm import LLMClient
@@ -45,18 +44,32 @@ class AgentEngine:
         Args:
             api_key: OpenAI API key
             callbacks: List of callback handlers for observability
-            max_phases: Maximum execution phases (default 2: normal + event-triggered)
+            max_phases: Execution phases — only 1 (Phase 1 only) or 2 (Phase 1 +
+                event-triggered Phase 2) are supported. Other values are clamped (E-7).
         """
         self.agents: List[BaseAgent] = []
         self.llm_client = LLMClient(api_key=api_key)
         self.callbacks = callbacks or []
         self.condition_evaluator = ConditionEvaluator()
+
+        # E-7: the engine only implements Phase 1 + an optional Phase 2. Reject/clamp
+        # unsupported values rather than silently accepting a knob that does nothing.
+        if max_phases not in (1, 2):
+            clamped = 1 if max_phases < 1 else 2
+            logger.warning(
+                f"max_phases={max_phases} is unsupported (engine implements Phase 1 "
+                f"plus an optional Phase 2); using {clamped}."
+            )
+            max_phases = clamped
         self.max_phases = max_phases
-        
+
         # Agent registration order for deterministic tie-breaking
         self._agent_index: Dict[str, int] = {}
         # Parallel map for O(1) (priority, registration-order) lookup at merge time (E-5)
         self._agent_meta: Dict[str, Tuple[int, int]] = {}
+        # E-6: agent ids already warned about EVENT-subscription misconfig (warn once,
+        # not every turn, to avoid flooding logs in a long real-time session).
+        self._warned_subscriber_ids: set = set()
 
     def register_agent(self, agent: BaseAgent):
         """Register an agent with the engine."""
@@ -157,12 +170,14 @@ class AgentEngine:
             if any(event_name in subscribed for event_name in event_names):
                 if TriggerType.EVENT in agent.config.trigger_types:
                     subscribers.append(agent)
-                else:
+                elif agent.config.id not in self._warned_subscriber_ids:
+                    # E-6: warn once per misconfigured agent, not every turn it matches.
+                    self._warned_subscriber_ids.add(agent.config.id)
                     logger.warning(
                         f"Agent '{agent.config.name}' has subscribed_events "
                         f"{subscribed} but TriggerType.EVENT is not in "
                         f"trigger_types {agent.config.trigger_types}. "
-                        f"Skipping for Phase 2."
+                        f"Skipping for Phase 2 (warned once)."
                     )
         return subscribers
     
@@ -173,7 +188,12 @@ class AgentEngine:
         Note: Keyword detection is host responsibility in v2.0. The engine
         provides this as a helper utility. Host is responsible for invoking
         it and passing allowed_agent_ids.
-        
+
+        E-8: matching is case-insensitive **substring** matching, not word-boundary
+        matching — keyword "car" matches "scared"/"cart". This is intentional for the
+        helper's best-effort role; hosts needing word-boundary semantics should do their
+        own matching.
+
         Args:
             text: Text to search for keywords
             allowed_agent_ids: Optional list of agent IDs to filter by
@@ -678,6 +698,14 @@ class AgentEngine:
         shared_state. They are an engine-internal namespace; copying them into the
         v1 surface let a v1 agent echo them back via state_updates, tripping the
         NP13 ``sys.*`` write-guard warning on a value the engine itself produced.
+
+        MR-1: per-agent memory is also synced into ``shared_state["memory_<id>"]``,
+        the keys DynamicAgent reads its persistent memory from. Memory is *stored* on
+        the blackboard (``blackboard.memory[agent_id]`` via ``update_memory``), but the
+        read-path only looked at ``shared_state`` — so without this sync, cross-turn
+        memory survived only via an agent's in-process ``private_state`` and was
+        silently lost whenever the host re-instantiated agents per turn. The blackboard
+        is the source of truth; values are deep-copied (INV-8).
         """
         if context.blackboard:
             context.shared_state.update({
@@ -685,4 +713,7 @@ class AgentEngine:
                 for key, value in context.blackboard.variables.items()
                 if not key.startswith("sys.")
             })
+            for agent_id in list(context.blackboard.memory.keys()):
+                context.shared_state[f"memory_{agent_id}"] = \
+                    context.blackboard.get_memory(agent_id)
     

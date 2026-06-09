@@ -1,9 +1,9 @@
 # Xubb Agents Framework - Technical Specification
 
-**Version:** 2.1.1
+**Version:** 2.2.0
 **Status:** Production-Ready
 **Scope:** `xubb_agents` Library
-**Compatibility:** Backward compatible with v1.0/v2.0 agents (see [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) for behavioral normalizations)
+**Compatibility:** Backward compatible with v1.0/v2.0 agents, with one deliberate v2.2 contract correction (fact conflict resolution, F-1). See [SPEC_V2_1_HARDENING.md](SPEC_V2_1_HARDENING.md) for v2.1 behavioral normalizations and [SPEC_V2_2_HARDENING.md](SPEC_V2_2_HARDENING.md) for the v2.2 hardening items and migration notes.
 
 ---
 
@@ -102,8 +102,8 @@ class Blackboard:
 
 **Reserved Variable Namespace:**
 - `sys.*` — Reserved for engine-maintained state (e.g., `sys.turn_count`)
-- Non-engine writes to `sys.*` emit a warning (v2.1) and will become a hard error in v2.2
-- User variables should avoid the `sys.` prefix
+- Non-engine writes to `sys.*` emit a warning (the write still proceeds); user variables should avoid the `sys.` prefix
+- **v2.2 (E-2):** `sys.*` keys are excluded when the engine syncs blackboard variables into the v1 `shared_state`, so a v1 agent echoing `shared_state` back no longer trips the reserved-key warning on round-trip
 
 ### 3.4 Condition Evaluator (`core/conditions.py`)
 
@@ -135,7 +135,7 @@ class ConditionEvaluator:
 | `empty` | Collection is empty | `action_items empty` |
 | `mod` | Modulo operation (`value` = divisor, `result` = expected remainder, default 0) | `{"var": "turn_count", "op": "mod", "value": 5, "result": 0}` |
 
-**Condition Evaluation Safety:** Condition evaluation **never raises exceptions**. If a comparison fails due to type mismatch or invalid operation, the condition evaluates to `False`.
+**Condition Evaluation Safety:** Condition evaluation **never raises exceptions**. If a comparison fails due to type mismatch or invalid operation, the condition evaluates to `False`. As of v2.2, the evaluator **fails closed** on edge cases that previously fired the agent: an unknown/typo'd operator returns `False` (C-1, was fail-open); membership operators (`in`/`not_in`/`contains`) guard on `expected is None` rather than truthiness so a legitimately-falsy `expected` (e.g. `0`, `""`) still runs a real membership test (C-2); and `mod` with a zero divisor returns `False` locally instead of leaking a `ZeroDivisionError` (C-3).
 
 ### 3.5 Trigger System
 
@@ -156,11 +156,24 @@ Agents define *when* they want to wake up via `AgentConfig`:
 
 ### 3.6 LLM Client (`core/llm.py`)
 
-A thin wrapper around `AsyncOpenAI`.
+A thin wrapper around `AsyncOpenAI`. The framework targets **OpenAI / OpenAI-compatible** endpoints; a dedicated Anthropic SDK adapter is explicitly out of scope for this release.
 
 - **Abstraction:** Centralizes API key management and client initialization.
 - **JSON Enforcement:** Enforces `response_format={"type": "json_object"}` to ensure agents return structured data.
-- **Model Agnostic:** Works with any OpenAI-compatible endpoint.
+- **OpenAI-compatible:** Works with OpenAI and any OpenAI-compatible endpoint.
+- **Resilience (v2.2 — R-1, INV-10):** Every call is time-bounded by a per-request `timeout` (default `10.0s`), retries transient failures (429 / 5xx / connection / timeout) with the SDK's exponential backoff (`max_retries`, default `2`), and caps output via `max_tokens` (default `1024`). Failures are mapped to **typed, logged categories** — `timeout`, `rate_limit`, `auth`, `server`, `malformed`, `not_initialized`, `unknown` — surfaced via `LLMClient.last_error_category`. The public contract is preserved: `generate_json` **never raises into the turn** and returns the parsed dict on success or `None` on any failure.
+
+```python
+class LLMClient:
+    def __init__(self, api_key: Optional[str] = None,
+                 timeout: float = 10.0,
+                 max_retries: int = 2,
+                 max_tokens: int = 1024)
+    async def generate_json(self, model: str, messages: list,
+                            max_tokens: Optional[int] = None,
+                            timeout: Optional[float] = None) -> Optional[Dict[str, Any]]
+    last_error_category: Optional[str]  # category of the most recent failure, or None on success
+```
 
 ---
 
@@ -286,11 +299,14 @@ class Fact(BaseModel):
     key: Optional[str] = None  # Instance key: "budget.primary", "stakeholder.cfo"
     value: Any                 # The extracted value
     confidence: float = 1.0    # Extraction confidence
+    priority: int = 0          # v2.2 — engine-stamped emitting-agent priority (conflict resolution)
     source_agent: str          # Which agent extracted it
     timestamp: float           # When it was extracted (session-relative)
 ```
 
-**Deduplication:** Facts are deduplicated by `(type, key)`. When duplicates exist: higher agent priority wins; if equal priority, higher confidence wins; if still equal, later registration order wins.
+**Deduplication & conflict resolution (v2.2 — F-1, INV-9):** Facts are deduplicated by `(type, key)` (by `type` alone when `key is None`). When duplicates collide, the winner is decided by **priority** first, then **confidence**, then **registration order**. The engine stamps each fact's `priority` from the emitting agent at merge time, so `Blackboard.add_fact` resolves the conflict self-sufficiently regardless of call order; agents should not set `priority` themselves. Hosts calling `add_fact()` directly own the field (it defaults to `0`).
+
+> **Note:** Prior to v2.2, `add_fact` resolved collisions by **confidence only**, which could silently let a lower-priority/higher-confidence agent overrule a high-priority authoritative extractor. v2.2 corrects this to honor the always-documented precedence. `priority` is additive and defaulted, so serialized v2.1.1 facts load unchanged.
 
 ### 4.6 TranscriptSegment
 
@@ -399,10 +415,12 @@ Updates are applied in **ascending priority order** (low → high) so that **hig
 ### 5.4 Phase Depth Limit
 
 To prevent infinite event cascades:
-- **Maximum phases:** 2 (configurable via `AgentEngine(max_phases=N)`)
+- **Supported phases:** `max_phases` accepts only **1** (Phase 1 only) or **2** (Phase 1 + event-triggered Phase 2). As of v2.2 (E-7), any other value is clamped (`<1` → `1`, `>2` → `2`) with a warning, rather than being silently ignored. `AgentEngine(max_phases=2)` is the default. No Phase 3+ exists.
+- `max_phases=1` disables the event-triggered Phase 2 entirely
 - Phase 2 agents **cannot** trigger Phase 3
 - Events emitted in Phase 2 are recorded for telemetry but not dispatched
 - All events are cleared after `process_turn()` completes
+- **Phase-2 exception safety (v2.2 — E-1, INV-12):** the engine restores the host-owned `context.trigger_type` and `context.phase` via `try/finally`, so a Phase-2 failure can never leave a host-reused context corrupted as `EVENT`/`phase=2`
 
 ### 5.5 Agent Failure Atomicity
 
@@ -421,9 +439,10 @@ The `DynamicAgent` is the primary implementation used for user-defined agents.
 
 ### 6.1 Execution Lifecycle
 
-1.  **Memory Loading:**
-    - Retrieves persistent memory from `blackboard.memory[agent_id]`
-    - Falls back to `shared_state["memory_{agent_id}"]` for v1.0 compatibility
+1.  **Memory Loading (cross-turn persistent memory):**
+    - `DynamicAgent` reads its persistent memory from `context.shared_state["memory_{agent_id}"]`.
+    - **v2.2 (MR-1):** the engine populates that key from the authoritative blackboard store (`blackboard.memory[agent_id]`, deep-copied) via `_sync_state_to_legacy` *before* agents run, so committed memory survives across turns even when the host re-instantiates agents each turn. Previously, cross-turn memory survived only via an agent's in-process `private_state` and was silently lost on per-turn re-instantiation.
+    - The loaded persistent memory is merged over a copy of `private_state` into a local `working_memory` for the evaluation (the agent's `private_state` is not mutated during prompt assembly).
 
 2.  **Context Construction:**
     - Slices transcript based on `context_turns`
@@ -460,6 +479,10 @@ The `DynamicAgent` is the primary implementation used for user-defined agents.
 5.  **Response Processing:**
     - Extracts insights, events, variable_updates, queue_pushes, facts, memory_updates
     - Maps v1.0 `state_updates` to `variable_updates` for compatibility
+    - **Silence gate (v2.2 — A-1, INV-11):** whether the agent speaks is decided by the schema's gate, in precedence order: (a) `check_field` present → the boolean gate drives the decision; (b) no `check_field` but `root_key` present → a non-empty root object is the gate; (c) gate-less **and** rootless → defaults to **silence** unless the schema opts in via `"speak_without_gate": true`. A load-time warning fires if the instruction references a gate field but the mapping omits `check_field`.
+    - **v2.2 (A-3):** model-supplied `confidence` is coerced to float and clamped to `[0, 1]` (default `1.0` on a non-numeric value) so a bad value never turns a good insight into a validation error.
+    - **v2.2 (S-1):** `expiry` and `action_label` returned by the model are parsed and passed through to the `AgentInsight` (previously requested by schemas but dropped).
+    - **v2.2 (A-2, INV-13):** `Event`/`Fact` timestamps are stamped session-relative (derived from the most recent transcript segment) rather than wall-clock epoch.
 
 6.  **State Persistence:**
     - Updates `private_state` from `memory_updates`
@@ -467,12 +490,17 @@ The `DynamicAgent` is the primary implementation used for user-defined agents.
 
 ### 6.2 Output Schemas
 
-Located in `library/schemas/`:
+Located in `library/schemas/` (shipped: `default`, `default_v2`, `v2_raw`, `ui_control`, `widget_control`, `custom1`):
 
-- **`default`**: Standard flat schema (`has_insight`, `content`, `type`)
-- **`v2_raw`**: Structured schema with full v2.0 fields
-- **`widget_control`**: Maps `ui_actions` to `response.data` sidecar
+- **`default`**: Standard flat schema (`has_insight`, `content`, `type`) — gated by `check_field`
+- **`default_v2`**: Default flat schema plus the full v2 update fields; gated by `check_field: has_insight` and writes state via `variable_updates`
+- **`v2_raw`**: Structured schema with full v2 fields, gated by presence of its root object
+- **`ui_control`** / **`widget_control`**: Root-keyed schemas that map UI actions to the `response.data` sidecar
 - **Custom**: Create `library/schemas/my_schema.json` for custom formats
+
+> **v2.2 (S-3):** all v2 schemas route state through `variable_updates_field`, so a v2-only host reading `variable_updates` no longer misses updates that previously went only through the v1 `state_updates` path. The dead `is_state_at_root` key (S-2) was removed from all schemas — it was never read by the parser.
+
+> **v2.2 (A-1):** a custom schema that has neither a `check_field` gate nor a `root_key` defaults to **silence**; set `"speak_without_gate": true` in its mapping to opt into "speak whenever there is content." See §6.1 step 5.
 
 ---
 
@@ -503,87 +531,68 @@ class AgentCallbackHandler:
 
 ### 7.2 Structured Tracing (`utils/tracing.py`)
 
-The `StructuredLogTracer` generates comprehensive "MRI Scans" of every turn:
+The `StructuredLogTracer` is an `AgentCallbackHandler` that accumulates a per-turn trace across the callback lifecycle (`on_turn_start` → `on_agent_finish`/`on_agent_error` → `on_turn_end`) and emits it as a single JSON log line prefixed `TURN_TRACE:` at `INFO` (serialized with `default=str` so non-serializable values never crash the log).
+
+The emitted object is **flat** with a `steps[]` array (one entry per agent), not the nested `phases[]` structure of earlier drafts. The actual shape:
 
 ```json
 {
-  "turn_id": "uuid",
-  "timestamp": "2026-01-27T10:30:00Z",
   "session_id": "session_123",
-  
-  "context": {
-    "user_context": "Sales Director at Acme Corp",
-    "language_directive": "Respond in English",
-    "transcript_segments": 15,
-    "rag_docs_count": 2
-  },
-  
-  "trigger": {
-    "type": "turn_based",
-    "metadata": {}
-  },
-  
-  "blackboard_initial": {
-    "variables": {"phase": "negotiation", "sentiment": 0.7},
-    "queues": {"pending_questions": []},
-    "facts_count": 3,
-    "events": []
-  },
-  
-  "phases": [
+  "trigger": "turn_based",
+  "trigger_metadata": {},
+  "input_preview": "What's your pricing?",
+  "speaker": "CUSTOMER",
+  "timestamp_start": 1730000000.123,
+  "user_context": "Sales Director at Acme Corp",
+  "language_directive": "Respond in English",
+  "rag_docs": ["..."],
+  "initial_shared_state": { "phase": "negotiation" },
+  "transcript_history": [ { "speaker": "CUSTOMER", "text": "...", "timestamp": 12.4, "is_final": true } ],
+
+  "steps": [
     {
-      "phase": 1,
-      "agents_eligible": ["sales_coach", "question_extractor"],
-      "agents_skipped": [
-        {"agent": "escalation_monitor", "reason": "conditions_not_met"}
+      "agent": "question_extractor",
+      "latency_ms": 450.0,
+      "status": "success",
+      "insights": [
+        { "type": "suggestion", "content": "...", "confidence": 0.85, "metadata": {} }
       ],
-      "agents_run": [
-        {
-          "agent": "question_extractor",
-          "duration_ms": 450,
-          "insights": 0,
-          "events_emitted": ["question_detected"],
-          "variable_updates": {}
-        }
-      ],
-      "events_collected": ["question_detected"]
+      "state_updates": { "phase": "negotiation" },
+      "variable_updates": ["phase"],
+      "events_emitted": ["question_detected"],
+      "facts_count": 1,
+      "queue_pushes": { "pending_questions": 2 },
+      "memory_updates_keys": ["last_question"],
+      "data": {},
+      "debug_info": {}
     },
     {
-      "phase": 2,
-      "trigger_events": ["question_detected"],
-      "agents_run": [
-        {
-          "agent": "question_responder",
-          "duration_ms": 890,
-          "insights": 1
-        }
-      ]
+      "agent": "escalation_monitor",
+      "status": "error",
+      "error": "..."
     }
   ],
-  
-  "blackboard_final": {
-    "variables": {"phase": "negotiation", "sentiment": 0.65},
-    "queues": {"pending_questions": [...]},
-    "facts_count": 3,
-    "events": []
-  },
-  
-  "performance": {
-    "total_duration_ms": 1660,
-    "phase_1_duration_ms": 770,
-    "phase_2_duration_ms": 890,
-    "llm_calls": 3
-  }
+
+  "total_latency_ms": 1660.0,
+  "final_insight_count": 1,
+  "final_state_updates": {}
 }
 ```
+
+Notes on the per-step (`steps[]`) fields — each is included **only when present** on that agent's response:
+- `latency_ms`, `status` (`"success"` / `"no_response"`, or `"error"` with an `error` string) are always present.
+- `state_updates` is the raw v1 dict; `variable_updates` is the **list of changed variable keys** (not the values); `events_emitted` is the list of event names; `facts_count` is an integer count; `queue_pushes` maps queue name → number of items pushed; `memory_updates_keys` is the list of memory keys written.
+- `data` and `debug_info` are passed through when the response carries them.
+
+The turn-level fields (`total_latency_ms`, `final_insight_count`, `final_state_updates`) are written on `on_turn_end`. The trace does not currently emit a nested per-phase breakdown or a `blackboard_final` snapshot.
 
 ### 7.3 Timestamp Conventions
 
 | Context | Format | Notes |
 |---------|--------|-------|
-| Model timestamps | Seconds since session start | Float, session-relative |
-| Trace timestamps | ISO 8601 wall clock | e.g., `"2026-01-27T10:30:00Z"` |
-| Duration fields | Milliseconds | Integer, e.g., `duration_ms: 450` |
+| Model timestamps (`TranscriptSegment`, `Event`, `Fact`) | Seconds since session start | Float, session-relative (v2.2 — A-2 emits `Event`/`Fact` session-relative, not epoch) |
+| Trace `timestamp_start` | Wall-clock epoch seconds | Float from `time.time()` (not ISO 8601) |
+| Latency / duration fields | Milliseconds | Float, e.g., `latency_ms: 450.0`, `total_latency_ms: 1660.0` |
 
 ---
 
@@ -724,7 +733,7 @@ Event-triggered agents run automatically in Phase 2 when other agents emit event
 
 ---
 
-## 12. Future Considerations (v2.2+)
+## 12. Future Considerations (v2.3+)
 
 | Feature | Description | Complexity |
 |---------|-------------|------------|

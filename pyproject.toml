@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xubb-agents"
-version = "2.1.1"
+version = "2.2.0"
 description = "A lightweight, event-driven framework for real-time conversational AI agents"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -51,4 +51,17 @@ xubb_agents = "."
 
 [tool.setuptools.package-data]
 "*" = ["*.md", "*.txt", "*.json", "*.html"]
+
+[tool.pytest.ini_options]
+# Strict asyncio: every async test must be explicitly marked @pytest.mark.asyncio.
+asyncio_mode = "strict"
+testpaths = ["tests"]
+# Put the parent of the repo root on sys.path so ``import xubb_agents`` resolves
+# without ``pip install -e .``. This works when the checkout dir is named
+# ``xubb_agents``; the repo-root conftest.py handles the dir-renamed case too.
+pythonpath = [".."]
+markers = [
+    "asyncio: marks a test as an asyncio coroutine (handled by pytest-asyncio).",
+    "invariant: marks a test as guarding a documented contract/invariant (G2 gate).",
+]
 

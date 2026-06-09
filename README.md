@@ -2,7 +2,7 @@
 
 **A standalone Python library for real-time conversational AI agents.**
 
-**Version:** 2.1.1
+**Version:** 2.2.0
 **Status:** Production-Ready
 
 > **Note**: This is a **separate product/project** that provides the agent framework. It is consumed by `xubb_server` and other applications that need intelligent conversation agents.
@@ -10,8 +10,8 @@
 ## Installation
 
 ```bash
-# Install from local development (in xubb_v6 root)
-cd xubb_agents
+# Install from a local checkout of github.com/genriq/xubb-agents
+cd xubb-agents
 pip install -e .
 
 # Or install from PyPI (when published)
@@ -88,6 +88,25 @@ v2.1.1 is a **bugfix release** — 4 bug fixes, 3 defense-in-depth improvements,
 | `DynamicAgent` auto-adds `TriggerType.EVENT` | Convenience | Agents with `subscribed_events` get `EVENT` trigger type automatically |
 
 > **See [SPEC_V2_1_1_BUGFIX.md](docs/SPEC_V2_1_1_BUGFIX.md) for full details.**
+
+## What's New in v2.2
+
+v2.2 is a **hardening release** driven by a 5-agent audit — one critical contract fix, robustness/consistency hardening, and a documentation sweep. One behavioral contract correction (F-1) may change which fact wins; everything else is additive or internal.
+
+| Change | Type | Impact |
+|--------|------|--------|
+| Fact conflict resolution honors agent **priority** (F-1) | Bug fix (contract) | Colliding `(type, key)` facts now resolve by priority → confidence → registration order (was confidence-only). `Fact.priority` added (engine-stamped). |
+| LLM calls are time-bounded with typed failures (R-1) | Bug fix | Per-request timeout, bounded retries, `max_tokens` cap, and categorized errors (`timeout`/`rate_limit`/`auth`/`server`/`malformed`). Still never raises into the turn; returns `None` on failure. |
+| Gate-less + rootless schemas default to **silence** (A-1) | Bug fix | A custom schema with no `check_field` and no `root_key` stays silent unless it opts in via `speak_without_gate: true`. Shipped schemas are unaffected. |
+| Phase-2 context mutation is exception-safe (E-1) | Bug fix | `trigger_type`/`phase` are restored via `try/finally` even if Phase 2 raises. |
+| Cross-turn agent memory persists via the blackboard (MR-1) | Bug fix | The engine syncs `blackboard.memory[id]` → `shared_state["memory_<id>"]` before agents run, so persistent memory survives per-turn agent re-instantiation. |
+| Memory is deep-copied on write as well as read (M-1) | Bug fix | `set_memory`/`update_memory` no longer retain caller references. |
+| Conditions fail **closed** on unknown operators (C-1) | Bug fix | A typo'd operator no longer fires the agent every turn. |
+| `Event`/`Fact` timestamps are session-relative (A-2) | Bug fix | `DynamicAgent` no longer stamps wall-clock epoch. |
+| `expiry`/`action_label` parsed from LLM output (S-1) | Bug fix | Previously requested by schemas but dropped. |
+| Provider clarified as **OpenAI / OpenAI-compatible** (DOC-1) | Docs | The LLM client wraps `AsyncOpenAI`; a future Anthropic adapter is out of scope. |
+
+> **See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md) for full details.**
 
 ## Architecture
 
@@ -504,6 +523,8 @@ Higher-priority agents can override lower-priority state updates:
 
 Updates are applied in **ascending** priority order (low → high), so higher priority writes last and wins.
 
+**Facts use the same priority precedence (v2.2 — F-1):** when two agents emit facts that collide on `(type, key)`, the winner is decided by **priority** first, then **confidence**, then **registration order**. The engine stamps each fact's `priority` from the emitting agent at merge time.
+
 ### Private Memory
 
 Each agent maintains a private scratchpad via `memory_updates`:
@@ -518,6 +539,8 @@ Each agent maintains a private scratchpad via `memory_updates`:
 ```
 
 Access in templates: `{{ blackboard.memory[agent_id].objection_count }}`
+
+Memory **persists across turns** via the blackboard. The engine syncs each agent's committed memory into `shared_state["memory_<agent_id>"]` before agents run (v2.2 — MR-1), so persistent memory survives even when the host re-instantiates agents every turn. Memory values are deep-copied on both read and write (v2.2 — M-1), so a caller mutating an object it passed into `update_memory` never mutates blackboard state.
 
 ---
 
@@ -839,9 +862,14 @@ class Fact(BaseModel):
     key: Optional[str] = None
     value: Any
     confidence: float = 1.0
+    priority: int = 0          # v2.2 — engine-stamped emitting-agent priority (conflict resolution)
     source_agent: str
-    timestamp: float
+    timestamp: float           # session-relative seconds
+```
 
+> **Fact conflict resolution (v2.2):** Facts colliding on `(type, key)` resolve by **priority** first, then **confidence**, then **registration order**. `priority` is stamped by the engine at merge time from the emitting agent's priority — agents should not set it; hosts calling `add_fact()` directly own it.
+
+```python
 class AgentInsight(BaseModel):
     agent_id: str
     agent_name: str
@@ -868,6 +896,8 @@ class AgentInsight(BaseModel):
 ---
 
 ## Migration from v1.0 / v2.0
+
+**v2.2 behavioral change (F-1):** Facts that collide on `(type, key)` now resolve by **priority** first (then confidence, then registration order), matching the always-documented contract. Consumers that depended on the prior confidence-only behavior may see a different fact win. `Fact.priority` is a new defaulted field — serialized v2.1.1 facts load unchanged with `priority=0`. All other v2.2 changes are additive or internal. See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md) §13 (Migration Notes).
 
 v2.1 is backward compatible. Existing agents work unchanged, with these behavioral normalizations:
 
