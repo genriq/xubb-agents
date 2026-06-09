@@ -4,6 +4,32 @@ All notable changes to the Xubb Agents Framework are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Contract gate (`tools/check_contracts.py`)** — the R1 automation of accuracy gate
+  G1/G2/G3 (DEVELOPMENT_PROCESS.md §4). Reads `docs/CONTRACTS.yaml` and hard-fails the
+  build for any `covered` contract whose named test is missing, skipped, or failing, and
+  for any malformed registry entry; `to_verify`/`uncovered` are reported as debt (not a
+  red build) so the framework is not blocked before the bijection back-fill. `--strict`
+  additionally requires a passing test for every entry (the 16/16 release gate).
+  Production-grade behavior: **fails closed** (`GateError`) when the suite did not run /
+  the JUnit report is absent, empty, or unparseable — never a silent pass; a **debt
+  ratchet** (`debt_baseline`) fails the build if debt grows, so it can shrink but never
+  silently accrete; **node-level bijection** is required for `covered` (file-level refs
+  rejected); parametrized tests are aggregated (all-pass → pass, any-fail → fail).
+  Decision logic is a pure `evaluate()` over a `{test_ref: outcome}` map for fast,
+  deterministic unit tests; the CLI accepts `--junit PATH` so CI runs the suite once.
+- **CI workflow (`.github/workflows/contract-gate.yml`)** — runs the suite once (JUnit)
+  and feeds the gate via `--junit`, making the Contract Registry an enforced gate rather
+  than an advisory doc, with no double execution.
+- Four self-covering registry entries (`REGISTRY-WELLFORMED`, `GATE-INFRASTRUCTURE`,
+  `CONTRACT-BIJECTION`, `RELEASE-GATE-CI`); the gate guards its own contracts.
+- `pyyaml` dev dependency; `black`-clean, `mypy`-clean. Suite 224 → 249.
+
+---
+
 ## [2.2.0] - 2026-06-08
 
 Production-hardening release driven by the v2.2 5-agent audit: 1 critical contract bug,
