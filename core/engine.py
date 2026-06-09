@@ -19,6 +19,7 @@ provide more correct mechanisms for preventing unnecessary LLM calls.
 
 import asyncio
 import logging
+import threading
 import time
 from copy import deepcopy
 from typing import List, Optional, Dict, Any, Tuple
@@ -69,6 +70,10 @@ class AgentEngine:
         self._agent_index: Dict[str, int] = {}
         # Parallel map for O(1) (priority, registration-order) lookup at merge time (E-5)
         self._agent_meta: Dict[str, Tuple[int, int]] = {}
+        # Serializes concurrent replace_agents() callers. Readers stay lock-free:
+        # replace_agents rebinds the three structures (never mutates in place), so an
+        # in-flight `for a in self.agents` always iterates a complete list.
+        self._agents_lock = threading.Lock()
         # E-6: agent ids already warned about EVENT-subscription misconfig (warn once,
         # not every turn, to avoid flooding logs in a long real-time session).
         self._warned_subscriber_ids: set = set()
@@ -88,7 +93,34 @@ class AgentEngine:
         logger.info(f"Registered agent: {agent.config.name} (ID: {agent.config.id}, "
                    f"Model: {agent.config.model}, Triggers: {agent.config.trigger_types})")
         self.agents.append(agent)
-    
+
+    def replace_agents(self, agents: List[BaseAgent]) -> None:
+        """Atomically replace the full agent set (e.g. on a vault reload).
+
+        Concurrency-safe alternative to ``agents.clear()`` + ``register_agent`` loop:
+        a hot turn iterating ``self.agents`` (or reading ``_agent_meta``) must never
+        observe a half-cleared registry. We build the three structures
+        (agents / index / meta) FRESH and rebind them in one go — never mutating the
+        live ones in place — so a concurrent ``for a in self.agents`` always iterates
+        a complete list (old or new), and ``_agent_meta.get()`` always returns a
+        consistent value. ``self.agents`` is rebound LAST, after index/meta, so a
+        reader that sees the new agents also sees the new metadata.
+        """
+        with self._agents_lock:
+            new_agents: List[BaseAgent] = []
+            new_index: Dict[str, int] = {}
+            new_meta: Dict[str, Tuple[int, int]] = {}
+            for index, agent in enumerate(agents):
+                agent.llm = self.llm_client
+                new_index[agent.config.id] = index
+                new_meta[agent.config.id] = (agent.config.priority, index)
+                new_agents.append(agent)
+            # Rebind (index/meta first, agents last) — each assignment is atomic.
+            self._agent_index = new_index
+            self._agent_meta = new_meta
+            self.agents = new_agents
+            logger.info(f"Replaced agent registry: {len(new_agents)} agents")
+
     def update_api_key(self, api_key: Optional[str]):
         """Update API key for LLM client and re-inject into all agents.
 
