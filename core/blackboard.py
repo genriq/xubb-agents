@@ -13,7 +13,7 @@ Blackboard in-memory for session lifetime.
 """
 
 import logging
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Dict, Any, Optional
 from copy import deepcopy
 
@@ -35,9 +35,8 @@ class Blackboard(BaseModel):
     facts: List[Fact] = Field(default_factory=list, description="Extracted knowledge")
     memory: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Agent-private state")
     
-    class Config:
-        arbitrary_types_allowed = True
-    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     # =========================================================================
     # Event Operations
     # =========================================================================

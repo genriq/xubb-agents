@@ -115,8 +115,7 @@ class AgentContext(BaseModel):
         default_factory=dict, description="Per-agent config overrides from Role modifiers"
     )
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class AgentInsight(BaseModel):
     """A single piece of advice/feedback."""
