@@ -1,17 +1,22 @@
 # Xubb Agents Framework
 
-**A standalone Python library for real-time conversational AI agents.**
+**A swarm of cheap, specialized LLM observers that watch a live conversation and surface the _one_ insight worth saying.** Most agents stay silent most of the time; that restraint is the product.
 
-**Version:** 2.3.0
-**Status:** Beta — production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+[![contract-gate](https://github.com/genriq/xubb-agents/actions/workflows/contract-gate.yml/badge.svg)](https://github.com/genriq/xubb-agents/actions/workflows/contract-gate.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-> **Note**: This is a **separate product/project** that provides the agent framework. It is consumed by `xubb_server` and other applications that need intelligent conversation agents.
+**Version:** 2.3.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+
+📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
+
+> **Note**: This is a **separate, standalone library**, consumed by `xubb_server` and other applications that need real-time conversation agents.
 
 > 📖 **New here? Read [THE PLAYBOOK](docs/PLAYBOOK.md)** — the definitive guide to leveraging this framework to its full potential in a real-time copilot (the design doctrine, patterns, anti-patterns, a checklist, a golden-path build, testing & metrics, and an end-to-end worked agent suite). The README is the reference; the Playbook is how to *wield* it.
 
 ## Installation
 
-Requires **Python >= 3.8**. Runtime dependencies: `openai`, `pydantic` (v2), `jinja2`.
+Requires **Python >= 3.11**. Runtime dependencies: `openai`, `pydantic` (v2), `jinja2`.
 
 ```bash
 # Install from a local checkout of github.com/genriq/xubb-agents
@@ -53,6 +58,43 @@ async def main():
     response = await engine.process_turn(context)
     for insight in response.insights:
         # insights are AgentInsight objects, not dicts — use attribute access
+        print(f"[{insight.type.value}] {insight.content}")
+
+asyncio.run(main())
+```
+
+### Run it offline (no API key)
+
+The block above makes one OpenAI call. To see real output with no key and no network,
+register a rule-based agent (any `BaseAgent` subclass) instead of an LLM-backed one:
+
+```python
+import asyncio
+from xubb_agents import AgentEngine, AgentContext, Blackboard
+from xubb_agents.core.agent import BaseAgent, AgentConfig
+from xubb_agents.core.models import AgentResponse, TranscriptSegment
+
+class HesitationCoach(BaseAgent):
+    """No LLM: fires a fixed nudge when the customer sounds hesitant."""
+    async def evaluate(self, context):
+        last = context.recent_segments[-1].text.lower() if context.recent_segments else ""
+        if any(word in last for word in ("not sure", "budget", "expensive", "too much")):
+            return AgentResponse(insights=[
+                self.create_insight("Acknowledge the budget concern, then ask what would make it a fit."),
+            ])
+        return None  # silent otherwise — silence is the default
+
+async def main():
+    engine = AgentEngine()  # no api_key: this agent makes no LLM call
+    engine.register_agent(HesitationCoach(AgentConfig(name="Hesitation Coach")))
+    context = AgentContext(
+        session_id="demo",
+        recent_segments=[TranscriptSegment(speaker="customer", timestamp=0.0,
+                                            text="I'm not sure this fits our budget...")],
+        blackboard=Blackboard(),
+    )
+    response = await engine.process_turn(context)
+    for insight in response.insights:
         print(f"[{insight.type.value}] {insight.content}")
 
 asyncio.run(main())

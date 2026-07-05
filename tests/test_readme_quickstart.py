@@ -26,6 +26,13 @@ def _extract_quickstart_block() -> str:
     return match.group(1)
 
 
+def _extract_offline_block() -> str:
+    """The fenced ```python block under the 'Run it offline' subheading."""
+    match = re.search(r"###\s*Run it offline.*?```python\n(.*?)```", README, re.S)
+    assert match, "Offline Quickstart python block not found in README.md"
+    return match.group(1)
+
+
 def test_readme_quickstart_runs_offline(capsys):
     code = _extract_quickstart_block()
 
@@ -53,3 +60,13 @@ def test_readme_quickstart_runs_offline(capsys):
         "Quickstart did not render the insight via attribute access "
         f"(insight.type.value / insight.content); captured stdout: {out!r}"
     )
+
+
+def test_readme_offline_quickstart_runs(capsys):
+    # The "Run it offline" block promises real output with no key and no network.
+    # Execute it verbatim, unpatched, to keep that promise honest.
+    code = _extract_offline_block()
+    exec(compile(code, "<README offline quickstart>", "exec"), {"__name__": "__readme__"})
+
+    out = capsys.readouterr().out
+    assert "[suggestion]" in out, f"offline quickstart produced no insight; captured stdout: {out!r}"
