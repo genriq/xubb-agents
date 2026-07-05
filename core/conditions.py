@@ -53,13 +53,16 @@ class ConditionEvaluator:
             return True
         
         results = [self._evaluate_rule(r, blackboard, meta, agent_id) for r in rules]
-        
+
         if mode == "all":
             return all(results)
         elif mode == "any":
             return any(results)
-        
-        return True
+
+        # Unknown mode - fail CLOSED, like unknown operators. A typo'd mode
+        # ("and", "or", "ALL") must not silently un-gate an agent.
+        logger.warning(f"Unknown condition mode: {mode!r} (agent {agent_id}) - failing closed")
+        return False
     
     def _evaluate_rule(self, rule: Dict, blackboard: Blackboard,
                        meta: Dict, agent_id: str) -> bool:

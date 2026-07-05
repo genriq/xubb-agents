@@ -359,6 +359,35 @@ class TestHardeningV22:
         conditions["rules"][0]["value"] = ""
         assert evaluator.evaluate(conditions, blackboard, meta, "test") is False
 
+    def test_c4_unknown_mode_fails_closed(self, evaluator, blackboard, meta, caplog):
+        """C-4 (v2.2.1): a typo'd/unknown `mode` must fail CLOSED (False), not open.
+
+        Previously an unrecognized mode ("and", "or", "ALL") fell through to
+        `return True`, silently un-gating the agent — the last fail-open edge
+        in an otherwise fail-closed evaluator.
+        """
+        conditions = {
+            "mode": "and",  # plausible authoring typo for "all"
+            "rules": [{"var": "phase", "op": "eq", "value": "closing"}]  # False anyway
+        }
+        with caplog.at_level("WARNING"):
+            assert evaluator.evaluate(conditions, blackboard, meta, "test") is False
+        assert any("Unknown condition mode" in r.message for r in caplog.records)
+        # Even with a rule that PASSES, an unknown mode must not fire the agent.
+        caplog.clear()
+        conditions = {
+            "mode": "OR",
+            "rules": [{"var": "phase", "op": "eq", "value": "negotiation"}]  # True
+        }
+        with caplog.at_level("WARNING"):
+            assert evaluator.evaluate(conditions, blackboard, meta, "test") is False
+
+    def test_c4_known_modes_unaffected(self, evaluator, blackboard, meta):
+        """C-4 guard: the fix must not disturb the two sanctioned modes."""
+        rules = [{"var": "phase", "op": "eq", "value": "negotiation"}]
+        assert evaluator.evaluate({"mode": "all", "rules": rules}, blackboard, meta, "t") is True
+        assert evaluator.evaluate({"mode": "any", "rules": rules}, blackboard, meta, "t") is True
+
     def test_c2_not_in_with_falsy_expected_zero(self, evaluator, blackboard, meta):
         """C-2: `not_in` with a falsy-but-present expected (empty list) runs a real test.
 

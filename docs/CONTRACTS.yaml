@@ -232,14 +232,49 @@ contracts:
     test_absent: "tests/test_dynamic_agent.py::TestIntervalTriggerConfig::test_absent_interval_stays_none"
     status: covered   # P1-prep fix: SaaS-authored interval agents now actually fire.
 
+  - id: CONDITIONS-FAIL-CLOSED
+    statement: >
+      The condition evaluator NEVER fails open. Rule-level errors return False
+      (evaluation never raises); an unknown operator returns False with a
+      warning; and (v2.2.1) an unknown `mode` returns False with a warning
+      instead of the historical fall-through `return True`. The only sanctioned
+      always-run paths are conditions=None/empty and rules=[] (absent gating is
+      a deliberate default, not a failure).
+    source:
+      - "core/conditions.py: evaluate (mode dispatch + unknown-mode fail-closed)"
+      - "core/conditions.py: _evaluate_rule (never-raises except)"
+      - "core/conditions.py: _compare (unknown-operator fail-closed)"
+    invariant: EVAL-FAIL-CLOSED
+    test: "tests/test_conditions.py::TestHardeningV22::test_c4_unknown_mode_fails_closed"
+    test_operator: "tests/test_conditions.py::TestHardeningV22::test_c1_unknown_operator_fails_closed"
+    test_known_modes: "tests/test_conditions.py::TestHardeningV22::test_c4_known_modes_unaffected"
+    status: covered   # v2.2.1: closes the last fail-open edge before P1 authoring begins.
+
+  - id: CASCADE-SINGLE-HOP
+    statement: >
+      Event cascades are single-hop by construction: Phase-2 agents are the
+      subscribers of Phase-1 events and run within the same turn; events
+      emitted IN Phase 2 are recorded but never dispatched, and max_phases is
+      hard-clamped to [1, 2]. No authored prompt set can create multi-hop or
+      unbounded cascade chains.
+    source:
+      - "core/engine.py: process_turn (Phase-2 gate + subscriber resolution)"
+      - "core/engine.py: Phase-2 event recording (not dispatched)"
+      - "core/engine.py: max_phases clamp"
+    invariant: CASCADE-BOUNDED
+    test: "tests/test_engine.py::TestMultiPhaseExecution::test_phase2_events_not_dispatched"
+    test_clamp: "tests/test_engine.py::TestV22Closeout::test_e7_max_phases_clamped"
+    status: covered   # Registered v2.2.1: behavior existed and was tested, but had no registry entry.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       22   (P4-1 complete + INTERVAL-CONFIG-PARSED — every contract &
-#                      invariant names a passing, rule-asserting test)
+# covered:       24   (P4-1 complete + INTERVAL-CONFIG-PARSED + v2.2.1's
+#                      CONDITIONS-FAIL-CLOSED and CASCADE-SINGLE-HOP — every
+#                      contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # pending_v2.2:   0
 # uncovered:      0
-# total:         22
+# total:         24
 # → P4-1 certification DONE. Pass 1 (blackboard) + pass 2 (engine/tracing: INV-1
 #   callbacks-once, INV-4 sys-key flagging, INV-5 tracing-resilience, INV-7
 #   callback-base-complete). Framework contract registry is fully covered.
