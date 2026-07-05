@@ -80,9 +80,21 @@ class TestEngineBasics:
         agent2 = MockAgent("agent2")
         engine.register_agent(agent1)
         engine.register_agent(agent2)
-        
+
         agents = engine.get_agents_by_trigger_type(TriggerType.TURN_BASED)
         assert len(agents) == 2
+
+    def test_get_agents_with_keywords(self, engine):
+        """The keyword-query sibling of get_agents_with_silence_threshold:
+        returns exactly the agents whose config carries trigger_keywords."""
+        with_kw = MockAgent("kw_agent")
+        with_kw.config.trigger_keywords = ["pricing", "budget"]
+        without_kw = MockAgent("plain_agent")
+        engine.register_agent(with_kw)
+        engine.register_agent(without_kw)
+
+        agents = engine.get_agents_with_keywords()
+        assert [a.config.id for a in agents] == ["kw_agent"]
     
     def test_get_event_subscribers(self, engine):
         agent1 = MockAgent("agent1", subscribed_events=["question_detected"])
@@ -1266,7 +1278,7 @@ class TestE1Phase2ExceptionSafety:
 
 
 class TestReplaceAgents:
-    """replace_agents atomically swaps the full registry (P0-3 vault-reload race).
+    """replace_agents atomically swaps the full registry (hot-reload race guard).
 
     A vault reload previously did agents.clear() + register loop, which a hot turn
     iterating self.agents could observe half-cleared. replace_agents rebuilds and

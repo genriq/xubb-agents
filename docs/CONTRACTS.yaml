@@ -1,4 +1,4 @@
-# Xubb Agents — Contract Registry  (accuracy gate G1; DEVELOPMENT_PROCESS.md §4.1)
+# Xubb Agents — Contract Registry  (the contract-accuracy gate; see docs/PROCESS.md)
 #
 # Every documented behavioral contract MUST appear here and name a test that asserts the
 # RULE (not just a happy-path example). The R1 checker `tools/check_contracts.py` will fail
@@ -29,8 +29,8 @@ seeded: "2026-06-08 (R0)"
 
 # Debt ratchet: the gate fails if the number of to_verify/uncovered/pending entries
 # exceeds this baseline. Debt may SHRINK (lower this when you promote an entry to
-# covered) but never silently grow. Current debt: 8 to_verify + 1 uncovered (INV-5).
-debt_baseline: 9
+# covered) but never silently grow. Current debt: ZERO (fully certified).
+debt_baseline: 0
 
 contracts:
 
@@ -174,7 +174,7 @@ contracts:
     statement: >
       The shipped CONTRACTS.yaml is structurally valid: unique ids, a valid status
       per entry, and every covered/to_verify/failing_probe entry names a test.
-    source: ["DEVELOPMENT_PROCESS.md: §4.1", "tools/check_contracts.py: validate_registry"]
+    source: ["docs/PROCESS.md: contract-accuracy gate", "tools/check_contracts.py: validate_registry"]
     test: "tests/test_check_contracts.py::TestWellformed::test_real_registry_is_wellformed"
     status: covered   # R1: check_contracts.py validate_registry guards this on every run.
 
@@ -182,7 +182,7 @@ contracts:
     statement: >
       The contract gate fails the build for any `covered` contract whose named test
       is missing, skipped, or failing (G1/G3); a passing test is required.
-    source: ["DEVELOPMENT_PROCESS.md: §4.1 / §4.3", "tools/check_contracts.py: evaluate"]
+    source: ["docs/PROCESS.md: negative controls", "tools/check_contracts.py: evaluate"]
     invariant: G1
     test: "tests/test_check_contracts.py::TestGate::test_gate_fails_on_uncovered_contract"
     status: covered   # R1: tools/check_contracts.py landed (L0).
@@ -191,7 +191,7 @@ contracts:
     statement: >
       Every `covered` contract maps to a test that exists, is not skipped, and
       passes; skipped/failed/missing all hard-fail the gate (G2 bijection).
-    source: ["DEVELOPMENT_PROCESS.md: §4.2", "tools/check_contracts.py: evaluate"]
+    source: ["docs/PROCESS.md: contract-test bijection", "tools/check_contracts.py: evaluate"]
     invariant: G2
     test: "tests/test_check_contracts.py::TestGate::test_contract_test_bijection"
     status: covered   # R1.
@@ -200,7 +200,7 @@ contracts:
     statement: >
       A CI workflow runs tools/check_contracts.py so a broken covered contract or a
       malformed registry blocks merge (the gate is enforced, not advisory).
-    source: ["DEVELOPMENT_PROCESS.md: §4.1 / §7", ".github/workflows/contract-gate.yml"]
+    source: ["docs/PROCESS.md: CI enforcement", ".github/workflows/contract-gate.yml"]
     test: "tests/test_check_contracts.py::TestReleaseGateCI::test_ci_workflow_exists_and_invokes_gate"
     status: covered   # R1.
 
@@ -215,7 +215,7 @@ contracts:
       - "core/engine.py: replace_agents"
     test: "tests/test_engine.py::TestReplaceAgents::test_replace_agents_swaps_registry_and_clears_stale_meta"
     test_concurrent: "tests/test_engine.py::TestReplaceAgents::test_replace_agents_never_observed_half_cleared"
-    status: covered   # supports the backend P0-3 vault-reload-race fix.
+    status: covered   # guards hosts that hot-reload the agent registry during a live turn.
 
   - id: INTERVAL-CONFIG-PARSED
     statement: >
@@ -230,16 +230,49 @@ contracts:
     test_coerce: "tests/test_dynamic_agent.py::TestIntervalTriggerConfig::test_numeric_string_interval_is_coerced"
     test_invalid: "tests/test_dynamic_agent.py::TestIntervalTriggerConfig::test_invalid_interval_treated_as_absent_with_warning"
     test_absent: "tests/test_dynamic_agent.py::TestIntervalTriggerConfig::test_absent_interval_stays_none"
-    status: covered   # P1-prep fix: SaaS-authored interval agents now actually fire.
+    status: covered   # interval-mode agents defined via host config now actually fire.
+
+  - id: CONDITIONS-FAIL-CLOSED
+    statement: >
+      The condition evaluator NEVER fails open. Rule-level errors return False
+      (evaluation never raises); an unknown operator returns False with a
+      warning; and (v2.2.1) an unknown `mode` returns False with a warning
+      instead of the historical fall-through `return True`. The only sanctioned
+      always-run paths are conditions=None/empty and rules=[] (absent gating is
+      a deliberate default, not a failure).
+    source:
+      - "core/conditions.py: evaluate (mode dispatch + unknown-mode fail-closed)"
+      - "core/conditions.py: _evaluate_rule (never-raises except)"
+      - "core/conditions.py: _compare (unknown-operator fail-closed)"
+    invariant: EVAL-FAIL-CLOSED
+    test: "tests/test_conditions.py::TestHardeningV22::test_c4_unknown_mode_fails_closed"
+    test_operator: "tests/test_conditions.py::TestHardeningV22::test_c1_unknown_operator_fails_closed"
+    test_known_modes: "tests/test_conditions.py::TestHardeningV22::test_c4_known_modes_unaffected"
+    status: covered   # v2.2.1: closes the last fail-open edge before P1 authoring begins.
+
+  - id: CASCADE-SINGLE-HOP
+    statement: >
+      Event cascades are single-hop by construction: Phase-2 agents are the
+      subscribers of Phase-1 events and run within the same turn; events
+      emitted IN Phase 2 are recorded but never dispatched, and max_phases is
+      hard-clamped to [1, 2]. No authored prompt set can create multi-hop or
+      unbounded cascade chains.
+    source:
+      - "core/engine.py: process_turn (Phase-2 gate + subscriber resolution)"
+      - "core/engine.py: Phase-2 event recording (not dispatched)"
+      - "core/engine.py: max_phases clamp"
+    invariant: CASCADE-BOUNDED
+    test: "tests/test_engine.py::TestMultiPhaseExecution::test_phase2_events_not_dispatched"
+    test_clamp: "tests/test_engine.py::TestV22Closeout::test_e7_max_phases_clamped"
+    status: covered   # Registered v2.2.1: behavior existed and was tested, but had no registry entry.
 
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       22   (P4-1 complete + INTERVAL-CONFIG-PARSED — every contract &
-#                      invariant names a passing, rule-asserting test)
+# covered:       24   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # pending_v2.2:   0
 # uncovered:      0
-# total:         22
-# → P4-1 certification DONE. Pass 1 (blackboard) + pass 2 (engine/tracing: INV-1
-#   callbacks-once, INV-4 sys-key flagging, INV-5 tracing-resilience, INV-7
-#   callback-base-complete). Framework contract registry is fully covered.
+# total:         24
+# → Registry fully certified: blackboard invariants, engine/tracing invariants
+#   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
+#   config parsing, fail-closed evaluation, and bounded cascades all covered.

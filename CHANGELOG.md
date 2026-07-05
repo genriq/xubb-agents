@@ -4,16 +4,21 @@ All notable changes to the Xubb Agents Framework are documented here.
 
 ---
 
-## [Unreleased]
+## [2.3.0] - Unreleased
 
 ### Added
 
-- **Contract gate (`tools/check_contracts.py`)** — the R1 automation of accuracy gate
-  G1/G2/G3 (DEVELOPMENT_PROCESS.md §4). Reads `docs/CONTRACTS.yaml` and hard-fails the
+- **`AgentEngine.replace_agents(agents)`** — atomic full-registry swap for hot
+  reloads. Rebuilds the registry and rebinds it LAST, so a concurrent turn never
+  observes a half-cleared registry (the unsafe `clear()` + register-loop pattern
+  this replaces could drop every agent mid-turn). Contract:
+  `AGENT-REGISTRY-ATOMIC-SWAP`.
+- **Contract gate (`tools/check_contracts.py`)** — the contract-accuracy gate
+  (see `docs/PROCESS.md`). Reads `docs/CONTRACTS.yaml` and hard-fails the
   build for any `covered` contract whose named test is missing, skipped, or failing, and
   for any malformed registry entry; `to_verify`/`uncovered` are reported as debt (not a
   red build) so the framework is not blocked before the bijection back-fill. `--strict`
-  additionally requires a passing test for every entry (the 16/16 release gate).
+  additionally requires a passing test for every entry (the full-coverage release gate).
   Production-grade behavior: **fails closed** (`GateError`) when the suite did not run /
   the JUnit report is absent, empty, or unparseable — never a silent pass; a **debt
   ratchet** (`debt_baseline`) fails the build if debt grows, so it can shrink but never
@@ -26,7 +31,39 @@ All notable changes to the Xubb Agents Framework are documented here.
   than an advisory doc, with no double execution.
 - Four self-covering registry entries (`REGISTRY-WELLFORMED`, `GATE-INFRASTRUCTURE`,
   `CONTRACT-BIJECTION`, `RELEASE-GATE-CI`); the gate guards its own contracts.
-- `pyyaml` dev dependency; `black`-clean, `mypy`-clean. Suite 224 → 249.
+- `pyyaml` dev dependency; black/mypy clean under the tool versions pinned at authoring time (current-version drift is tracked in docs/PUBLIC_RELEASE_READINESS.md).
+
+### Fixed
+
+- **Interval trigger mode was inoperative** — `trigger_config.trigger_interval`
+  was never parsed into `AgentConfig.trigger_interval`, so an interval-mode
+  agent defined via host config could never fire (hosts gate on
+  `if interval and ...`). Now parsed and int-coerced; non-numeric or
+  non-positive values are warned and treated as absent. Migration note:
+  interval-mode configs that previously did nothing WILL start firing.
+  Contract: `INTERVAL-CONFIG-PARSED`.
+- **Unknown condition `mode` fails closed (C-4)** — an unrecognized mode string
+  ("and", "or", "ALL") in `trigger_conditions` fell through to `return True`,
+  silently un-gating the agent. It now warns and returns `False`, matching the
+  unknown-operator behavior (C-1). Contract: `CONDITIONS-FAIL-CLOSED`.
+
+### Tests / registry
+
+- Contract registry certified to **24/24 covered, debt 0** (blackboard,
+  engine/tracing, config-parsing, fail-closed evaluation, and bounded-cascade
+  contracts all name passing, rule-asserting tests). Two previously-tested
+  behaviors gained registry entries: `CONDITIONS-FAIL-CLOSED` and
+  `CASCADE-SINGLE-HOP`. Packaging drift-locks added (`tests/test_packaging.py`).
+
+### Packaging
+
+- **Built wheels now include `library/schemas/*.json`** — the old package-data
+  glob was non-recursive, so pip-installed copies shipped without the schemas
+  and silently degraded every v2 output format to the emergency fallback
+  schema. Explicit `"xubb_agents.library" = ["schemas/*.json"]` package-data
+  plus a drift-lock test.
+- Version bumped to **2.3.0** (new public API ⇒ minor bump). The `v2.2.0` tag
+  is cut retroactively at the 2026-06-08 release commit.
 
 ---
 
