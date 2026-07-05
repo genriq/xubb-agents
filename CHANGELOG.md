@@ -7,6 +7,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- `SECURITY.md` supported-versions table still listed `2.3.x` after the 2.4.0 bump;
+  corrected to `2.4.x`. Also dropped a stale "(v2.3+)" qualifier from a spec heading.
+
+---
+
 ## [2.4.0] - 2026-07-05
 
 Public-release hardening. One additive API (`unregister_agent`); no breaking changes.
