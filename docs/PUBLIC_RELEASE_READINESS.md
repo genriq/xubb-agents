@@ -35,18 +35,22 @@ VERIFIED, not asserted. Two owner decisions remain at the bottom.
 - `docs/archive/` ships internal-era specs verbatim as history (its README says
   so). They reference the consuming product by name, which is intentional.
 
-## Owner decisions (before flipping the repo public)
+## Owner decisions — RESOLVED 2026-07-04
 
-1. **Git history identity.** All 53 commits are authored `genriq
-   <@genriq>`; historical blobs also contain the other personal
-   email (removed at tip) and AI-assistance commit trailers. Options:
-   (a) publish as-is (the handle matches github.com/genriq; the email publishes
-   with every push anyway unless GitHub's private-email setting is on), or
-   (b) publish a fresh squashed initial commit — cleanest narrative, also
-   drops historical `.pyc`/egg-info bloat, loses blame history.
-2. **Tags.** After the open PRs merge: `git tag v2.2.0 <2026-06-08 release
-   commit>` and `git tag v2.3.0 <post-merge main>`, push both. (Baseline
-   candidate identified by the audit: the 06-08 release/closeout commit.)
+1. **Git history identity → Option C, executed.** History rewritten with
+   git-filter-repo before going public: all commits re-authored as
+   `genriq <genriq@users.noreply.github.com>`, AI-assistance trailers removed
+   from historical messages, personal email strings scrubbed from all
+   historical blobs, early bytecode/egg-info dropped from history. Content
+   verified byte-identical by tree diff; suite 267 green post-rewrite; consumer
+   re-pinned to the rewritten SHA.
+   **Residual caveat:** GitHub retains force-pushed-away commits reachable via
+   old pull-request refs. Bulletproof option if that matters: recreate the
+   repo fresh from this rewritten history before flipping public (the old PR
+   pages die with the old repo); otherwise the old SHAs are unlisted but not
+   purged until GitHub GC/support removal.
+2. **Tags → cut.** `v2.2.0` (2026-06-08 baseline) and `v2.3.0`, re-pointed to
+   the rewritten history.
 
 ## Re-audit rule
 
