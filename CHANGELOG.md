@@ -27,6 +27,8 @@ Public-release hardening. One additive API (`unregister_agent`); no breaking cha
   `tests/test_readme_quickstart.py`, which executes them in CI.
 - `pyproject.toml` Changelog / Bug Tracker / Security URLs, plus discovery keywords and
   classifiers (`Framework :: AsyncIO`, AI topic).
+- `CONTRIBUTING.md` (promoted from the README section) and a
+  `.github/PULL_REQUEST_TEMPLATE.md` with a contract-checklist.
 
 ### Changed
 
@@ -40,6 +42,13 @@ Public-release hardening. One additive API (`unregister_agent`); no breaking cha
 - Softened the `[2.1.0]` security note: "SSTI vulnerability eliminated" → sandboxing as
   defense-in-depth, with untrusted template source called out as a trust boundary.
 - Removed self-referential "12/10 Architecture" comments from `library/dynamic.py`.
+- Trimmed `docs/EXECUTIVE_SUMMARY.md` to a developer-facing Overview: kept the
+  architecture, concepts, and use-case content; dropped the pitch-deck framing.
+
+### Removed
+
+- `docs/PUBLIC_RELEASE_READINESS.md` — an internal pre-launch audit artifact, not
+  documentation for the public tree.
 
 ### Fixed
 
@@ -96,7 +105,7 @@ Public-release hardening. One additive API (`unregister_agent`); no breaking cha
   than an advisory doc, with no double execution.
 - Four self-covering registry entries (`REGISTRY-WELLFORMED`, `GATE-INFRASTRUCTURE`,
   `CONTRACT-BIJECTION`, `RELEASE-GATE-CI`); the gate guards its own contracts.
-- `pyyaml` dev dependency; black/mypy clean under the tool versions pinned at authoring time (current-version drift is tracked in docs/PUBLIC_RELEASE_READINESS.md).
+- `pyyaml` dev dependency; black/mypy clean under the tool versions pinned at authoring time.
 
 ### Fixed
 

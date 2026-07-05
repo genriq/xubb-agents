@@ -977,9 +977,8 @@ MIT — see [LICENSE](LICENSE).
 
 ## Contributing
 
-Issues and bug reports are welcome. PRs must pass the contract gate
-(`tools/check_contracts.py`, enforced in CI) and follow
-[docs/PROCESS.md](docs/PROCESS.md): a behavioral change ships with its
-contract-registry entry and a rule-asserting test in the same PR. Large or
-architectural changes: please open an issue first — this framework is
-spec-driven and changes land spec-first.
+Issues and PRs are welcome. This framework is spec-driven: a behavioral change ships
+with its contract-registry entry and a rule-asserting test, and the contract gate
+(`tools/check_contracts.py`, enforced in CI) must stay green. See
+[CONTRIBUTING.md](CONTRIBUTING.md) and [docs/PROCESS.md](docs/PROCESS.md) for the full
+workflow. Security issues: see [SECURITY.md](SECURITY.md), not a public issue.
