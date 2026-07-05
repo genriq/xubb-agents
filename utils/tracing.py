@@ -9,9 +9,17 @@ from ..core.models import AgentContext, AgentResponse
 logger = logging.getLogger("AgentTracer")
 
 class StructuredLogTracer(AgentCallbackHandler):
-    """
-    A production-ready tracer that logs detailed JSON execution traces.
-    Use this to debug agent behavior, latency, and outputs.
+    """Emit a detailed JSON execution trace per turn (the "Golden Log Line").
+
+    Intended for **debugging** agent behavior, latency, and outputs — not as an
+    always-on production logger.
+
+    PRIVACY: the trace includes the full transcript history and the initial shared
+    state (and, per step, raw agent output plus any ``debug_info`` such as prompt
+    messages), so it can contain sensitive conversation content / PII. It is emitted via
+    ``logging.info``. Attach this tracer behind a dedicated, access-controlled logger
+    (or a non-default level) rather than streaming full conversation content into
+    general INFO log aggregation.
     """
     def __init__(self):
         self.current_trace: Dict[str, Any] = {}

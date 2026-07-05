@@ -4,13 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Xubb Agent MRI (Debugger)</title>
-    <!-- Vue.js 3 -->
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <!-- Tailwind CSS -->
-<!-- Dev-only tool: loads Vue/Tailwind/FontAwesome from public CDNs. Do not embed in production surfaces. -->
+    <!-- Dev-only tool: loads Vue/Tailwind/FontAwesome from public CDNs. Do not embed in
+         production surfaces. Vue and Font Awesome are version-pinned with SRI integrity
+         hashes; Tailwind uses the play CDN (a dynamic JIT build with no stable file to
+         hash), so it cannot take SRI and stays dev-only. -->
+    <!-- Vue.js 3 (pinned + SRI) -->
+    <script src="https://unpkg.com/vue@3.4.38/dist/vue.global.js"
+            integrity="sha384-WRCkrPcTVlHVnve6RlPL8tCU8PqAUXcxyIMIjpddtL45o+jJTBmFX2SJw88IOVo1"
+            crossorigin="anonymous"></script>
+    <!-- Tailwind CSS (play CDN — dev only) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Icons (pinned + SRI) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0"
+          crossorigin="anonymous"></script>
     
     <style>
         [v-cloak] { display: none; }

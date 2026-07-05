@@ -44,6 +44,8 @@ Public-release hardening. One additive API (`unregister_agent`); no breaking cha
 - Removed self-referential "12/10 Architecture" comments from `library/dynamic.py`.
 - Trimmed `docs/EXECUTIVE_SUMMARY.md` to a developer-facing Overview: kept the
   architecture, concepts, and use-case content; dropped the pitch-deck framing.
+- Moved the README table of contents to the top and expanded it to cover all major
+  sections (anchors verified).
 
 ### Removed
 
@@ -75,6 +77,13 @@ Public-release hardening. One additive API (`unregister_agent`); no breaking cha
 - **`tools/debugger.html` hardened against DOM XSS.** The metadata pane rendered
   LLM-emitted, transcript-derived content through a `v-html` sink without escaping.
   Values are now HTML-escaped before syntax highlighting.
+- **`StructuredLogTracer` privacy documented.** Its docstring now warns that the trace
+  includes full transcript history / shared state / raw agent output (potential PII) and
+  is emitted at INFO — attach it behind a dedicated, access-controlled logger rather than
+  general INFO aggregation. "Production-ready" warranty wording dropped.
+- **`tools/debugger.html` CDN assets pinned + SRI.** Vue and Font Awesome are now
+  version-pinned with `integrity` hashes; Tailwind (play CDN) is documented as
+  unhashable and dev-only.
 
 ---
 

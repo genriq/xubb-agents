@@ -14,6 +14,23 @@
 
 > 📖 **New here? Read [THE PLAYBOOK](docs/PLAYBOOK.md)** — the definitive guide to leveraging this framework to its full potential in a real-time copilot (the design doctrine, patterns, anti-patterns, a checklist, a golden-path build, testing & metrics, and an end-to-end worked agent suite). The README is the reference; the Playbook is how to *wield* it.
 
+## Contents
+
+- [Installation](#installation)
+- [Quickstart](#quickstart-copy-paste-runnable)
+- [Usage in Other Projects](#usage-in-other-projects)
+- [Architecture](#architecture)
+- [Core Concepts](#core-concepts)
+- [Blackboard Architecture](#blackboard-architecture)
+- [Trigger System](#trigger-system)
+- [Agent Configuration](#agent-configuration)
+- [Agent Communication](#agent-communication)
+- [Usage Guide](#usage-guide)
+- [API Reference](#api-reference)
+- [Best Practices](#best-practices)
+- [Migration from v1.0 / v2.0](#migration-from-v10--v20)
+- [Contributing](#contributing)
+
 ## Installation
 
 Requires **Python >= 3.11**. Runtime dependencies: `openai`, `pydantic` (v2), `jinja2`.
@@ -218,18 +235,6 @@ v2.2 is a **hardening release** driven by a 5-agent audit — one critical contr
 > **To learn how to design and compose agents well, see [THE PLAYBOOK](docs/PLAYBOOK.md).**
 > **For detailed implementation and data models, see [technical_spec_agents.md](docs/technical_spec_agents.md).**
 > **For prompt writing best practices, see [prompt_engineering_guide.md](docs/prompt_engineering_guide.md).**
-
----
-
-## Table of Contents
-
-1. [Core Concepts](#core-concepts)
-2. [Blackboard Architecture](#blackboard-architecture)
-3. [Trigger System](#trigger-system)
-4. [Agent Configuration](#agent-configuration)
-5. [Agent Communication](#agent-communication)
-6. [Usage Guide](#usage-guide)
-7. [API Reference](#api-reference)
 
 ---
 
