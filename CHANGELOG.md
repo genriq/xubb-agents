@@ -4,6 +4,35 @@ All notable changes to the Xubb Agents Framework are documented here.
 
 ---
 
+## [Unreleased]
+
+Public-release hardening. No API changes.
+
+### Security
+
+- **Jinja2 sandbox floor raised to `>=3.1.6`.** Prompt templates render through
+  `SandboxedEnvironment`; the sandbox is only as strong as the installed patch level.
+  The old `>=3.1.0` floor permitted versions with published sandbox escapes
+  (CVE-2024-56201, CVE-2024-56326 — fixed in 3.1.5; CVE-2025-27516 — fixed in 3.1.6).
+- **`tools/debugger.html` hardened against DOM XSS.** The metadata pane rendered
+  LLM-emitted, transcript-derived content through a `v-html` sink without escaping.
+  Values are now HTML-escaped before syntax highlighting.
+
+### Fixed
+
+- **README Quickstart crashed on its last line.** It iterated `response.insights` as
+  dicts (`insight['type']`) but they are `AgentInsight` objects — a `TypeError` on the
+  first code a newcomer runs. Now uses attribute access, and `tests/test_readme_quickstart.py`
+  executes the actual README block (network stubbed) so the regression cannot recur.
+
+### Changed
+
+- Softened the `[2.1.0]` security note: "SSTI vulnerability eliminated" → sandboxing as
+  defense-in-depth, with untrusted template source called out as a trust boundary.
+- Removed self-referential "12/10 Architecture" comments from `library/dynamic.py`.
+
+---
+
 ## [2.3.0] - Unreleased
 
 ### Added
@@ -210,7 +239,9 @@ See [SPEC_V2_1_HARDENING.md](docs/archive/SPEC_V2_1_HARDENING.md) for full detai
 
 ### Security
 
-- Jinja2 templates now sandboxed (`SandboxedEnvironment`) — SSTI vulnerability eliminated
+- Jinja2 templates now render through `SandboxedEnvironment`, mitigating SSTI. The sandbox
+  is defense-in-depth, not a guarantee: untrusted template *source* remains a trust boundary
+  and its safety depends on the installed Jinja2 patch level (floored at `>=3.1.6`).
 
 ### Bug Fixes
 

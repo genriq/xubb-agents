@@ -38,7 +38,7 @@ agent = DynamicAgent({
 })
 
 async def main():
-    engine = AgentEngine(api_key="your-openai-key")
+    engine = AgentEngine(api_key="your-openai-key")  # a real key: process_turn makes one live call
     engine.register_agent(agent)
     context = AgentContext(
         session_id="demo",
@@ -52,7 +52,8 @@ async def main():
     )
     response = await engine.process_turn(context)
     for insight in response.insights:
-        print(f"[{insight['type']}] {insight['content']}")
+        # insights are AgentInsight objects, not dicts — use attribute access
+        print(f"[{insight.type.value}] {insight.content}")
 
 asyncio.run(main())
 ```

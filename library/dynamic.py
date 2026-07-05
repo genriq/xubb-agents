@@ -432,7 +432,7 @@ class DynamicAgent(BaseAgent):
             # Log for debugging
             self.logger.debug(f"{self.config.name} evaluation: result_keys={list(result.keys())}")
             
-            # --- GENERIC DYNAMIC PARSING (12/10 Architecture) ---
+            # --- Generic dynamic parsing ---
             # 1. Resolve Root Object (if nested)
             root_data = result
             if self.mapping.get("root_key"):
@@ -544,7 +544,7 @@ class DynamicAgent(BaseAgent):
                          # V2 Generic State Logic (Direct write to blackboard)
                          response.state_updates = updates
 
-            # 5. Generic Data Sidecar Extraction (12/10 Architecture)
+            # 5. Generic Data Sidecar Extraction
             # Allows schema to map arbitrary fields (e.g. 'ui_actions') to response.data
             data_field = self.mapping.get("data_field")
             data_key = self.mapping.get("data_key", data_field) # Default to same name

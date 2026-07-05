@@ -27,7 +27,11 @@ classifiers = [
 dependencies = [
     "openai>=1.0.0",
     "pydantic>=2.0.0",
-    "jinja2>=3.1.0",
+    # Prompt templates render through Jinja2's SandboxedEnvironment. The sandbox is
+    # only as strong as the installed patch level: <3.1.5 has sandbox-escape CVEs
+    # (CVE-2024-56201, CVE-2024-56326) and <3.1.6 has the |attr bypass (CVE-2025-27516).
+    # Do not lower this floor.
+    "jinja2>=3.1.6",
 ]
 
 [project.optional-dependencies]
