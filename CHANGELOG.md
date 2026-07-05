@@ -7,7 +7,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [Unreleased]
+## [2.4.0] - 2026-07-05
 
 Public-release hardening. One additive API (`unregister_agent`); no breaking changes.
 
@@ -87,7 +87,7 @@ Public-release hardening. One additive API (`unregister_agent`); no breaking cha
 
 ---
 
-## [2.3.0] - Unreleased
+## [2.3.0] - 2026-07-04
 
 ### Added
 

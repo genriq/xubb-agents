@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-**Version:** 2.3.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+**Version:** 2.4.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
 
 📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
 
