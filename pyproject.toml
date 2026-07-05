@@ -7,27 +7,30 @@ name = "xubb-agents"
 version = "2.3.0"
 description = "A lightweight, event-driven framework for real-time conversational AI agents"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "Xubb Team"}
+    {name = "genriq", email = "genriq@users.noreply.github.com"}
 ]
-keywords = ["ai", "agents", "conversation", "llm", "real-time"]
+keywords = ["ai", "agents", "conversation", "llm", "real-time", "copilot", "blackboard", "openai", "asyncio"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Framework :: AsyncIO",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 dependencies = [
     "openai>=1.0.0",
     "pydantic>=2.0.0",
-    "jinja2>=3.1.0",
+    # Prompt templates render through Jinja2's SandboxedEnvironment. The sandbox is
+    # only as strong as the installed patch level: <3.1.5 has sandbox-escape CVEs
+    # (CVE-2024-56201, CVE-2024-56326) and <3.1.6 has the |attr bypass (CVE-2025-27516).
+    # Do not lower this floor.
+    "jinja2>=3.1.6",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +46,9 @@ dev = [
 Homepage = "https://github.com/genriq/xubb-agents"
 Documentation = "https://github.com/genriq/xubb-agents#readme"
 Repository = "https://github.com/genriq/xubb-agents"
+Changelog = "https://github.com/genriq/xubb-agents/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/genriq/xubb-agents/issues"
+Security = "https://github.com/genriq/xubb-agents/blob/main/SECURITY.md"
 
 [tool.setuptools]
 packages = ["xubb_agents", "xubb_agents.core", "xubb_agents.library", "xubb_agents.utils"]

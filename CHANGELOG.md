@@ -2,6 +2,52 @@
 
 All notable changes to the Xubb Agents Framework are documented here.
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
+project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [Unreleased]
+
+Public-release hardening. No API changes.
+
+### Added
+
+- `SECURITY.md` — a private vulnerability-disclosure policy, a supported-versions table,
+  and the security model (the Jinja2 template-source trust boundary, and the rule that
+  agent output is untrusted and must be escaped by the host).
+- `docs/README.md` — an index for the documentation tree.
+- README badges (contract-gate, license, Python), a one-line pitch, and a **no-key
+  offline Quickstart** variant. Both README code blocks are drift-locked by
+  `tests/test_readme_quickstart.py`, which executes them in CI.
+- `pyproject.toml` Changelog / Bug Tracker / Security URLs, plus discovery keywords and
+  classifiers (`Framework :: AsyncIO`, AI topic).
+
+### Changed
+
+- Copyright and package author set to `genriq` (LICENSE + `pyproject.toml`).
+- Minimum Python raised to **3.11**; dropped the untested 3.8–3.10 classifiers so the
+  metadata matches what CI actually exercises.
+- Softened the `[2.1.0]` security note: "SSTI vulnerability eliminated" → sandboxing as
+  defense-in-depth, with untrusted template source called out as a trust boundary.
+- Removed self-referential "12/10 Architecture" comments from `library/dynamic.py`.
+
+### Fixed
+
+- **README Quickstart crashed on its last line.** It iterated `response.insights` as
+  dicts (`insight['type']`) but they are `AgentInsight` objects — a `TypeError` on the
+  first code a newcomer runs. Now uses attribute access, drift-locked in CI.
+
+### Security
+
+- **Jinja2 sandbox floor raised to `>=3.1.6`.** Prompt templates render through
+  `SandboxedEnvironment`; the sandbox is only as strong as the installed patch level.
+  The old `>=3.1.0` floor permitted versions with published sandbox escapes
+  (CVE-2024-56201, CVE-2024-56326 — fixed in 3.1.5; CVE-2025-27516 — fixed in 3.1.6).
+- **`tools/debugger.html` hardened against DOM XSS.** The metadata pane rendered
+  LLM-emitted, transcript-derived content through a `v-html` sink without escaping.
+  Values are now HTML-escaped before syntax highlighting.
+
 ---
 
 ## [2.3.0] - Unreleased
@@ -210,7 +256,9 @@ See [SPEC_V2_1_HARDENING.md](docs/archive/SPEC_V2_1_HARDENING.md) for full detai
 
 ### Security
 
-- Jinja2 templates now sandboxed (`SandboxedEnvironment`) — SSTI vulnerability eliminated
+- Jinja2 templates now render through `SandboxedEnvironment`, mitigating SSTI. The sandbox
+  is defense-in-depth, not a guarantee: untrusted template *source* remains a trust boundary
+  and its safety depends on the installed Jinja2 patch level (floored at `>=3.1.6`).
 
 ### Bug Fixes
 

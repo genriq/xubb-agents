@@ -497,8 +497,12 @@
                 return new Date(ts * 1000).toLocaleTimeString();
             },
             formatJson(obj) {
-                // Simple syntax highlighting
-                const json = JSON.stringify(obj, null, 2);
+                // Syntax-highlight JSON for a v-html sink. Escape the DATA first:
+                // insight.metadata is LLM-emitted from an untrusted transcript, so an
+                // unescaped value like <img src=x onerror=...> would execute here.
+                // We HTML-escape &,<,> before adding our own trusted <span> markup.
+                const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const json = esc(JSON.stringify(obj, null, 2));
                 return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
                     let cls = 'json-number';
                     if (/^"/.test(match)) {
