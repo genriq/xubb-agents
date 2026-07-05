@@ -25,7 +25,7 @@ from copy import deepcopy
 from typing import List, Optional, Dict, Any, Tuple
 
 from .models import (
-    AgentContext, AgentResponse, TriggerType, Event, Fact
+    AgentContext, AgentResponse, TriggerType, Event
 )
 from .agent import BaseAgent
 from .llm import LLMClient

@@ -1,9 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Any
 from enum import Enum
 
-if TYPE_CHECKING:
-    from .blackboard import Blackboard
 
 class InsightType(str, Enum):
     SUGGESTION = "suggestion"

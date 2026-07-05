@@ -1,7 +1,7 @@
 """Tests for tools/check_contracts.py — the accuracy gate (L0).
 
 Each contract assertion carries its own negative-control (the inverse case that
-MUST fail), per DEVELOPMENT_PROCESS.md §4.3 (G3). The pure :func:`evaluate` core
+MUST fail) — the negative-control rule, see docs/PROCESS.md. The pure :func:`evaluate` core
 is exercised with synthetic ``{test_ref: outcome}`` maps so these tests are fast
 and need no subprocess.
 """

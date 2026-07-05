@@ -1,13 +1,13 @@
 # Xubb Agents Framework
 ## Executive Summary
 
-**Version:** 2.2.0
+**Version:** 2.3.0
 
 ---
 
 ### The Vision
 
-**Xubb Agents** is the first open framework for building **real-time conversational intelligence systems**. It enables the creation of AI-powered "Conversational Copilots" — systems where multiple AI agents observe live human-to-human conversations and provide real-time guidance, coaching, and insights to participants.
+**Xubb Agents** is an open framework for building **real-time conversational intelligence systems**. It enables the creation of AI-powered "Conversational Copilots" — systems where multiple AI agents observe live human-to-human conversations and provide real-time guidance, coaching, and insights to participants.
 
 > **"AI that whispers in your ear, not speaks for you."**
 
@@ -118,7 +118,7 @@ Developers focus on the intelligence, not the plumbing.
 |--------|-------------|
 | **Sales** | Real-time coaching during customer calls — objection handling, buying signals, competitive positioning |
 | **Customer Support** | Live assistance for agents — knowledge retrieval, escalation alerts, compliance monitoring |
-| **Interviews** | Coaching during practice sessions — answer improvement, body language cues, follow-up suggestions |
+| **Interviews** | Coaching during practice sessions — answer improvement, pacing and filler-word cues, follow-up suggestions |
 | **Negotiations** | Tactical advice during high-stakes discussions — concession tracking, anchoring, BATNA reminders |
 | **Meetings** | Live intelligence during team discussions — action item capture, decision tracking, participation balance |
 | **Language Learning** | Conversation coaching — pronunciation, grammar, vocabulary suggestions in real-time |
@@ -174,7 +174,7 @@ Trigger conditions prevent unnecessary AI calls:
 
 ---
 
-### The Ecosystem Vision
+### The Ecosystem Vision (planned — only the core framework exists today)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -233,8 +233,8 @@ Whether you're building sales coaching tools, support agent assistants, or inter
 
 ---
 
-**Version:** 2.2.0
-**Status:** Production-Ready
-**License:** See main project  
+**Version:** 2.3.0
+**Status:** Beta — production-hardened (see the contract registry)
+**License:** MIT — see LICENSE  
 
 *"Every great conversation deserves an AI copilot."*

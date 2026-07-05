@@ -1,4 +1,4 @@
-# Xubb Agents — contract gate (DEVELOPMENT_PROCESS.md §4 / R1).
+# Xubb Agents — contract gate (see docs/PROCESS.md).
 # Blocks merge on (a) a red suite and (b) any broken `covered` contract or
 # malformed CONTRACTS.yaml. This is what makes the Contract Registry a HARD gate
 # rather than an advisory document — the line the F-1 escape could not cross.
