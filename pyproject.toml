@@ -71,8 +71,12 @@ xubb_agents = "."
 asyncio_mode = "strict"
 testpaths = ["tests"]
 # Put the parent of the repo root on sys.path so ``import xubb_agents`` resolves
-# without ``pip install -e .``. This works when the checkout dir is named
-# ``xubb_agents``; the repo-root conftest.py handles the dir-renamed case too.
+# without ``pip install -e .``. IMPORTANT: the repo root IS the ``xubb_agents``
+# package, and pytest names that root package after the checkout directory — so the
+# directory MUST be named ``xubb_agents`` (a valid module name). A default
+# ``xubb-agents`` clone (hyphen) breaks collection with "attempted relative import
+# with no known parent package". Clone with:  git clone <url> xubb_agents  (CI does
+# the equivalent via actions/checkout `path: xubb_agents`).
 pythonpath = [".."]
 markers = [
     "asyncio: marks a test as an asyncio coroutine (handled by pytest-asyncio).",

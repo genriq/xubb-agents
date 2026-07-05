@@ -11,6 +11,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Contract-gate CI was red** (so the "every contract is CI-gated" claim was fragile).
+  The repo root *is* the `xubb_agents` package, and pytest names it after the checkout
+  directory; GitHub's default `xubb-agents` (hyphen) checkout is not a valid module name,
+  so collection failed with "attempted relative import with no known parent package".
+  CI now checks out into `xubb_agents` (`actions/checkout` `path:` + a job
+  `working-directory`); the dir-name requirement is documented in CONTRIBUTING and the
+  pytest config. Local `git clone` + `pytest` needs the same dir name.
+- `tools/debugger.html`: fixed a malformed tag — a stylesheet `<link>` was closed with
+  `</script>` (introduced with the SRI pinning).
 - `SECURITY.md` supported-versions table still listed `2.3.x` after the 2.4.0 bump;
   corrected to `2.4.x`. Also dropped a stale "(v2.3+)" qualifier from a spec heading.
 
