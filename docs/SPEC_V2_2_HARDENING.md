@@ -5,7 +5,7 @@
 **Status:** IMPLEMENTED — 2026-06-08. All 33 items + Amendment 1 (MR-1) landed across 3 PRs
 (F-1 + medium; HIGH; Phase 0/4 closeout). Suite 105 → 224. See CHANGELOG `[2.2.0]`.
 **Date:** June 8, 2026
-**Process Tier:** **Tier 1** (contract change + silent-regression risk → master spec before code; see `process-development-workflow`)
+**Process Tier:** **Tier 1** (contract change + silent-regression risk → spec approved before code; see docs/PROCESS.md)
 **Scope:** One confirmed critical contract bug, four high-severity robustness gaps, a cluster of medium contract/robustness fixes, and code/doc hygiene — identified during a 5-agent comprehensive audit of v2.1.1.
 **Compatibility:** One **deliberate behavioral contract correction** (fact conflict resolution, F-1) that may change which fact wins in consumers relying on the buggy v2.1.1 behavior. All other changes are additive or internal. See [Section 13: Migration Notes](#13-migration-notes).
 **Baseline:** Audit performed against `main` @ `47f742d`; work branch `hardening/v2.2.0`.
@@ -38,7 +38,7 @@
 
 ## 1. Executive Summary
 
-A 5-agent comprehensive review of v2.1.1 confirmed that the v2.1/v2.1.1 hardening was effective — **every** documented prior fix (B1–B12, NP1–NP16, D1–D3, T1) actually landed, and the suite passes 105/105. The review surfaced **one genuine critical contract bug that escaped all three prior specs**, plus a set of high/medium robustness and contract-consistency gaps that stand between v2.1.1 and a 16/10 production-grade bar.
+A 5-agent comprehensive review of v2.1.1 confirmed that the v2.1/v2.1.1 hardening was effective — **every** documented prior fix (B1–B12, NP1–NP16, D1–D3, T1) actually landed, and the suite passes 105/105. The review surfaced **one genuine critical contract bug that escaped all three prior specs**, plus a set of high/medium robustness and contract-consistency gaps that stand between v2.1.1 and a beyond-production-grade bar.
 
 ### Headline Numbers
 
@@ -328,7 +328,7 @@ Add the test files the v2.1.1 spec itself mandated but never shipped, plus trace
 
 ## 9. Documentation & Provider Items
 
-- **9.1 DOC-1** — **Provider clarification (owner decision: OpenAI for now).** Update README, `SPEC_V2.md` §4.5 cross-refs, and any "Claude library" framing to state the framework targets **OpenAI / OpenAI-compatible** endpoints (default model documented honestly). Note a future Anthropic adapter as out-of-scope. Update project memory (`project-xubb-agents`) to record the resolution so the ambiguity doesn't resurface.
+- **9.1 DOC-1** — **Provider clarification (owner decision: OpenAI for now).** Update README, `SPEC_V2.md` §4.5 cross-refs, and any "Claude library" framing to state the framework targets **OpenAI / OpenAI-compatible** endpoints (default model documented honestly). Note a future Anthropic adapter as out-of-scope.
 - **9.2 DOC-2** — `docs/EXECUTIVE_SUMMARY.md` footer `Version: 2.1` → `2.2.0`; reconcile body version references.
 - **9.3 DOC-3** — Remove/mark-resolved the `SPEC_V2_1_HARDENING.md` NP16 reference to `_sync_state_from_legacy` (method does not exist).
 - **9.4 DOC-4** — `README.md:13` — drop the stale `xubb_v6` parent-root install instruction.
@@ -471,7 +471,7 @@ value before agents run (the blackboard is authoritative) — switch such hosts 
 
 | Role | Name | Decision | Date |
 |------|------|----------|------|
-| Owner | enrique.gil@gmail.com | ☐ Approve spec → begin Phase 0 | — |
+| Owner | @genriq | ☐ Approve spec → begin Phase 0 | — |
 | Author | Claude (audit + spec) | Drafted | 2026-06-08 |
 
 **This spec is DRAFT. No code will be written until the owner signs off (Tier-1 gate).** On approval, implementation proceeds Phase 0 → 4 on `hardening/v2.2.0`, each phase green before the next, ending in a PR.

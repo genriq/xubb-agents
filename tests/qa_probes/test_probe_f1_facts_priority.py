@@ -7,7 +7,7 @@ Contract:  FACT-PRECEDENCE (docs/CONTRACTS.yaml) / INV-9 (docs/SPEC_V2_2_HARDENI
            On a (type, key) collision: higher agent PRIORITY wins; ties broken by
            higher confidence; remaining ties by later registration order.
 
-This is the canonical escaped-defect probe described in DEVELOPMENT_PROCESS.md §5 and
+This is the canonical escaped-defect probe (see docs/PROCESS.md) from
 the QA-agent design proposal. It drives the REAL AgentEngine (the framework is the
 system-under-test — the one valuable "dogfood" slice) rather than unit-testing add_fact
 in isolation, because the bug lives in the engine-merge ↔ blackboard contract.

@@ -471,9 +471,9 @@ class TestGatelessLoadTimeWarning:
 
 
 # ---------------------------------------------------------------------------
-# Interval trigger config (P1 fix): trigger_config.trigger_interval must reach
-# AgentConfig.trigger_interval — previously never parsed, so interval-mode vault
-# agents could never fire (the host gates on `if interval and ...`).
+# Interval trigger config: trigger_config.trigger_interval must reach
+# AgentConfig.trigger_interval — previously never parsed, so interval-mode
+# host-authored agents could never fire (the host gates on `if interval and ...`).
 # ---------------------------------------------------------------------------
 
 class TestIntervalTriggerConfig:

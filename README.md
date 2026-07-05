@@ -2,14 +2,16 @@
 
 **A standalone Python library for real-time conversational AI agents.**
 
-**Version:** 2.2.0
-**Status:** Production-Ready
+**Version:** 2.3.0
+**Status:** Beta — production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
 
 > **Note**: This is a **separate product/project** that provides the agent framework. It is consumed by `xubb_server` and other applications that need intelligent conversation agents.
 
 > 📖 **New here? Read [THE PLAYBOOK](docs/PLAYBOOK.md)** — the definitive guide to leveraging this framework to its full potential in a real-time copilot (the design doctrine, patterns, anti-patterns, a checklist, a golden-path build, testing & metrics, and an end-to-end worked agent suite). The README is the reference; the Playbook is how to *wield* it.
 
 ## Installation
+
+Requires **Python >= 3.8**. Runtime dependencies: `openai`, `pydantic` (v2), `jinja2`.
 
 ```bash
 # Install from a local checkout of github.com/genriq/xubb-agents
@@ -18,6 +20,41 @@ pip install -e .
 
 # Or install from PyPI (when published)
 pip install xubb-agents
+```
+
+## Quickstart (copy-paste runnable)
+
+```python
+import asyncio
+from xubb_agents import AgentEngine, DynamicAgent, AgentContext, Blackboard
+from xubb_agents.core.models import TranscriptSegment
+
+agent = DynamicAgent({
+    "id": "echo-coach",
+    "name": "Echo Coach",
+    "text": "You observe a live conversation. If the customer sounds hesitant, "
+            "give the salesperson ONE short, concrete suggestion.",
+    "trigger_config": {"mode": "turn_based", "cooldown": 0},
+})
+
+async def main():
+    engine = AgentEngine(api_key="your-openai-key")
+    engine.register_agent(agent)
+    context = AgentContext(
+        session_id="demo",
+        recent_segments=[
+            TranscriptSegment(speaker="customer", timestamp=0.0,
+                              text="I'm not sure this fits our budget..."),
+            TranscriptSegment(speaker="sales", timestamp=4.2,
+                              text="What range did you have in mind?"),
+        ],
+        blackboard=Blackboard(),
+    )
+    response = await engine.process_turn(context)
+    for insight in response.insights:
+        print(f"[{insight['type']}] {insight['content']}")
+
+asyncio.run(main())
 ```
 
 ## Usage in Other Projects
@@ -218,11 +255,11 @@ A piece of advice returned by an agent:
     "confidence": 0.9,
     "expiry": 15,  # seconds
     "action_label": "Handle Objection",  # Optional button text
-    "metadata": {"zone": "A", "color": "red"}  # Optional UI hints
+    "metadata": {"zone": "A", "color": "red"}  # Optional UI hints (see zone note below)
 }
 ```
 
-**Insight Types:**
+**Insight Types:** (the "Zone" labels are an example UI taxonomy from the reference host — an urgency-based screen placement convention; hosts are free to ignore or remap them)
 - `SUGGESTION`: Passive advice (Zone C)
 - `WARNING`: Urgent negative alert (Zone A)
 - `OPPORTUNITY`: Urgent positive alert (Zone A)
@@ -661,6 +698,11 @@ class AgentEngine:
     def __init__(self, api_key: str, callbacks: List[AgentCallbackHandler] = None,
                  max_phases: int = 2)
     def register_agent(self, agent: BaseAgent) -> None
+    def replace_agents(self, agents: List[BaseAgent]) -> None
+        # Atomic full-registry swap for hot reloads: rebuilds the registry and
+        # rebinds it LAST, so a concurrent turn never observes a half-cleared
+        # registry. Prefer this over clear()+register loops.
+        # (update_api_key remains non-concurrency-safe.)
     def update_api_key(self, api_key: str) -> None
     async def process_turn(
         self,
@@ -889,3 +931,12 @@ The v1.0 → v2 mapping is auto-applied:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Contributing
+
+Issues and bug reports are welcome. PRs must pass the contract gate
+(`tools/check_contracts.py`, enforced in CI) and follow
+[docs/PROCESS.md](docs/PROCESS.md): a behavioral change ships with its
+contract-registry entry and a rule-asserting test in the same PR. Large or
+architectural changes: please open an issue first — this framework is
+spec-driven and changes land spec-first.

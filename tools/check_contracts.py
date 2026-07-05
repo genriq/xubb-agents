@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/check_contracts.py - the accuracy gate (G1/G2/G3; DEVELOPMENT_PROCESS.md §4).
+"""tools/check_contracts.py - the contract-accuracy gate (see docs/PROCESS.md).
 
 This is the artifact that turns the F-1 escape ("a documented contract with no
 asserting test") into a day-one red build. It reads ``docs/CONTRACTS.yaml`` and
@@ -14,7 +14,7 @@ REPORTED (coverage %) but do not hard-fail the default gate, so the framework is
 not red-built before the R1 back-fill lands. A ``debt_baseline`` in the registry
 ratchets that debt: the gate fails if the debt COUNT grows beyond the baseline,
 so debt can shrink but never silently accrete. ``--strict`` additionally requires
-a passing test for EVERY entry - the P4 / L6 release gate (16/16).
+a passing test for EVERY entry - the full-coverage release gate.
 
 A ``failing_probe`` entry is inverted: its probe must currently FAIL (it documents
 an unimplemented rule); a probe that unexpectedly passes is itself a gate failure.

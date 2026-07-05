@@ -80,8 +80,6 @@ class BaseAgent(ABC):
                 effective_cooldown = max(5, effective_cooldown + overrides.cooldown_modifier)
             if (now - self.last_run_time) < effective_cooldown:
                 return None
-        elif context.agent_config_overrides and self.config.id not in context.agent_config_overrides:
-            self.logger.debug(f"FORCE run with no override for agent {self.config.id}")
         
         # 3. Fire Start Callback
         if callbacks:

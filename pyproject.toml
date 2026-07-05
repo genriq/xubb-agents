@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xubb-agents"
-version = "2.2.0"
+version = "2.3.0"
 description = "A lightweight, event-driven framework for real-time conversational AI agents"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -51,7 +51,14 @@ packages = ["xubb_agents", "xubb_agents.core", "xubb_agents.library", "xubb_agen
 xubb_agents = "."
 
 [tool.setuptools.package-data]
+# The schemas MUST ship: DynamicAgent loads library/schemas/*.json at runtime and
+# silently degrades to an emergency fallback schema when they're missing. The old
+# '"*" = ["*.json"]' glob was non-recursive (schemas/ is not a package), so built
+# wheels shipped WITHOUT them — caught by the public-release audit and locked by
+# tests/test_packaging.py.
+"xubb_agents.library" = ["schemas/*.json"]
 "*" = ["*.md", "*.txt", "*.json", "*.html"]
+
 
 [tool.pytest.ini_options]
 # Strict asyncio: every async test must be explicitly marked @pytest.mark.asyncio.
