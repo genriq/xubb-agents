@@ -512,3 +512,30 @@ class TestIntervalTriggerConfig:
             "trigger_config": {"mode": "turn_based"},
         })
         assert agent.config.trigger_interval is None
+
+
+class TestLegacyMemoryAliasing:
+    """The legacy (default-format) memory path must emit a COPY of private_state.
+
+    It previously assigned the live self.private_state dict by reference into
+    response.state_updates, so a tracer capturing the response — or the agent's own
+    next-turn mutation of private_state — would alter data already 'emitted'.
+    """
+
+    def test_legacy_memory_emitted_as_copy_not_alias(self):
+        result = {
+            "has_insight": True, "type": "suggestion", "message": "noted",
+            "memory_updates": {"seen": "first"},
+        }
+        agent = make_agent(result, output_format="default")
+        resp = run(agent.evaluate(make_context()))
+
+        mem_key = f"memory_{agent.config.id}"
+        emitted = resp.state_updates[mem_key]
+        assert emitted == {"seen": "first"}
+        # Must be a copy, not the agent's live internal state.
+        assert emitted is not agent.private_state
+        # A later turn mutating private_state must not change the emitted snapshot.
+        agent.private_state["seen"] = "mutated_later"
+        agent.private_state["extra"] = "later"
+        assert emitted == {"seen": "first"}

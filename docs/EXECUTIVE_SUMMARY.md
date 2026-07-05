@@ -1,51 +1,30 @@
-# Xubb Agents Framework
-## Executive Summary
+# Xubb Agents — Overview
 
 **Version:** 2.3.0
 
----
-
-### The Vision
-
-**Xubb Agents** is an open framework for building **real-time conversational intelligence systems**. It enables the creation of AI-powered "Conversational Copilots" — systems where multiple AI agents observe live human-to-human conversations and provide real-time guidance, coaching, and insights to participants.
-
-> **"AI that whispers in your ear, not speaks for you."**
+A developer-facing overview of what the framework does and how it is put together. For
+the deep design guide see [PLAYBOOK.md](PLAYBOOK.md); for the API and data models see
+[technical_spec_agents.md](technical_spec_agents.md).
 
 ---
 
-### The Problem
+## What it does
 
-Today's conversational AI falls into two categories:
+xubb-agents is a framework for **real-time conversational copilots**: multiple
+specialized agents observe a live human-to-human conversation and surface timely,
+actionable insights to one participant, without taking over the conversation itself. It
+handles the infrastructure — multi-agent orchestration at sub-second latency, state
+across conversation turns, event-driven coordination, and error isolation — so an
+integrator writes agent prompts, not plumbing:
 
-1. **Chatbots** — AI that *replaces* humans in conversations (customer service bots, virtual assistants)
-2. **Post-hoc Analysis** — AI that analyzes conversations *after* they happen (call analytics, sentiment reports)
-
-Neither helps humans perform better *during* the conversation itself. Sales reps miss buying signals. Support agents forget compliance requirements. Interviewees stumble on tough questions. By the time analysis arrives, the moment has passed.
-
-**There is no framework for building AI that augments human performance in real-time conversations.**
-
----
-
-### The Solution
-
-Xubb Agents provides a complete framework for building **Conversational Copilots** — AI systems that:
-
-- **Observe** live conversations as they happen
-- **Analyze** context, sentiment, and intent in real-time
-- **Advise** the human participant with timely, actionable insights
-- **Coordinate** multiple specialist agents working in parallel
-
-The framework handles the hard infrastructure problems:
-- Multi-agent orchestration with sub-second latency
-- State management across conversation turns
-- Event-driven agent coordination
-- Graceful degradation and error isolation
-
-Developers focus on the intelligence, not the plumbing.
+- **Observe** live conversation turns as they arrive.
+- **Analyze** context, sentiment, and intent per turn.
+- **Advise** the participant with concise, actionable insights.
+- **Coordinate** specialist agents in parallel through a shared blackboard.
 
 ---
 
-### How It Works
+## How it works
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -87,7 +66,7 @@ Developers focus on the intelligence, not the plumbing.
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key Concepts:**
+**Key concepts:**
 
 | Concept | Description |
 |---------|-------------|
@@ -99,20 +78,7 @@ Developers focus on the intelligence, not the plumbing.
 
 ---
 
-### What Makes Xubb Agents Different
-
-| Aspect | Traditional AI | Xubb Agents |
-|--------|----------------|-------------|
-| **Role** | AI replaces humans | AI augments humans |
-| **Timing** | Batch or post-hoc | Real-time (milliseconds) |
-| **Architecture** | Sequential chains | Multi-agent parallel execution |
-| **Coordination** | Manual state passing | Event-driven Blackboard |
-| **Domain** | General-purpose | Optimized for conversations |
-| **Latency** | Seconds to minutes | Sub-second |
-
----
-
-### Target Use Cases
+## Target use cases
 
 | Domain | Application |
 |--------|-------------|
@@ -125,11 +91,12 @@ Developers focus on the intelligence, not the plumbing.
 
 ---
 
-### The Architecture
+## Architecture
 
-The framework uses a sophisticated **Blackboard Architecture** that enables true multi-agent coordination (introduced in v2.0, hardened in v2.1 and v2.2):
+The framework uses a **Blackboard Architecture** for multi-agent coordination
+(introduced in v2.0, hardened in v2.1 and v2.2).
 
-**Structured State Containers:**
+**Structured state containers:**
 
 | Container | Purpose | Example |
 |-----------|---------|---------|
@@ -139,16 +106,15 @@ The framework uses a sophisticated **Blackboard Architecture** that enables true
 | **Facts** | Extracted knowledge | `{type: "budget", value: "$50K", confidence: 0.9}` |
 | **Memory** | Agent-private state | Each agent's scratchpad |
 
-**Multi-Phase Execution:**
+**Multi-phase execution:**
 
-1. **Phase 1:** Primary agents analyze the conversation turn
-2. **State Merge:** Updates are collected and applied by priority
-3. **Phase 2:** Event-triggered agents respond to Phase 1 signals
-4. **Response:** Aggregated insights delivered to the user
+1. **Phase 1:** Primary agents analyze the conversation turn.
+2. **State merge:** Updates are collected and applied by priority.
+3. **Phase 2:** Event-triggered agents respond to Phase 1 signals (single-hop).
+4. **Response:** Aggregated insights delivered to the user.
 
-**Intelligent Gating:**
+**Intelligent gating** — trigger conditions prevent unnecessary LLM calls:
 
-Trigger conditions prevent unnecessary AI calls:
 ```json
 {
   "trigger_conditions": {
@@ -163,38 +129,24 @@ Trigger conditions prevent unnecessary AI calls:
 
 ---
 
-### Technical Highlights
+## Technical highlights
 
-- **Async-First:** Built on Python `asyncio` for non-blocking concurrent execution
-- **OpenAI / OpenAI-compatible:** The LLM client wraps `AsyncOpenAI`, so it works with OpenAI and any OpenAI-compatible endpoint (e.g. GPT-4o, GPT-4o-mini, or self-hosted models behind an OpenAI-compatible API). A dedicated Anthropic adapter is out of scope for this release.
-- **Pluggable Schemas:** Custom output formats without code changes
-- **Observable:** Rich callback system and structured tracing for debugging
-- **Backward Compatible:** v1.0 agents work unchanged in v2.0
-- **Host Agnostic:** Can be consumed by web servers, CLI tools, desktop apps
-
----
-
-### The Ecosystem Vision (planned — only the core framework exists today)
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    XUBB AGENTS ECOSYSTEM                         │
-├─────────────────────────────────────────────────────────────────┤
-│  xubb_agents          Core framework (this project)             │
-│  xubb_agents_ui       React components for insight display      │
-│  xubb_agents_studio   Visual agent builder/debugger             │
-│  xubb_agents_hub      Pre-built agent templates                 │
-│  xubb_agents_eval     Testing & evaluation framework            │
-└─────────────────────────────────────────────────────────────────┘
-```
+- **Async-first:** Built on Python `asyncio` for non-blocking concurrent execution.
+- **OpenAI / OpenAI-compatible:** The LLM client wraps `AsyncOpenAI`, so it works with
+  OpenAI and any OpenAI-compatible endpoint (e.g. GPT-4o, GPT-4o-mini, or self-hosted
+  models behind an OpenAI-compatible API). A dedicated Anthropic adapter is out of scope
+  for this release.
+- **Pluggable schemas:** Custom output formats without code changes.
+- **Observable:** Callback system and structured tracing for debugging.
+- **Backward compatible:** v1.0 agents work unchanged in v2.0.
+- **Host agnostic:** Consumable by web servers, CLI tools, and desktop apps.
 
 ---
 
-### Getting Started
+## Getting started
 
 ```python
-from xubb_agents import AgentEngine, AgentContext, Blackboard
-from xubb_agents.library import DynamicAgent
+from xubb_agents import AgentEngine, DynamicAgent, AgentContext, Blackboard
 
 # Initialize the engine
 engine = AgentEngine(api_key="sk-...")
@@ -203,12 +155,12 @@ engine = AgentEngine(api_key="sk-...")
 engine.register_agent(DynamicAgent(sales_coach_config))
 engine.register_agent(DynamicAgent(question_detector_config))
 
-# Process conversation turns
+# Process a conversation turn (inside an async function)
 response = await engine.process_turn(
     AgentContext(
         session_id="call_123",
         recent_segments=transcript,
-        blackboard=Blackboard()
+        blackboard=Blackboard(),
     )
 )
 
@@ -217,24 +169,9 @@ for insight in response.insights:
     display_to_user(insight)
 ```
 
----
-
-### Summary
-
-**Xubb Agents** is infrastructure for the next generation of conversational AI — not AI that talks *for* humans, but AI that helps humans talk *better*.
-
-It provides:
-- A **framework** for building real-time conversational copilots
-- An **architecture** for multi-agent coordination via the Blackboard pattern
-- A **runtime** optimized for sub-second latency in live conversations
-- An **ecosystem** vision for agent development, testing, and deployment
-
-Whether you're building sales coaching tools, support agent assistants, or interview preparation apps, Xubb Agents provides the foundation for AI that augments human performance in the moments that matter most.
+For a complete, runnable example (including a no-key offline variant), see the
+[README quickstart](../README.md#quickstart-copy-paste-runnable).
 
 ---
 
-**Version:** 2.3.0
-**Status:** Beta — production-hardened (see the contract registry)
-**License:** MIT — see LICENSE  
-
-*"Every great conversation deserves an AI copilot."*
+**Version:** 2.3.0 · **Status:** Beta, production-hardened (see the contract registry) · **License:** MIT

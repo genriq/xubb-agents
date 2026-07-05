@@ -538,8 +538,10 @@ class DynamicAgent(BaseAgent):
                      if state_key == "memory_updates":
                          self.private_state.update(updates)
                          mem_key = f"memory_{self.config.id}"
-                         if response.state_updates is None: response.state_updates = {}
-                         response.state_updates[mem_key] = self.private_state
+                         # Emit a COPY: self.private_state is live and keeps mutating on
+                         # later turns, and the response may be captured by a tracer — it
+                         # must not alias the agent's internal state.
+                         response.state_updates[mem_key] = dict(self.private_state)
                      else:
                          # V2 Generic State Logic (Direct write to blackboard)
                          response.state_updates = updates

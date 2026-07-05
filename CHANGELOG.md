@@ -9,10 +9,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Public-release hardening. No API changes.
+Public-release hardening. One additive API (`unregister_agent`); no breaking changes.
 
 ### Added
 
+- **`AgentEngine.unregister_agent(agent_id) -> bool`** — remove a single agent by id,
+  symmetric with `register_agent`. It was missing entirely although a host relied on it
+  (the Prompt Studio "test agent" cleanup called it, hitting `AttributeError`). Rebinds
+  the registry under the lock and recomputes indices. Contract:
+  `AGENT-REGISTRY-MUTATORS-CONSISTENT`.
 - `SECURITY.md` — a private vulnerability-disclosure policy, a supported-versions table,
   and the security model (the Jinja2 template-source trust boundary, and the rule that
   agent output is untrusted and must be escaped by the host).
@@ -22,18 +27,41 @@ Public-release hardening. No API changes.
   `tests/test_readme_quickstart.py`, which executes them in CI.
 - `pyproject.toml` Changelog / Bug Tracker / Security URLs, plus discovery keywords and
   classifiers (`Framework :: AsyncIO`, AI topic).
+- `CONTRIBUTING.md` (promoted from the README section) and a
+  `.github/PULL_REQUEST_TEMPLATE.md` with a contract-checklist.
 
 ### Changed
 
 - Copyright and package author set to `genriq` (LICENSE + `pyproject.toml`).
 - Minimum Python raised to **3.11**; dropped the untested 3.8–3.10 classifiers so the
   metadata matches what CI actually exercises.
+- `AgentContext.blackboard` is now typed `Optional[Blackboard]` (was `Optional[Any]`)
+  via a `TYPE_CHECKING` forward reference, restoring static checking on the hottest field.
+- Added missing return annotations (`register_agent`/`update_api_key -> None`,
+  `check_keyword_triggers -> List[Tuple[BaseAgent, str]]`).
 - Softened the `[2.1.0]` security note: "SSTI vulnerability eliminated" → sandboxing as
   defense-in-depth, with untrusted template source called out as a trust boundary.
 - Removed self-referential "12/10 Architecture" comments from `library/dynamic.py`.
+- Trimmed `docs/EXECUTIVE_SUMMARY.md` to a developer-facing Overview: kept the
+  architecture, concepts, and use-case content; dropped the pitch-deck framing.
+
+### Removed
+
+- `docs/PUBLIC_RELEASE_READINESS.md` — an internal pre-launch audit artifact, not
+  documentation for the public tree.
 
 ### Fixed
 
+- **`register_agent` now mutates the registry lock-safely.** It appended/assigned in
+  place while `replace_agents` (called from the vault-reload callback thread) rebinds
+  under a lock, so the two could race. `register_agent` now uses the same
+  rebind-under-lock discipline; a lock-free reader always sees a complete registry.
+- **Legacy memory path no longer aliases live agent state.** The default-format memory
+  update assigned the live `self.private_state` dict into the response by reference, so a
+  tracer capturing the response (or the next turn's mutation) altered already-emitted
+  data. It now emits a copy.
+- **Background LLM-client close no longer fire-and-forgets.** `update_api_key`'s async
+  client close is now referenced (not GC'd mid-flight) and its failures are logged.
 - **README Quickstart crashed on its last line.** It iterated `response.insights` as
   dicts (`insight['type']`) but they are `AgentInsight` objects — a `TypeError` on the
   first code a newcomer runs. Now uses attribute access, drift-locked in CI.
@@ -77,7 +105,7 @@ Public-release hardening. No API changes.
   than an advisory doc, with no double execution.
 - Four self-covering registry entries (`REGISTRY-WELLFORMED`, `GATE-INFRASTRUCTURE`,
   `CONTRACT-BIJECTION`, `RELEASE-GATE-CI`); the gate guards its own contracts.
-- `pyyaml` dev dependency; black/mypy clean under the tool versions pinned at authoring time (current-version drift is tracked in docs/PUBLIC_RELEASE_READINESS.md).
+- `pyyaml` dev dependency; black/mypy clean under the tool versions pinned at authoring time.
 
 ### Fixed
 
