@@ -217,14 +217,29 @@ contracts:
     test_concurrent: "tests/test_engine.py::TestReplaceAgents::test_replace_agents_never_observed_half_cleared"
     status: covered   # supports the backend P0-3 vault-reload-race fix.
 
+  - id: INTERVAL-CONFIG-PARSED
+    statement: >
+      DynamicAgent parses trigger_config.trigger_interval into
+      AgentConfig.trigger_interval (int-coerced; non-numeric/non-positive values are
+      warned and treated as absent). Previously never read, so an interval-mode
+      vault agent could never fire — the host gates on `if interval and ...`.
+    source:
+      - "library/dynamic.py: __init__ (trigger_interval parse)"
+    invariant: CFG-INTERVAL
+    test: "tests/test_dynamic_agent.py::TestIntervalTriggerConfig::test_trigger_interval_is_parsed_into_config"
+    test_coerce: "tests/test_dynamic_agent.py::TestIntervalTriggerConfig::test_numeric_string_interval_is_coerced"
+    test_invalid: "tests/test_dynamic_agent.py::TestIntervalTriggerConfig::test_invalid_interval_treated_as_absent_with_warning"
+    test_absent: "tests/test_dynamic_agent.py::TestIntervalTriggerConfig::test_absent_interval_stays_none"
+    status: covered   # P1-prep fix: SaaS-authored interval agents now actually fire.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       21   (P4-1 COMPLETE — every contract & invariant names a passing,
-#                      rule-asserting test; the R1 bijection back-fill is closed)
+# covered:       22   (P4-1 complete + INTERVAL-CONFIG-PARSED — every contract &
+#                      invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # pending_v2.2:   0
 # uncovered:      0
-# total:         21
+# total:         22
 # → P4-1 certification DONE. Pass 1 (blackboard) + pass 2 (engine/tracing: INV-1
 #   callbacks-once, INV-4 sys-key flagging, INV-5 tracing-resilience, INV-7
 #   callback-base-complete). Framework contract registry is fully covered.

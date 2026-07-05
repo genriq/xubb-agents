@@ -468,3 +468,47 @@ class TestGatelessLoadTimeWarning:
         assert not any(
             "gate-less" in rec.message.lower() for rec in caplog.records
         )
+
+
+# ---------------------------------------------------------------------------
+# Interval trigger config (P1 fix): trigger_config.trigger_interval must reach
+# AgentConfig.trigger_interval — previously never parsed, so interval-mode vault
+# agents could never fire (the host gates on `if interval and ...`).
+# ---------------------------------------------------------------------------
+
+class TestIntervalTriggerConfig:
+    def test_trigger_interval_is_parsed_into_config(self):
+        agent = DynamicAgent({
+            "id": "iv", "name": "Interval Agent", "text": "x",
+            "trigger_config": {"mode": "interval", "trigger_interval": 60},
+        })
+        assert TriggerType.INTERVAL in agent.config.trigger_types
+        assert agent.config.trigger_interval == 60
+
+    def test_numeric_string_interval_is_coerced(self):
+        agent = DynamicAgent({
+            "id": "iv", "name": "Interval Agent", "text": "x",
+            "trigger_config": {"mode": "interval", "trigger_interval": "45"},
+        })
+        assert agent.config.trigger_interval == 45
+
+    def test_invalid_interval_treated_as_absent_with_warning(self, caplog):
+        with caplog.at_level("WARNING"):
+            bogus = DynamicAgent({
+                "id": "iv", "name": "Interval Agent", "text": "x",
+                "trigger_config": {"mode": "interval", "trigger_interval": "soon"},
+            })
+            negative = DynamicAgent({
+                "id": "iv2", "name": "Interval Agent 2", "text": "x",
+                "trigger_config": {"mode": "interval", "trigger_interval": 0},
+            })
+        assert bogus.config.trigger_interval is None
+        assert negative.config.trigger_interval is None
+        assert sum("trigger_interval" in r.message for r in caplog.records) == 2
+
+    def test_absent_interval_stays_none(self):
+        agent = DynamicAgent({
+            "id": "tb", "name": "Turn Agent", "text": "x",
+            "trigger_config": {"mode": "turn_based"},
+        })
+        assert agent.config.trigger_interval is None
