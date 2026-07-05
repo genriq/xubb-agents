@@ -13,8 +13,12 @@ the code. Contributions are expected to keep that gate green.
    escape it exists to prevent, node-level bijection, the debt ratchet, and negative
    controls.
 2. **The suite and the gate must pass.** CI runs the suite once and feeds the result to
-   `tools/check_contracts.py`. Locally:
+   `tools/check_contracts.py`. Locally — note the checkout directory **must be named
+   `xubb_agents`** (the repo root *is* the package, and pytest names it after the
+   directory; a default `xubb-agents` clone breaks collection):
    ```bash
+   git clone https://github.com/genriq/xubb-agents.git xubb_agents
+   cd xubb_agents
    pip install -e ".[dev]"
    pytest tests -q --junitxml=junit.xml
    python tools/check_contracts.py --junit junit.xml

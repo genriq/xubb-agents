@@ -1,16 +1,17 @@
 """
-Repo-root conftest: make ``import xubb_agents`` resolve regardless of the
-checkout directory's name.
+Repo-root conftest: make ``import xubb_agents`` resolve when running the tests
+from a source checkout without ``pip install -e .``.
 
 The repo root *is* the ``xubb_agents`` package (see ``[tool.setuptools.package-dir]``
-in pyproject.toml, which maps ``xubb_agents = "."``). For ``import xubb_agents``
-to succeed without ``pip install -e .``, the *parent* of this directory must be
-on ``sys.path`` AND this directory must be named ``xubb_agents``.
+in pyproject.toml, which maps ``xubb_agents = "."``). For ``import xubb_agents`` to
+succeed, the *parent* of this directory must be on ``sys.path`` and this directory
+must be named ``xubb_agents``. pytest also names the root package after the
+directory, so a differently-named checkout (e.g. a default ``xubb-agents`` clone)
+breaks collection with "attempted relative import with no known parent package".
+Clone into ``xubb_agents`` (or ``pip install -e .``) — which is what CI does.
 
-To avoid depending on the checkout being literally named ``xubb_agents``, we
-expose the package under that name explicitly: we add this directory's parent to
-``sys.path`` and, if the directory has a different name, register it as the
-``xubb_agents`` package so submodule imports (``xubb_agents.core.*``) resolve.
+The best-effort fallback below only helps when the package can still be imported
+under its own name; it is not a substitute for the directory-name requirement.
 """
 
 import os
