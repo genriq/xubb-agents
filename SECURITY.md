@@ -13,8 +13,8 @@ is triaged.
 
 | Version | Supported |
 |---------|-----------|
-| 2.3.x   | ✅ |
-| < 2.3   | ❌ |
+| 2.4.x   | ✅ |
+| < 2.4   | ❌ |
 
 ## Security model and trust boundaries
 

@@ -736,7 +736,7 @@ Event-triggered agents run automatically in Phase 2 when other agents emit event
 
 ---
 
-## 12. Future Considerations (v2.3+)
+## 12. Future Considerations
 
 | Feature | Description | Complexity |
 |---------|-------------|------------|
