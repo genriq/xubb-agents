@@ -36,6 +36,22 @@ from .conditions import ConditionEvaluator
 logger = logging.getLogger("AgentEngine")
 
 
+# References to best-effort background LLM-client close tasks (see _close_llm_client).
+# Holding them prevents a fire-and-forget task from being garbage-collected mid-close;
+# each task's done-callback removes itself and logs any failure.
+_PENDING_CLOSE_TASKS: set = set()
+
+
+def _on_close_task_done(task: "asyncio.Task") -> None:
+    _PENDING_CLOSE_TASKS.discard(task)
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:  # pragma: no cover - close task cancelled
+        return
+    if exc is not None:  # pragma: no cover - best-effort cleanup failure
+        logger.warning(f"Failed to close previous LLM client: {exc}")
+
+
 class AgentEngine:
     """Central orchestrator for the agent system (v2)."""
     
@@ -78,21 +94,33 @@ class AgentEngine:
         # not every turn, to avoid flooding logs in a long real-time session).
         self._warned_subscriber_ids: set = set()
 
-    def register_agent(self, agent: BaseAgent):
-        """Register an agent with the engine."""
-        # Inject the LLM client into the agent
+    def register_agent(self, agent: BaseAgent) -> None:
+        """Register an agent with the engine.
+
+        Concurrency-safe: mutates the registry under ``self._agents_lock`` using the
+        same build-fresh-and-rebind discipline as ``replace_agents`` (never mutating
+        the live structures in place), so a lock-free reader on another thread — e.g. a
+        turn iterating ``self.agents`` while a vault reload swaps agents — always sees a
+        complete, consistent registry.
+        """
+        # Inject the LLM client into the agent.
         agent.llm = self.llm_client
 
-        # Track registration order for deterministic merge ordering
-        index = len(self.agents)
-        self._agent_index[agent.config.id] = index
-        # Cache (priority, index) so _merge_responses does an O(1) lookup instead
-        # of an O(agents × responses) linear scan (E-5).
-        self._agent_meta[agent.config.id] = (agent.config.priority, index)
+        with self._agents_lock:
+            # Track registration order for deterministic merge ordering. Cache
+            # (priority, index) so _merge_responses does an O(1) lookup instead of an
+            # O(agents × responses) linear scan (E-5). Rebind fresh dicts/list rather
+            # than mutating in place so a lock-free reader never sees a torn update.
+            index = len(self.agents)
+            self._agent_index = {**self._agent_index, agent.config.id: index}
+            self._agent_meta = {
+                **self._agent_meta,
+                agent.config.id: (agent.config.priority, index),
+            }
+            self.agents = self.agents + [agent]
 
         logger.info(f"Registered agent: {agent.config.name} (ID: {agent.config.id}, "
                    f"Model: {agent.config.model}, Triggers: {agent.config.trigger_types})")
-        self.agents.append(agent)
 
     def replace_agents(self, agents: List[BaseAgent]) -> None:
         """Atomically replace the full agent set (e.g. on a vault reload).
@@ -121,7 +149,33 @@ class AgentEngine:
             self.agents = new_agents
             logger.info(f"Replaced agent registry: {len(new_agents)} agents")
 
-    def update_api_key(self, api_key: Optional[str]):
+    def unregister_agent(self, agent_id: str) -> bool:
+        """Remove an agent from the registry by id.
+
+        Returns ``True`` if an agent was removed, ``False`` if no agent had that id.
+        Concurrency-safe: rebuilds and rebinds the registry under ``self._agents_lock``
+        with the same discipline as ``replace_agents`` (never mutating the live
+        structures in place), so a lock-free reader on another thread always sees a
+        complete registry. Registration indices are recomputed so the ``_agent_meta``
+        tie-break order stays contiguous after the removal.
+        """
+        with self._agents_lock:
+            if agent_id not in self._agent_index:
+                return False
+            remaining = [a for a in self.agents if a.config.id != agent_id]
+            new_index: Dict[str, int] = {}
+            new_meta: Dict[str, Tuple[int, int]] = {}
+            for index, agent in enumerate(remaining):
+                new_index[agent.config.id] = index
+                new_meta[agent.config.id] = (agent.config.priority, index)
+            self._agent_index = new_index
+            self._agent_meta = new_meta
+            self.agents = remaining
+            self._warned_subscriber_ids.discard(agent_id)
+        logger.info(f"Unregistered agent: {agent_id}")
+        return True
+
+    def update_api_key(self, api_key: Optional[str]) -> None:
         """Update API key for LLM client and re-inject into all agents.
 
         PRECONDITION (E-4): this method is NOT concurrency-safe and MUST NOT be
@@ -170,7 +224,13 @@ class AgentEngine:
                 except RuntimeError:
                     asyncio.run(result)
                 else:
-                    loop.create_task(result)
+                    # Fire-and-forget on the running loop, but keep a reference so the
+                    # task cannot be GC'd mid-close, and surface any failure through the
+                    # done-callback rather than as a GC-time "Task exception was never
+                    # retrieved" warning.
+                    task = loop.create_task(result)
+                    _PENDING_CLOSE_TASKS.add(task)
+                    task.add_done_callback(_on_close_task_done)
         except Exception as e:  # pragma: no cover - cleanup is best-effort
             logger.warning(f"Failed to close previous LLM client: {e}")
     
@@ -197,6 +257,12 @@ class AgentEngine:
         Agents with subscribed_events but without EVENT trigger type are
         configuration errors — they are excluded from routing and a warning
         is logged. This is a configuration-time exclusion, not a runtime skip.
+
+        Concurrency: this is a reader — it iterates the lock-free ``self.agents``,
+        which the rebind discipline keeps consistent. Its only write is the
+        ``_warned_subscriber_ids`` warn-once dedup, which is advisory (observability
+        only): under a concurrent registry swap the worst case is a duplicate warning
+        line, which is harmless, so it is intentionally not lock-guarded.
         """
         subscribers = []
         for agent in self.agents:
@@ -215,8 +281,8 @@ class AgentEngine:
                     )
         return subscribers
     
-    def check_keyword_triggers(self, text: str, 
-                               allowed_agent_ids: Optional[List[str]] = None) -> List[tuple]:
+    def check_keyword_triggers(self, text: str,
+                               allowed_agent_ids: Optional[List[str]] = None) -> List[Tuple[BaseAgent, str]]:
         """Check which agents should trigger based on keywords.
         
         Note: Keyword detection is host responsibility in v2.0. The engine
@@ -482,7 +548,11 @@ class AgentEngine:
         of the Blackboard. State updates are collected and merged only after
         all agents complete.
         """
-        # Create snapshot for phase isolation
+        # Create snapshot for phase isolation. Known tradeoff: snapshot() deep-copies
+        # the whole blackboard (events/variables/queues/facts/memory), so cost grows
+        # O(accumulated state) per phase over a long session. This buys each phase a
+        # stable read-view while agents run in parallel; if it ever shows up in turn
+        # latency, a copy-on-write / read-only view is the place to optimize.
         snapshot = context.blackboard.snapshot()
         
         # Create a context with the snapshot for agents to read
@@ -601,6 +671,10 @@ class AgentEngine:
             # resolves (type,key) conflicts by (priority, confidence) per INV-9 — higher
             # priority wins regardless of confidence; confidence is only the tiebreaker
             # within equal priority. (deduplication handled by Blackboard.add_fact)
+            # NOTE: the stamp mutates each Fact in place — by design, per the documented
+            # "engine stamps priority" contract — so the same objects surface (already
+            # stamped) in final_response.facts below. Agents must not share one Fact
+            # instance across responses expecting an unstamped copy back.
             for fact in resp.facts:
                 fact.priority = priority
                 blackboard.add_fact(fact)

@@ -1,6 +1,13 @@
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from enum import Enum
+
+if TYPE_CHECKING:
+    # Imported for typing only — models.py must not import blackboard at runtime
+    # (blackboard.py imports Event/Fact from here, so a runtime import would be
+    # circular). AgentContext.model_rebuild() is called from blackboard.py once the
+    # real class exists, which resolves this forward reference for Pydantic.
+    from .blackboard import Blackboard
 
 
 class InsightType(str, Enum):
@@ -102,7 +109,7 @@ class AgentContext(BaseModel):
 
     # ---- V2 Fields ----
     # Structured Blackboard (v2) - typed containers for state
-    blackboard: Optional[Any] = Field(default=None, description="Blackboard instance (v2)")
+    blackboard: Optional["Blackboard"] = Field(default=None, description="Blackboard instance (v2)")
     # Execution metadata (read-only, set by engine)
     turn_count: int = Field(default=0, description="Current turn number")
     phase: int = Field(default=1, description="Execution phase (1=normal, 2=event-triggered)")

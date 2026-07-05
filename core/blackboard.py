@@ -260,3 +260,14 @@ class Blackboard(BaseModel):
             facts=[Fact(**f) for f in data.get("facts", [])],
             memory=data.get("memory", {})
         )
+
+
+# Resolve AgentContext's forward reference to Blackboard. models.py types the field as
+# Optional["Blackboard"] but cannot import Blackboard at runtime (this module imports
+# Event/Fact from models, so the reverse import would be circular). We complete the
+# type here, where Blackboard is defined: make it visible in models' namespace, then
+# rebuild the model so Pydantic resolves the annotation.
+from . import models as _models  # noqa: E402
+
+_models.Blackboard = Blackboard
+_models.AgentContext.model_rebuild()

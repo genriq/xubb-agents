@@ -217,6 +217,22 @@ contracts:
     test_concurrent: "tests/test_engine.py::TestReplaceAgents::test_replace_agents_never_observed_half_cleared"
     status: covered   # guards hosts that hot-reload the agent registry during a live turn.
 
+  - id: AGENT-REGISTRY-MUTATORS-CONSISTENT
+    statement: >
+      Every registry mutator holds _agents_lock and rebinds fresh structures rather
+      than mutating in place, matching replace_agents: register_agent and
+      unregister_agent rebuild agents/_agent_index/_agent_meta and rebind them, so a
+      lock-free reader (a turn iterating self.agents, possibly on another thread during
+      a vault reload) always sees a complete registry. unregister_agent also EXISTS and
+      is symmetric with register_agent (the host's test-agent cleanup depends on it).
+    source:
+      - "core/engine.py: register_agent (rebind under lock)"
+      - "core/engine.py: unregister_agent (rebind under lock; recomputes indices)"
+    test: "tests/test_registry_mutators.py::test_register_rebinds_rather_than_mutating"
+    test_unregister: "tests/test_registry_mutators.py::test_unregister_agent_removes_and_reports"
+    test_unregister_rebinds: "tests/test_registry_mutators.py::test_unregister_rebinds_rather_than_mutating"
+    status: covered   # extends AGENT-REGISTRY-ATOMIC-SWAP to the incremental mutators.
+
   - id: INTERVAL-CONFIG-PARSED
     statement: >
       DynamicAgent parses trigger_config.trigger_interval into
@@ -267,7 +283,7 @@ contracts:
     status: covered   # Registered v2.2.1: behavior existed and was tested, but had no registry entry.
 
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       24   (every contract & invariant names a passing, rule-asserting test)
+# covered:       25   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # pending_v2.2:   0
