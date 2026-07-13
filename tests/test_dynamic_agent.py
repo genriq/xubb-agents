@@ -592,3 +592,64 @@ class TestQW2DefaultModelConstant:
     def test_default_model_value_unchanged_this_release(self):
         from xubb_agents.core.agent import DEFAULT_MODEL
         assert DEFAULT_MODEL == "gpt-4o-mini"
+
+
+# ---------------------------------------------------------------------------
+# OB-2 (SPEC_LLM_MODERN_MODELS) — duck-typed client + usage passthrough
+# ---------------------------------------------------------------------------
+
+class EnrichedFakeLLM:
+    """Fake exposing the enriched generate() path (real LLMClient shape)."""
+
+    def __init__(self, result, usage=None):
+        self._result = result
+        self._usage = usage
+        self.calls = []
+
+    async def generate(self, model=None, messages=None, **kwargs):
+        from xubb_agents.core.llm import LLMResult
+        self.calls.append({"model": model, "messages": messages})
+        return LLMResult(parsed=self._result, error_category=None,
+                         usage=self._usage, finish_reason="stop")
+
+
+class TestOB2UsagePassthrough:
+    INSIGHT = {"has_insight": True, "content": "Budget is tight", "confidence": 0.9}
+
+    def test_generate_json_only_fake_still_yields_insights(self):
+        """Duck-type fallback: a client implementing ONLY generate_json (the
+        simulator's MockLLMClient shape, and every in-repo fake) keeps
+        working; enrichment is simply absent."""
+        agent = make_agent(dict(self.INSIGHT))
+        resp = run(agent.evaluate(make_context()))
+        assert resp is not None
+        assert len(resp.insights) == 1
+        assert resp.usage is None
+        assert "usage" not in resp.debug_info
+
+    def test_enriched_client_populates_usage(self):
+        usage = {"prompt_tokens": 11, "completion_tokens": 7, "reasoning_tokens": 3}
+        agent = make_agent(dict(self.INSIGHT))
+        agent.llm = EnrichedFakeLLM(dict(self.INSIGHT), usage=usage)
+
+        resp = run(agent.evaluate(make_context()))
+
+        assert resp is not None
+        assert len(resp.insights) == 1
+        assert resp.usage == usage
+        assert resp.debug_info["usage"] == usage
+        # debug_info shape contract (simulator/tracer): core keys unchanged.
+        assert set(resp.debug_info) >= {"prompt_messages", "model", "llm_output"}
+
+    def test_usage_serializes_but_debug_info_does_not(self):
+        """AgentResponse.usage is first-class because debug_info is
+        exclude=True — hosts billing per agent need it to survive dumps."""
+        usage = {"prompt_tokens": 2, "completion_tokens": 1}
+        agent = make_agent(dict(self.INSIGHT))
+        agent.llm = EnrichedFakeLLM(dict(self.INSIGHT), usage=usage)
+
+        resp = run(agent.evaluate(make_context()))
+        dumped = resp.model_dump()
+
+        assert dumped["usage"] == usage
+        assert "debug_info" not in dumped
