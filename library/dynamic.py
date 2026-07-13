@@ -2,7 +2,7 @@ import os
 import json
 import logging
 from jinja2.sandbox import SandboxedEnvironment
-from ..core.agent import BaseAgent, AgentConfig
+from ..core.agent import BaseAgent, AgentConfig, DEFAULT_MODEL
 from ..core.models import AgentContext, AgentResponse, InsightType, TriggerType, Event, Fact
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,7 @@ class DynamicAgent(BaseAgent):
         # Parse Model Config
         # Support top-level keys or nested 'model_config'
         model_conf = config_dict.get("model_config", {})
-        model = model_conf.get("model", config_dict.get("model", "gpt-4o-mini"))
+        model = model_conf.get("model", config_dict.get("model", DEFAULT_MODEL))
         
         # Parse output format (default, v2_raw, or custom filename)
         output_format = config_dict.get("output_format", "default")
