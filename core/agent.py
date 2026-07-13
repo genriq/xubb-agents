@@ -33,12 +33,28 @@ class AgentConfig:
                  priority: int = 0, output_format: str = "default",
                  # V2 additions
                  trigger_conditions: Optional[Dict[str, Any]] = None,
-                 subscribed_events: Optional[List[str]] = None):
+                 subscribed_events: Optional[List[str]] = None,
+                 # v2.6 (SPEC_LLM_MODERN_MODELS RC-1/RC-2/RC-3): canonical
+                 # per-agent LLM-call configuration. On a DynamicAgent these
+                 # are forwarded into the call only-when-set; on a custom
+                 # BaseAgent subclass they are a DECLARATION consumed by the
+                 # engine's load-time validation — the subclass owns forwarding
+                 # them into its own generate()/generate_json calls.
+                 reasoning_effort: Optional[str] = None,
+                 timeout: Optional[float] = None,
+                 max_tokens: Optional[int] = None,
+                 model_params: Optional[Dict[str, Any]] = None):
         self.name = name
         self.id = id or name.lower().replace(" ", "_")
         self.trigger_interval = trigger_interval
         self.cooldown = cooldown
         self.model = model
+        # v2.6 per-agent LLM-call config (None/{} = unset: nothing extra is
+        # sent on the wire; the framework never injects — INV-15).
+        self.reasoning_effort = reasoning_effort
+        self.timeout = timeout
+        self.max_tokens = max_tokens
+        self.model_params = model_params if model_params is not None else {}
         # Trigger system
         self.trigger_types = trigger_types or [TriggerType.TURN_BASED]
         self.trigger_keywords = trigger_keywords or []
