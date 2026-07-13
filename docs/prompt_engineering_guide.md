@@ -578,7 +578,7 @@ If you provide advice, update your memory:
 - [ ] **Silent default**: Will the agent return `{ "has_insight": false }` when there's nothing to say?
 - [ ] **Cooldown**: Is `cooldown` set appropriately? (minimum 2-5s for monitors, 5-15s for coaching)
 - [ ] **Context turns**: Is `context_turns` tuned to balance accuracy vs. token cost?
-- [ ] **Model choice**: `gpt-4o-mini` for simple detection, `gpt-4o` for complex reasoning?
+- [ ] **Model choice**: a cheap fast-lane model (e.g. `gpt-5.4-nano` + `reasoning_effort: "none"`) for always-on detection; a reasoning model with explicit effort AND matching `timeout`/`max_tokens` budgets for deep analysis? (v2.6: a reasoning-capable model without explicit `reasoning_effort` fails registration.)
 - [ ] **include_context**: Set to `false` for agents that don't need user profile or RAG?
 
 ### For Agents with Trigger Conditions
