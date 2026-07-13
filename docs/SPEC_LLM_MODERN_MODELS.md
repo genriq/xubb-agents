@@ -6,9 +6,9 @@
 **Date:** July 13, 2026
 **Process Tier:** **Tier 1** (contract change + config-schema change + silent-regression risk → spec approved before code; see docs/PROCESS.md)
 **Scope:** Full compatibility with modern OpenAI models (GPT-5.x, GPT-5.6 sol/terra/luna, o-series) with **cheap-by-default two-lane economics**: whisper agents stay fast and near-free; reasoning is an explicit per-agent opt-in. Derived from a three-lens validation (API-facts vs OpenAI docs, codebase-fit audit, adversarial design review) of the 2026-07-13 modernization proposal.
-**Compatibility:** Release A is **inert** for every working config (wire-level + observability only). Release B introduces **one deliberate load-time edge** (validation of reasoning-model configs — severity per OPEN DECISION D-1) plus additive config fields. See [Section 13: Migration Notes](#13-migration-notes).
+**Compatibility:** Release A is **inert on the OpenAI-wire and `generate_json`-return surfaces, measured post-Phase-0** (Amendment 1 scopes this precisely; QW-1/QW-3 change prompt text as deliberate bug fixes, and new error categories / an additive `AgentResponse.usage` key are host-visible). Release B introduces **one deliberate load-time edge** (reasoning-model configs without explicit effort **hard-fail** per D-1 ruling; escape hatch `strict_reasoning_config=False`) plus additive config fields. See [Section 13: Migration Notes](#13-migration-notes).
 **Baseline:** Validation performed against `main` @ `16832a2`; work branches `feature/v2.5-llm-modern-models` (Release A), `feature/v2.6-reasoning-config` (Release B).
-**Design rulings (this spec, from validation):** (1) The framework **never mutates a payload it didn't validate** — no silent parameter injection; explicit config + loud load-time validation instead. (2) Model-name knowledge is **advisory only** (warnings), never authoritative — OpenAI publishes no capability API and effort value-sets are per-model. (3) Cache-aware prompt reordering is **out of scope** (below the 1024-token cache floor; Jinja per-turn rendering defeats prefix stability; conflicts with documented prompt-order contracts). (4) Responses API (pro mode, `reasoning.context`, effort `max`) is **deferred** to a future deep-lane spec.
+**Design rulings (this spec, from validation):** (1) The framework **never mutates a payload it didn't validate** — no silent parameter injection; explicit config + loud load-time validation instead. (2) Model-name knowledge is **payload-advisory** — it never alters outbound kwargs (pinned by test); at load time its severity is per-rule (VL-1 rule 1 hard-fails per D-1, rule 5 errors, rules 2–4 warn-once) — OpenAI publishes no capability API and effort value-sets are per-model. (3) Cache-aware prompt reordering is **out of scope** (below the 1024-token cache floor; Jinja per-turn rendering defeats prefix stability; conflicts with documented prompt-order contracts). (4) Responses API (pro mode, `reasoning.context`, effort `max`) is **deferred** to a future deep-lane spec.
 
 ---
 
@@ -106,7 +106,7 @@ forbids `to_verify` stubs).
 | **INV-16** | A parameter or model rejection (HTTP 4xx other than 401/429) is surfaced as **`misconfig`**, and a length-stopped/starved response as **`truncated`** — both distinguishable from `server`, `malformed`, and each other. | Violated (4xx → `server`, `core/llm.py:135-141`; truncation → `malformed`, `core/llm.py:156-171`) — Release A / OB-1 |
 | **INV-17** | Per-call telemetry (usage, error category, finish reason) is attributed to **the call that produced it**, immune to interleaving under `asyncio.gather` on the shared client. (`last_error_category` remains as a deprecated best-effort mirror.) | Violated for the existing mirror (documented race, PLAYBOOK:3201) — Release A / OB-2 |
 | **INV-18** | Engine-level LLM configuration (timeout, retries, token cap, `base_url`) **survives `update_api_key`**; key rotation never resets the client to module defaults. | Violated (`core/engine.py:195` rebuilds `LLMClient(api_key=...)` bare) — Release B / EN-1 |
-| **INV-19** | Every agent whose config names a reasoning-capable model has an **explicit** `reasoning_effort`; the framework's load-time response to a violation is the documented policy of OPEN DECISION D-1 (warn vs fail), never silence. | New (Release B / VL-1) |
+| **INV-19** | Every agent config naming a model that **matches the reasoning heuristic** has an **explicit** `reasoning_effort`; a violation **hard-fails registration** (warns instead when `strict_reasoning_config=False`) — never silence. | New (Release B / VL-1; predicate is the testable heuristic match, per Amendment 1) |
 
 Post-release, INV-1 … INV-19 (+ INV-8′) must all hold. A regression violating any invariant
 blocks the release.
@@ -117,8 +117,8 @@ blocks the release.
 
 **In scope:** `core/llm.py`, `core/agent.py` (AgentConfig + default constant), `core/engine.py`
 (ctor, `register_agent`/`replace_agents` validation hook, `update_api_key` persistence),
-`core/models.py` (additive `AgentResponse.usage`), `core/callbacks.py` (additive no-op hook, if
-D-3 approves), `library/dynamic.py` (model_config parsing + pass-through + QW-3),
+`core/models.py` (additive `AgentResponse.usage`),
+`library/dynamic.py` (model_config parsing + pass-through + QW-3),
 `library/schemas/ui_control.json`, `pyproject.toml` (SDK floor), `tests/`, `docs/CONTRACTS.yaml`,
 affected docs (§9).
 
@@ -133,7 +133,9 @@ affected docs (§9).
 - **Structured Outputs (`json_schema` strict)** — separable follow-up; would obsolete QW-1's
   precondition entirely.
 - **Cost ceiling / kill-switch** — OB-2's telemetry is the prerequisite; the limiter is its own
-  follow-up spec item (telemetry without a limiter is acknowledged as incomplete).
+  follow-up spec item (telemetry without a limiter is acknowledged as incomplete). The
+  `usage_by_agent` aggregate on the merged `process_turn` response defers with it.
+- **`on_llm_usage` callback hook** — deferred per D-3 ruling; `core/callbacks.py` untouched.
 - **Azure OpenAI** (`AsyncAzureOpenAI`) and a multi-provider abstraction.
 - **Model allowlist** (`allowed_models`) — see OPEN DECISION D-4.
 
@@ -196,7 +198,8 @@ contains `"json"` case-insensitively. (Fails today on ui_control — test-first.
 `..core.agent` — no new import edge); both sites reference it; export from package `__init__.py`
 for hosts. **Value unchanged** in this spec (README:525/895 + PLAYBOOK:1568/2949 stay true).
 **Tests:** Assert both default paths resolve to the constant.
-**Acceptance:** One grep hit for the literal outside the constant definition: zero.
+**Acceptance:** Grep of non-test `core/` + `library/` source for the literal outside the
+constant definition: zero hits (docs/tests legitimately retain it).
 
 ### 5.3 QW-3 — `user_context` blank-section bug (latent, pre-existing)
 **Problem:** `library/dynamic.py:388` builds `user_context_section = f"{context.user_context}\n\n"`,
@@ -247,11 +250,16 @@ against `docs/technical_spec_agents.md:173` signature).
 (`:3210, :3341, :3360`) pages the wrong direction. (b) `finish_reason` is never read; a
 length-stopped response (`content=None` + `finish_reason="length"` — the exact signature of
 reasoning-token starvation under a small cap) lands in `malformed` (`core/llm.py:156-171`).
-**Fix:** In the `APIStatusError` handler: `status_code < 500` (excluding 401/429, which never
-reach it — they raise their own subclasses) → `misconfig`; else `server`. Use
-`getattr(e, "status_code", None)` per existing style (`:139`). Before the null-content/parse
-branch: `finish_reason = getattr(choice, "finish_reason", None)`; `"length"` → category
-`truncated`, log includes the configured cap. **Check order: truncated → null-content → parse.**
+**Fix:** In the `APIStatusError` handler: `status = getattr(e, "status_code", None)`;
+`isinstance(status, int) and status < 500` → `misconfig`; **anything else (incl. missing/non-int
+status) → `server`** — never `None < 500` inside the handler, which would raise into the turn
+(401/429 never reach this handler — they raise their own subclasses). Before the
+null-content/parse branch: `finish_reason = getattr(choice, "finish_reason", None)`; `"length"` →
+category `truncated`, log includes the configured cap. **Check order: truncated → null-content →
+parse.** Empty-choices stays `malformed` (no choice to read a finish_reason from). **Deliberate
+inertness deviation (stated):** a length-stopped response whose partial content happens to parse
+flips from success to `None`/`truncated` — a truncated JSON object is not a trustworthy whisper;
+recorded as the one intentional `generate_json`-result change in Release A.
 **Tests:** Extend the gate-registered `test_typed_errors_return_none_and_log_category`
 (INV-10 node — extend, never shrink) with parametrized 400/422 → `misconfig` and 503 → `server`
 cases; new truncated tests via a `_Choice` fake carrying `finish_reason="length"` with `content=None`
@@ -274,18 +282,36 @@ never survives pydantic serialization.
    entire current body; `generate_json` becomes a thin delegate returning `result.parsed` —
    **public contract dict-or-`None` unchanged**.
 2. `last_error_category` still set (deprecated best-effort mirror; docstring updated to say so).
-3. `DynamicAgent` calls `generate()` — gets race-free per-call category + usage; puts plain-int
-   usage into `debug_info["usage"]` (tracer-safe: passthrough at `utils/tracing.py:83-84`;
-   debugger reads only `.prompt_messages`/`.llm_output`) **and** into a new first-class additive
-   field `AgentResponse.usage: Optional[Dict[str, int]] = None` so hosts serializing
-   `AgentResponse` can bill per agent.
+3. **(Amended per review B-1)** `DynamicAgent` **duck-types** the client — `gen =
+   getattr(self.llm, "generate", None)`; uses the `LLMResult` path when present, else falls back
+   to `generate_json` (usage/category enrichment simply absent). Mirrors the `_close_llm_client`
+   duck-typing house pattern; keeps every `generate_json`-only fake (`tests/test_schemas.py:75`,
+   `tests/test_dynamic_agent.py:41`) and the simulator's `MockLLMClient` working unmodified.
+   Regression test: a `generate_json`-only fake driven through `evaluate` still parses insights.
+   When enriched, plain-int usage goes into `debug_info["usage"]` (tracer-safe: passthrough at
+   `utils/tracing.py:83-84`; debugger reads only `.prompt_messages`/`.llm_output`) **and** into a
+   new first-class additive field `AgentResponse.usage: Optional[Dict[str, int]] = None`.
+   Usage extraction is fake-safe (`getattr(response, "usage", None)`, outside the parse-try) and
+   flattens nested SDK details: `reasoning_tokens` ← `completion_tokens_details.reasoning_tokens`,
+   `cached_tokens` ← `prompt_tokens_details.cached_tokens`; absent details → key omitted.
+   `generate()` writes `self.last_error_category = result.error_category` **exactly once** before
+   returning (None on success), so both entry points keep the deprecated mirror live.
+   **Host billing channel (stated):** per-agent usage reaches hosts via `on_agent_finish` /
+   the tracer / `AgentResponse.usage`; `_merge_responses` does NOT propagate usage into the
+   aggregated `process_turn` return — a `usage_by_agent` aggregate is deferred to the
+   cost-ceiling follow-up.
 4. Callbacks: **no signature change** to existing hooks (mismatches are silently swallowed by the
-   try/except at `core/agent.py:126-130`; INV-1/INV-7 pin current shapes). Optional additive
-   no-op `on_llm_usage` on the base class per OPEN DECISION D-3.
-**Tests:** `generate()` returns correct `LLMResult` for success/each-failure/truncated; two
-concurrent `generate()` calls with interleaved failures attribute categories per-call (the race
-repro — test-first, fails against a `last_*`-attribute implementation); `AgentResponse.usage`
-serializes; simulator-shape guard: `debug_info` keys `prompt_messages`/`model`/`llm_output`
+   try/except at `core/agent.py:126-130`; INV-1/INV-7 pin current shapes). The `on_llm_usage`
+   hook is **deferred per D-3 ruling** (no callbacks.py change in this spec).
+**Tests (amended per review):** `generate()` returns correct `LLMResult` for
+success/each-failure/truncated; **two named concurrency tests**: (i) *baseline mirror-race
+repro* (test-first, fails on baseline) — two concurrent `generate_json` calls with
+`asyncio.Event`-gated fake `create`s forcing A-fails-then-B-fails ordering, read
+`last_error_category` after `gather`, observe it reports only B — pinning the INV-17 violation
+the deprecated mirror retains; (ii) *per-call attribution* — same Event-gated harness against
+`generate()`, asserting each returned `LLMResult.error_category` individually;
+`AgentResponse.usage` serializes; duck-type fallback test (generate_json-only fake still yields
+insights); simulator-shape guard: `debug_info` keys `prompt_messages`/`model`/`llm_output`
 unchanged.
 **Acceptance:** INV-17 holds; usage visible per agent in debug_info + `AgentResponse.usage`;
 `generate_json` callers observe zero change.
@@ -303,14 +329,20 @@ unchanged.
 `medium` (validated); gpt-5.1 defaults to `none`; value sets are per-model (`minimal` on original
 gpt-5 family; `low` floor on o-series; rejected outright on `-chat`/`-search` variants and
 o1-mini). **Validation REJECTED silent injection** — the framework cannot know the right value.
-**Fix:** `model_config.reasoning_effort: str | None = None` parsed in `DynamicAgent.__init__`
-(house pattern `model_conf.get(...)`, `library/dynamic.py:117-146`) and stored on the agent;
-`generate_json`/`generate` gain an explicit `reasoning_effort: Optional[str] = None` parameter
-appended to `call_kwargs` **only when not None** (protects strict-signature fakes:
-`tests/test_schemas.py:75` `_FakeLLM`, simulator `MockLLMClient`). No value validation against a
-model table (INV-15: operator-owned; a wrong value surfaces as a loud `misconfig` via OB-1).
-`AgentConfig` (`core/agent.py:22-47`) gains the same optional field for custom `BaseAgent`
-subclasses (they call `self.llm.generate_json` directly — documented pattern PLAYBOOK:3007).
+**Fix (amended per review):** **`AgentConfig` is the canonical storage** for all four Release B
+fields (`reasoning_effort`, `timeout`, `max_tokens`, `model_params`), defaulted `None`/`{}`;
+`DynamicAgent.__init__` parses `model_config.*` (house pattern `model_conf.get(...)`,
+`library/dynamic.py:117-146`) **into the `AgentConfig` ctor** (like `model` today — no duplicate
+instance attributes), so VL-1 has one generic read surface. `generate_json`/`generate` gain an
+explicit `reasoning_effort: Optional[str] = None` parameter; `DynamicAgent` **omits** the kwarg
+entirely when unconfigured — never passes `reasoning_effort=None` (protects strict-signature
+fakes: `tests/test_schemas.py:75` `_FakeLLM`, simulator `MockLLMClient`). No value validation
+against a model table (INV-15: operator-owned; a wrong value surfaces as a loud `misconfig` via
+OB-1). **Custom-subclass contract (stated):** on a custom `BaseAgent` the config fields are a
+*declaration consumed by validation*; the subclass owns forwarding
+`self.config.reasoning_effort` (etc.) into its own `generate_json` calls — documented with a
+PLAYBOOK snippet next to the direct-call pattern (PLAYBOOK:3007), closing the false-green trap
+where VL-1 rule 1 passes but the wire never carries the effort.
 **Tests:** Configured effort appears in outbound kwargs; unconfigured → kwarg **absent** (INV-15
 pin); `_FakeLLM`-style strict mock unaffected when unconfigured.
 **Acceptance:** INV-15 holds; effort flows config → wire verbatim; README/PLAYBOOK config tables
@@ -319,13 +351,20 @@ gain the row (same change, §9.1).
 ### 7.2 RC-2 — `model_params` passthrough
 **Problem:** Every future API parameter (verbosity, future knobs) currently requires a framework
 release; but teaching the framework each parameter's semantics is a maintenance treadmill.
-**Fix:** `model_config.model_params: dict = {}` merged verbatim into `call_kwargs` **after** the
-framework-owned keys, with collisions on framework-owned keys (`model`, `messages`,
-`response_format`, token cap, `timeout`, `reasoning_effort`) **rejected at load time** (VL-1).
-Documented explicitly as **Chat Completions wire shape, not transport-portable** (the Responses
-migration note lives with it).
-**Tests:** Passthrough lands on the wire verbatim; collision with a framework key → load-time
-error; empty default → zero wire diff.
+**Fix (amended per review B-2):** `model_config.model_params: dict = {}` merged into
+`call_kwargs` with **framework-owned keys winning defensively at the call site** (an unvalidated
+path can never mutate wire essentials), and collisions **rejected in `DynamicAgent.__init__`**
+(pure-config check — reachable even for direct-constructed agents that never pass engine
+registration; registration re-checks for custom agents, VL-1 rule 5). Framework-owned set:
+`model`, `messages`, `response_format`, **both token-cap spellings** (`max_tokens` and
+`max_completion_tokens`, independent of the WC-1 wire mode), `timeout`, `reasoning_effort`.
+Non-dict `model_params` → warn and treat as absent (house coercion pattern,
+`library/dynamic.py:82-98`). Documented explicitly as **Chat Completions wire shape, not
+transport-portable** (the Responses migration note lives with it).
+**Tests:** Passthrough lands on the wire verbatim; collision with a framework key →
+`__init__`-time error (both token spellings covered); non-dict coerced-with-warning; empty
+default → zero wire diff; defensive call-site merge pinned (framework key survives a sneaky
+post-init mutation of the dict).
 **Acceptance:** INV-15 holds (nothing injected, everything declared); docs updated.
 
 ### 7.3 RC-3 — Per-agent `timeout` / `max_tokens`
@@ -343,28 +382,46 @@ avoids the three-name sprawl the audit flagged).
 **Acceptance:** A deep-lane agent can declare `{model, reasoning_effort, timeout: 30,
 max_tokens: 25000}` and the wire reflects exactly that.
 
-### 7.4 VL-1 — Load-time cross-validation (advisory)
+### 7.4 VL-1 — Load-time cross-validation (payload-advisory, load-time enforcing)
 **Problem:** The failure modes of Release B are configuration failure modes: effort without
 budget (starved → billed-but-empty), reasoning-named model without effort (silent `medium` — the
 expensive trap), temperature in `model_params` on a reasoning model (400), effort on a
 non-reasoning model (400). All currently surface only at runtime as silent `None`s.
-**Fix:** Validation hook in `AgentEngine.register_agent`/`replace_agents` — **not**
+**Fix (amended per review B-2/B-3):** Validation hook in
+`AgentEngine.register_agent`/`replace_agents` for the budget/heuristic rules — **not**
 `DynamicAgent.__init__`, which cannot see the client's actual budgets (`self.llm` is `None` until
-registration, `core/agent.py:56` / `core/engine.py:107`). One shared **advisory** capability
-heuristic (single module-level table: name-pattern → likely-reasoning, with deny-suffixes
-`-chat`, `-search`, `-codex`, `-pro`, `o1-mini`; used ONLY to warn — never to alter payloads;
-INV-15). Checks, warn-once discipline (E-6 pattern, `core/engine.py:94-95`):
-1. Model matches reasoning heuristic AND no `reasoning_effort` → **policy per D-1** (warn / fail),
-   message includes the copy-pasteable fix.
+registration, `core/agent.py:56` / `core/engine.py:107`); rule 3 reads the fallback budgets from
+`self.llm_client.timeout`/`.max_tokens` when per-agent values are unset. One shared capability
+heuristic (single **module-level** table, monkeypatch-friendly: name-pattern → likely-reasoning,
+with deny-suffixes `-chat`, `-search`, `-codex`, `-pro` plus an exact-name denylist (`o1-mini`);
+**payload-advisory: never alters outbound kwargs** — INV-15). Rules read `agent.config` via
+`getattr(..., None)` so custom `BaseAgent` subclasses validate generically (absent fields skip
+rules 3–5 trivially). Warn-once discipline keyed by agent id (E-6 pattern,
+`core/engine.py:94-95`; entry discarded on `unregister_agent`; `replace_agents` does not re-warn
+a same-id re-registration — same as E-6). Rules:
+1. Model matches reasoning heuristic AND no `reasoning_effort` → **hard-fail (D-1 ruling)**:
+   raise `AgentConfigurationError` (new, `ValueError` subclass in `core/engine.py`, exported from
+   the package) whose message includes the copy-pasteable fix; **warns instead** when the engine
+   was constructed with `strict_reasoning_config=False`.
 2. `reasoning_effort` set AND model matches a deny-suffix / non-reasoning shape → warn.
 3. `reasoning_effort` beyond `low` AND (`timeout` unset-or-≤10s OR `max_tokens` unset-or-<4096)
-   → warn naming the starved-output/billed-timeout consequence. Thresholds: TODO tune at
-   implementation, derived from the WC-1×RC-1 interaction.
+   → warn naming the starved-output/billed-timeout consequence. **Thresholds normative** (>10s,
+   ≥4096), amendable.
 4. `model_params` contains `temperature`/`top_p` AND reasoning heuristic matches → warn.
-5. `model_params` collides with a framework-owned key → **error** (RC-2).
-**Tests:** caplog-asserting per rule (house pattern `tests/test_dynamic_agent.py:495-507`);
-warn-once verified; zero warnings for a clean fast-lane config.
-**Acceptance:** INV-19 holds under the D-1 policy; the table provably drives **warnings only**
+5. `model_params` collides with a framework-owned key → **error**; the check itself is owned by
+   RC-2 and runs in `DynamicAgent.__init__` (pure-config check); registration re-checks for
+   custom agents.
+**Hard-fail mechanics (stated):** `register_agent` validates **before any mutation** — on failure
+the registry and the agent's `llm` are untouched. `replace_agents` **validates ALL incoming
+agents first** (collecting every violation into one error), then builds, then rebinds — a vault
+reload with one bad config is all-or-nothing and the old registry keeps serving.
+`strict_reasoning_config: bool = True` is an `AgentEngine.__init__` kwarg, stored on the engine,
+read by the hook, and added to the pinned-signature doc update.
+**Tests:** caplog-asserting per warn rule (house pattern `tests/test_dynamic_agent.py:495-507`);
+warn-once verified; zero warnings for a clean fast-lane config; hard-fail path: register raises
+`AgentConfigurationError`; `replace_agents` all-or-nothing leaves the old registry serving;
+`strict_reasoning_config=False` downgrades rule 1 to a warning and the agent registers.
+**Acceptance:** INV-19 holds under the D-1 ruling; the table is provably **payload-advisory**
 (a test pins that outbound kwargs are identical with the table emptied).
 
 ### 7.5 EN-1 — Engine LLM-config exposure + rotation persistence
@@ -373,23 +430,31 @@ warn-once verified; zero warnings for a clean fast-lane config.
 internals. **The trap:** `update_api_key` rebuilds the client the same bare way
 (`core/engine.py:195`), so once knobs exist, every key rotation (documented host flow,
 PLAYBOOK:3148/3287) silently resets them — a proxy host flips back to api.openai.com mid-session.
-**Fix:** Engine ctor gains `llm_timeout`, `llm_max_retries`, `llm_max_tokens`, `llm_base_url`
-(kwargs, all defaulted — compat-safe: every construction site uses kwargs); engine stores the
-resolved LLM config and `update_api_key` reuses it (**inherit stored config, never module
-defaults**). `LLMClient` gains `base_url` (passed to `AsyncOpenAI` when set) and the WC-1
-`wire_max_tokens_param` knob. E-4 close-path unchanged (`_close_llm_client` duck-types;
-`core/engine.py:202-235`); the `update_api_key` docstring keeps the E-4 precondition wording
-(`test_update_api_key_documents_concurrency_precondition` greps for it).
+**Fix (amended per review B-4):** Engine ctor gains `llm_timeout`, `llm_max_retries`,
+`llm_max_tokens`, `llm_base_url`, **`llm_wire_max_tokens_param`** (closing the gap where the
+WC-1 knob's only intended audience — proxy hosts using `AgentEngine` — couldn't reach it), and
+`strict_reasoning_config` (VL-1) — all defaulted kwargs, compat-safe (every construction site
+uses kwargs). **Stored-config structure (stated):** the engine builds
+`self._llm_config: Dict[str, Any]` in `__init__` from the knobs **only-when-set** (so `LLMClient`
+defaults keep applying otherwise); `update_api_key` does
+`LLMClient(api_key=api_key, **self._llm_config)` — **ctor config is authoritative on rotation**;
+a hand-swapped `engine.llm_client` is not preserved across rotation (documented). `LLMClient`
+gains `base_url` (passed to `AsyncOpenAI` when set) and the WC-1 `wire_max_tokens_param` knob
+(ctor-validated: unknown value → `ValueError`). E-4 close-path unchanged (`_close_llm_client`
+duck-types; `core/engine.py:202-235`); the `update_api_key` docstring keeps the E-4 precondition
+wording (`test_update_api_key_documents_concurrency_precondition` greps for it).
 **Tests:** Ctor knobs reach the client (extend `test_constructor_configures_resilience_params`,
-`tests/test_llm.py:272-295`); **rotation-persistence repro (test-first):** construct with
-non-default config → `update_api_key` → assert new client carries the same config (fails on
-baseline); E-4 suite stays green.
+`tests/test_llm.py:272-295`; the `LLMClient.__new__` test helper at `tests/test_llm.py:110-131`
+gains the new attributes — or `generate()` reads them via `getattr`-with-default, whichever lands,
+stated in the PR); **rotation-persistence repro (test-first):** construct with non-default config
+**including `llm_wire_max_tokens_param`** → `update_api_key` → assert the new client carries the
+same config (fails on baseline); E-4 suite stays green.
 **Acceptance:** INV-18 holds; pinned signature at `docs/technical_spec_agents.md:167-171`
 updated; new CONTRACTS entry (§9.2).
 
 ---
 
-## 8. Open Decisions
+## 8. Decisions (ruled 2026-07-13)
 
 **All four decisions RULED by owner 2026-07-13** (recorded here and in §17; changing them
 post-approval is an Amendment):
@@ -413,13 +478,13 @@ post-approval is an Amendment):
 
 ## 9. Documentation Items
 
-- **9.1 DOC-7** — Per-item, same-change: README config table (`README.md:512-528`) +
+- **9.1 DOC-7** — Per-item, same-change: README config table (`README.md:512-529`) +
   `AgentConfig` signature (`:889-905`) gain `reasoning_effort`/`timeout`/`max_tokens`/
   `model_params` rows; PLAYBOOK config table (`:1568`), quoted `generate_json` code
   (`:3030-3034`, `:3059-3061`), category list + operational guidance (`:3090-3099`, `:3210`,
   `:3341`, `:3360` — the `misconfig` split is the point: 4xx stops paging as "server spike");
-  `docs/technical_spec_agents.md:164-173` pinned signatures; `core/llm.py:70-72` category
-  docstring.
+  `docs/technical_spec_agents.md:164-176` pinned signatures; `core/llm.py:70-72` category
+  comment.
 - **9.2 DOC-8** — `docs/CONTRACTS.yaml`: INV-15..19 entries naming their rule tests (G1;
   `debt_baseline: 0` — no `to_verify`). Extend, never shrink, the INV-10 node's named test.
 - **9.3 DOC-9** — `docs/prompt_engineering_guide.md:45` states the transcript goes as "separate
@@ -446,8 +511,10 @@ Commit convention: `v2.5/<ITEM-ID>: <summary>` / `v2.6/<ITEM-ID>: <summary>`.
 | **B2** | Validation + engine | VL-1, EN-1 | **Independent of each other** (fan-out candidates); both after B1 | VL-1 needs RC fields to validate; EN-1 needs WC-1's client knob. |
 | **B3** | Release B close | DOC-7 (B-scope), DOC-8 (INV-15/18/19), DOC-10 (2.6.0) | Doc items parallel | Gate: xubb_server migration note + D-1 policy verified → PR → PyPI 2.6.0. |
 
-Serial constraints (§3.1 dependency layers): WC-1 → OB-2 → RC-* → {VL-1, EN-1}. Everything in
-Phase 0 and OB-1 is fan-out-safe from the start.
+Serial constraints (process §3.1 dependency-layer fan-out): WC-1 → OB-2 → RC-* → {VL-1, EN-1}.
+Everything in Phase 0 and OB-1 is fan-out-safe from the start. Doc items are formally split
+per release — **DOC-7A/8A/10A** land in phase A3 and **DOC-7B/8B/10B** in B3 — preserving the
+one-item-one-phase bijection.
 
 ---
 
@@ -497,30 +564,37 @@ output; `/trace-check` passes Appendix A.
 
 ## 13. Migration Notes
 
-**Release A (2.5.0) — no action required.**
+**Release A (2.5.0) — no code change required; observable-surface changes below.**
 - Wire kwarg rename is invisible to hosts (Python surface unchanged); old OpenAI-compatible
-  proxies can pin `wire_max_tokens_param="max_tokens"`.
+  proxies can pin `wire_max_tokens_param="max_tokens"` (direct `LLMClient` constructors only
+  until 2.6.0 exposes it through the engine).
 - **SDK floor:** hosts must have `openai>=1.60.0` (pip resolves automatically on upgrade).
 - New error categories `misconfig`/`truncated` appear in logs and `last_error_category`; hosts
   keying alerts on `server` should re-route 4xx handling (this is a fix: those were
-  misclassified).
-- `AgentResponse.usage` is additive-defaulted (`None`); serialized payloads gain a key.
+  misclassified). A length-stopped-but-parseable response now returns `None` (`truncated`)
+  instead of a suspect partial parse — deliberate, see §6.2.
+- `AgentResponse.usage` is additive-defaulted (`None`); serialized payloads gain exactly one key
+  (strict-schema hosts take note).
+- **Prompt-visible bug fixes (Phase 0):** the `ui_control` schema instruction now names JSON, and
+  a set `user_context` no longer injects a blank prompt section — prompts change for affected
+  agents; both are corrections.
 
 **Release B (2.6.0) — one deliberate edge + additive config.**
-- **Per D-1 (proposed hard-fail):** an agent config naming a reasoning-heuristic model without
-  `reasoning_effort` fails at registration with a copy-pasteable fix. Hosts audit vault configs
-  before upgrading (one field per affected agent). Escape hatch: `strict_reasoning_config=False`.
+- **Per D-1 ruling (hard-fail):** an agent config naming a reasoning-heuristic model without
+  `reasoning_effort` fails at registration (`AgentConfigurationError`) with a copy-pasteable fix.
+  Hosts audit vault configs before upgrading (one field per affected agent). Escape hatch:
+  `strict_reasoning_config=False`.
 - New optional `model_config` keys: `reasoning_effort`, `timeout`, `max_tokens`, `model_params`.
   Absent keys → wire behavior identical to 2.5.0.
 - `update_api_key` now **preserves** engine LLM config — hosts that (buggily) relied on rotation
   resetting timeouts must set them explicitly.
 - **Cost guidance for the host (xubb_server):** production baseline gpt-4.1 is sunset-track and
-  premium-priced; recommended lanes — fast: gpt-5.4-nano / gpt-5-nano + effort omitted
-  (non-reasoning) or `"none"` (5.1+ mainline); standard: gpt-5.4-mini / gpt-5.6-luna +
-  `reasoning_effort:"none"`; deep (opt-in): gpt-5.6-terra/sol + `low`–`high` + `timeout≥30` +
-  `max_tokens≥25000`. Effort **value validity is per-model** (e.g. original gpt-5 family:
-  `minimal`, not `none`) — the framework passes values verbatim; a wrong pair surfaces as
-  `misconfig`.
+  premium-priced; recommended lanes — **every heuristic-matching model carries an explicit
+  effort** (D-1 makes omission a load failure): fast: gpt-5.4-nano + `"none"` / gpt-5-nano +
+  `"minimal"`; standard: gpt-5.4-mini or gpt-5.6-luna + `"none"`; deep (opt-in):
+  gpt-5.6-terra/sol + `low`–`high` + `timeout≥30` + `max_tokens≥25000`. Effort **value validity
+  is per-model** (e.g. original gpt-5 family: `minimal`, not `none`) — the framework passes
+  values verbatim; a wrong pair surfaces as `misconfig`.
 
 ---
 
@@ -528,9 +602,10 @@ output; `/trace-check` passes Appendix A.
 
 - **Granularity:** one item (or tight cluster) per atomic commit tagged `v2.5/<ID>` / `v2.6/<ID>`;
   any item reverts via `git revert` without disturbing others.
-- **Release A rollback:** WC-1 is a one-line wire revert; OB-1/OB-2 are internal (`generate()`
-  delegate) — reverting restores the v2.4.0 body; `AgentResponse.usage` is additive-defaulted, no
-  serialization migration.
+- **Release A rollback:** WC-1 reverts as its **atomic commit** (wire line + knob + kwarg-pin
+  tests together — a lone wire-line revert leaves the pins red); after 2.6.0 ships, revert B
+  first per the D-2 firewall. OB-1/OB-2 are internal (`generate()` delegate) — reverting restores
+  the v2.4.0 body; `AgentResponse.usage` is additive-defaulted, no serialization migration.
 - **Release B rollback:** all config fields are additive-defaulted; reverting RC/VL/EN restores
   2.5.0 behavior with configs still loading (unknown keys were already tolerated by
   `model_conf.get`). D-1 hard-fail reverts with VL-1.
@@ -544,7 +619,10 @@ output; `/trace-check` passes Appendix A.
 
 **Gates — Release A (2.5.0):**
 1. Suite green, zero warnings; SDK floor bumped and CI green against it.
-2. **Inertness proof:** captured-kwargs diff over the fixture set = token-kwarg name only.
+2. **Inertness proof (scope amended):** captured-kwargs diff over the fixture set, **baselined
+   post-Phase-0**, = token-kwarg name only; plus an `AgentResponse`-serialization delta assertion
+   (exactly one new key: `usage`). The truncated-beats-parseable deviation (§6.2) is the one
+   allowed `generate_json`-result change.
 3. INV-16/INV-17 CONTRACTS entries + named tests green; INV-10 node extended and green.
 4. Version/CHANGELOG/docs consistent; `/trace-check` passes.
 
@@ -568,8 +646,32 @@ output; `/trace-check` passes Appendix A.
 
 Per Tier-1 process: pause the affected item → propose here + to owner with rationale → owner
 sign-off → append "Amendment N" (date, reason) → resume. No silent scope changes; deferrals only
-via amendment. Open Decisions (§8) resolved at sign-off count as the initial rulings, recorded in
+via amendment. Decisions (§8) resolved at sign-off count as the initial rulings, recorded in
 the sign-off table.
+
+### Amendment 1 — three-lens spec review findings applied (2026-07-13)
+
+**Reason:** The owner approved the spec while a three-reviewer validation (citation accuracy /
+consistency+process / implementability) was in flight, with findings directed to land via this
+procedure. Citation review: 60 accurate, 2 imprecise ranges (fixed inline), 0 inaccurate.
+The two design reviews converged on **4 blockers**, all resolved by inline amendment above;
+resolutions were chosen to *preserve* the owner's ruled properties (Release A inertness, D-1
+hard-fail) — none alters a ruling. **Sign-off:** applied under the standing approval; the owner
+may veto any resolution here, which reverts to the pre-amendment text and pauses the item.
+
+| # | Finding (reviewer) | Resolution (section amended) |
+|---|---|---|
+| A1-1 | **BLOCKER:** `DynamicAgent` switching to `generate()` breaks every `generate_json`-only fake incl. the simulator — falsifying Release A inertness | Duck-type `getattr(self.llm, "generate", None)` with `generate_json` fallback (house `_close_llm_client` pattern) + regression test (§6.3) |
+| A1-2 | **BLOCKER:** VL-1 "advisory/warnings-only" text contradicted the D-1 hard-fail ruling; `model_params` collision check unreachable for direct-constructed agents | VL-1 reworded payload-advisory vs load-time-enforcing; collision check owned by RC-2 in `DynamicAgent.__init__` + defensive call-site merge + both token-cap spellings framework-owned (§7.2, §7.4, front-matter ruling 2) |
+| A1-3 | **BLOCKER:** hard-fail mechanics unstated (exception type, registry atomicity, `strict_reasoning_config` owner) | `AgentConfigurationError` (ValueError subclass, exported); validate-before-mutate in `register_agent`; validate-all-then-rebind (all-or-nothing) in `replace_agents`; flag = engine ctor kwarg (§7.4, §7.5) |
+| A1-4 | **BLOCKER:** `wire_max_tokens_param` unreachable via engine and missing from the rotation-persisted set — recreating the INV-18 bug class | `llm_wire_max_tokens_param` added to engine ctor + `self._llm_config` persisted set + rotation repro extended (§7.5) |
+| A1-5 | SHOULD-FIX cluster (OB-1/OB-2): `None < 500` TypeError hazard; truncated-beats-parseable inertness deviation; `last_error_category` single write site; fake-safe usage extraction + flattening map; billing channel; named concurrency tests | All stated inline (§6.2, §6.3, §13, §15) |
+| A1-6 | SHOULD-FIX cluster (RC/VL/EN): `AgentConfig` canonical for all four fields; custom-subclass declarative contract; warn-once keying/lifecycle; normative rule-3 thresholds; `_llm_config` structure + hand-swap semantics; wire-knob ctor validation | All stated inline (§7.1–§7.5) |
+| A1-7 | Consistency cluster: inertness claim rescoped (wire + `generate_json`, post-Phase-0) with `AgentResponse` delta gate; D-1/D-3 language propagated (stale "OPEN/proposed" removed; callbacks.py out of scope); §13 lane guidance carries explicit efforts; WC-1 atomic-commit rollback; DOC-7/8/10 split A/B; Appendix A header relaxed | (front-matter, §3, §6.3, §8, §10, §13, §14, §15, Appendix A) |
+| A1-8 | NITs: QW-1 drift-lock globs the schemas dir (implemented, commit `v2.5/QW-1` #2); QW-2 grep acceptance scoped to non-test source (implemented as specced); `o1-mini` = exact-name denylist; two citation ranges corrected (`technical_spec_agents.md:164-176`, `README.md:512-529`) | (§5.1 impl, §5.2, §7.4, §9.1) |
+
+**Phase 0 status at amendment time:** QW-1/QW-2/QW-3 implemented test-first and committed
+(`v2.5/QW-*`); full suite **287 green, zero warnings**.
 
 ---
 
@@ -590,8 +692,9 @@ two PRs / releases (per D-2).
 ## Appendix A: Full Finding → Item Traceability
 
 Every finding from the three-lens validation (API-facts / codebase-audit / design-review agents,
-2026-07-13) maps to exactly one item or an explicit disposition. Test column filled at
-implementation; `/trace-check` verifies.
+2026-07-13) maps to one item (or item pair) or an explicit disposition; DOC items are
+process/release items with no originating finding. Test column filled at implementation;
+`/trace-check` verifies.
 
 | Validation finding | Source lens | Item | Test (named at impl) | Disposition |
 |---|---|---|---|---|
