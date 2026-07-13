@@ -45,6 +45,14 @@ DEFAULT_TIMEOUT = 10.0      # seconds, per request
 DEFAULT_MAX_RETRIES = 2     # bounded retries on transient failures
 DEFAULT_MAX_TOKENS = 1024   # output cap for the JSON object
 
+# WC-1 (SPEC_LLM_MODERN_MODELS): the token cap ships on the wire as
+# ``max_completion_tokens`` — the successor kwarg, accepted by non-reasoning
+# models and REQUIRED by reasoning models (which 400 on ``max_tokens``). The
+# legacy value exists only for old OpenAI-compatible proxies that predate the
+# new kwarg. The Python parameter name (``max_tokens``) does not change.
+WIRE_MAX_TOKENS_PARAMS = ("max_completion_tokens", "max_tokens")
+DEFAULT_WIRE_MAX_TOKENS_PARAM = "max_completion_tokens"
+
 
 class LLMClient:
     """OpenAI / OpenAI-compatible async client wrapper.
@@ -61,11 +69,20 @@ class LLMClient:
     def __init__(self, api_key: Optional[str] = None,
                  timeout: float = DEFAULT_TIMEOUT,
                  max_retries: int = DEFAULT_MAX_RETRIES,
-                 max_tokens: int = DEFAULT_MAX_TOKENS):
+                 max_tokens: int = DEFAULT_MAX_TOKENS,
+                 wire_max_tokens_param: str = DEFAULT_WIRE_MAX_TOKENS_PARAM):
+        # WC-1: validate the wire knob FIRST — loud at load time, regardless of
+        # key/SDK availability (the two documented values only).
+        if wire_max_tokens_param not in WIRE_MAX_TOKENS_PARAMS:
+            raise ValueError(
+                f"wire_max_tokens_param must be one of {WIRE_MAX_TOKENS_PARAMS}, "
+                f"got {wire_max_tokens_param!r}"
+            )
         self.client = None
         self.timeout = timeout
         self.max_retries = max_retries
         self.max_tokens = max_tokens
+        self.wire_max_tokens_param = wire_max_tokens_param
         # Category of the most recent failure (None when last call succeeded or
         # no call has been made). Values: "timeout", "rate_limit", "auth",
         # "server", "malformed", "not_initialized", "unknown".
@@ -114,9 +131,11 @@ class LLMClient:
             model=model,
             messages=messages,
             response_format={"type": "json_object"},
-            max_tokens=effective_max_tokens,
             timeout=timeout if timeout is not None else self.timeout,
         )
+        # WC-1: token cap under the configured wire name (max_completion_tokens
+        # by default; legacy max_tokens for old OpenAI-compatible proxies).
+        call_kwargs[self.wire_max_tokens_param] = effective_max_tokens
 
         try:
             response = await self.client.chat.completions.create(**call_kwargs)
