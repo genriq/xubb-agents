@@ -383,9 +383,11 @@ class DynamicAgent(BaseAgent):
             language_section = f"\n{context.language_directive}\n"
 
         # 6. Inject User Context (Cognitive Frame — gated by include_context)
+        # QW-3: no trailing "\n\n" — the join below supplies section separation;
+        # a trailing separator here produced a blank joined section (D1 bloat).
         user_context_section = ""
         if self.include_context and context.user_context:
-            user_context_section = f"{context.user_context}\n\n"
+            user_context_section = context.user_context
 
         parts = []
         if user_context_section:
