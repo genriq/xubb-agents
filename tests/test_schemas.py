@@ -176,6 +176,28 @@ def test_all_schemas_are_valid_json(schema_name):
 
 
 # --------------------------------------------------------------------------- #
+# QW-1 (SPEC_LLM_MODERN_MODELS): JSON-mode precondition drift-lock
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("schema_name", ALL_SCHEMA_NAMES)
+def test_qw1_instruction_contains_the_word_json(schema_name):
+    """QW-1: every shipped schema instruction contains the word "json".
+
+    LLMClient hard-sends ``response_format={"type": "json_object"}`` on every
+    call, and OpenAI's JSON mode rejects the request (400) unless the word
+    "json" appears somewhere in the messages. The schema instruction is the
+    only system-prompt section the framework controls for every agent, so it
+    must carry the word — an agent's authored text cannot be relied on to
+    include it.
+    """
+    instruction = _load_schema(schema_name).get("instruction", "")
+    assert "json" in instruction.lower(), (
+        f"{schema_name}.json instruction lacks the word 'json'; json_object "
+        "mode will 400 for any agent whose own prompt doesn't contain it"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # S-3 integration: state lands in variable_updates, not state_updates
 # --------------------------------------------------------------------------- #
 
