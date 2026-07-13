@@ -1,6 +1,6 @@
 # Xubb Agents Framework - Technical Specification
 
-**Version:** 2.4.0
+**Version:** 2.6.0
 **Status:** Beta — production-hardened (contract-gated; see docs/PROCESS.md)
 **Scope:** `xubb_agents` Library
 **Compatibility:** Backward compatible with v1.0/v2.0 agents, with one deliberate v2.2 contract correction (fact conflict resolution, F-1). See [SPEC_V2_1_HARDENING.md](archive/SPEC_V2_1_HARDENING.md) (archived) for v2.1 behavioral normalizations and [SPEC_V2_2_HARDENING.md](SPEC_V2_2_HARDENING.md) for the v2.2 hardening items and migration notes.

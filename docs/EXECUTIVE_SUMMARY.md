@@ -1,6 +1,6 @@
 # Xubb Agents — Overview
 
-**Version:** 2.4.0
+**Version:** 2.6.0
 
 A developer-facing overview of what the framework does and how it is put together. For
 the deep design guide see [PLAYBOOK.md](PLAYBOOK.md); for the API and data models see
@@ -133,9 +133,14 @@ The framework uses a **Blackboard Architecture** for multi-agent coordination
 
 - **Async-first:** Built on Python `asyncio` for non-blocking concurrent execution.
 - **OpenAI / OpenAI-compatible:** The LLM client wraps `AsyncOpenAI`, so it works with
-  OpenAI and any OpenAI-compatible endpoint (e.g. GPT-4o, GPT-4o-mini, or self-hosted
-  models behind an OpenAI-compatible API). A dedicated Anthropic adapter is out of scope
-  for this release.
+  OpenAI and any OpenAI-compatible endpoint (`base_url` is a first-class engine knob) —
+  from legacy gpt-4o-mini through the current gpt-5.x/gpt-5.6 families. A dedicated
+  Anthropic adapter is out of scope for this release.
+- **Two-lane economics (v2.5/v2.6):** reasoning models are supported with an explicit,
+  per-agent `reasoning_effort` — cheap always-on whisper agents pin it off; deep
+  analyzers opt in with validated latency/token budgets. Misconfiguration fails loudly
+  at registration, never as a silent bill; per-call token usage (including reasoning
+  tokens) is reported on every agent response.
 - **Pluggable schemas:** Custom output formats without code changes.
 - **Observable:** Callback system and structured tracing for debugging.
 - **Backward compatible:** v1.0 agents work unchanged in v2.0.
@@ -174,4 +179,4 @@ For a complete, runnable example (including a no-key offline variant), see the
 
 ---
 
-**Version:** 2.4.0 · **Status:** Beta, production-hardened (see the contract registry) · **License:** MIT
+**Version:** 2.6.0 · **Status:** Beta, production-hardened (see the contract registry) · **License:** MIT
