@@ -539,3 +539,37 @@ class TestLegacyMemoryAliasing:
         agent.private_state["seen"] = "mutated_later"
         agent.private_state["extra"] = "later"
         assert emitted == {"seen": "first"}
+
+
+# ---------------------------------------------------------------------------
+# QW-2 (SPEC_LLM_MODERN_MODELS) — single default-model constant
+# ---------------------------------------------------------------------------
+
+class TestQW2DefaultModelConstant:
+    """QW-2: the default model string lives in ONE framework constant.
+
+    Both default paths (AgentConfig's parameter default and DynamicAgent's
+    config-parse fallback) must resolve to core.agent.DEFAULT_MODEL, and the
+    package must export it for hosts. The VALUE stays "gpt-4o-mini" in this
+    release — changing it is a separate, eval-gated decision
+    (SPEC_LLM_MODERN_MODELS §3 non-goals).
+    """
+
+    def test_agent_config_default_model_is_the_constant(self):
+        from xubb_agents.core.agent import DEFAULT_MODEL, AgentConfig
+        assert AgentConfig(name="X").model == DEFAULT_MODEL
+
+    def test_dynamic_agent_fallback_model_is_the_constant(self):
+        from xubb_agents.core.agent import DEFAULT_MODEL
+        agent = make_agent({"has_insight": False})
+        assert agent.model == DEFAULT_MODEL
+        assert agent.config.model == DEFAULT_MODEL
+
+    def test_package_exports_default_model(self):
+        import xubb_agents
+        from xubb_agents.core.agent import DEFAULT_MODEL
+        assert xubb_agents.DEFAULT_MODEL == DEFAULT_MODEL
+
+    def test_default_model_value_unchanged_this_release(self):
+        from xubb_agents.core.agent import DEFAULT_MODEL
+        assert DEFAULT_MODEL == "gpt-4o-mini"
