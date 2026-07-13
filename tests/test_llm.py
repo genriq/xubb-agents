@@ -149,6 +149,15 @@ MESSAGES = [{"role": "user", "content": "hi"}]
         (FakeStatus(status_code=503), "server"),
         (FakeAPIError(), "server"),
         (ValueError("totally unexpected"), "unknown"),
+        # OB-1 (INV-16): 4xx client errors are misconfiguration, not outages —
+        # e.g. an unsupported parameter or an unknown model must not page the
+        # "server spike" runbook.
+        (FakeStatus(status_code=400), "misconfig"),
+        (FakeStatus(status_code=404), "misconfig"),
+        (FakeStatus(status_code=422), "misconfig"),
+        # Missing/non-int status_code must fall to "server", never raise
+        # (None < 500 would TypeError inside the handler).
+        (FakeStatus(status_code=None), "server"),
     ],
 )
 async def test_typed_errors_return_none_and_log_category(exc, expected_category, caplog):
@@ -203,6 +212,53 @@ async def test_non_json_content_is_malformed():
     result = await client.generate_json(model="m", messages=MESSAGES)
     assert result is None
     assert client.last_error_category == "malformed"
+
+
+# --------------------------------------------------------------------------- #
+# OB-1 (INV-16): length-stopped output -> "truncated", not "malformed".
+# --------------------------------------------------------------------------- #
+class _ChoiceWithFinish(_Choice):
+    def __init__(self, content, finish_reason=None):
+        super().__init__(content)
+        self.finish_reason = finish_reason
+
+
+@pytest.mark.asyncio
+async def test_length_stopped_null_content_is_truncated(caplog):
+    """Starved reasoning output: finish_reason=length with no content."""
+    resp = _Resp(choices=[_ChoiceWithFinish(None, finish_reason="length")])
+    client, _ = _make_client(result=resp)
+
+    with caplog.at_level(logging.WARNING, logger="AgentLLM"):
+        result = await client.generate_json(model="m", messages=MESSAGES)
+
+    assert result is None
+    assert client.last_error_category == "truncated"
+    assert "[category=truncated]" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_length_stopped_partial_content_is_truncated():
+    """Deliberate inertness deviation (spec §6.2): a length-stopped response
+    whose partial content happens to parse is still not trustworthy."""
+    resp = _Resp(choices=[_ChoiceWithFinish('{"ok": true}', finish_reason="length")])
+    client, _ = _make_client(result=resp)
+
+    result = await client.generate_json(model="m", messages=MESSAGES)
+
+    assert result is None
+    assert client.last_error_category == "truncated"
+
+
+@pytest.mark.asyncio
+async def test_normal_stop_is_not_truncated():
+    resp = _Resp(choices=[_ChoiceWithFinish('{"ok": true}', finish_reason="stop")])
+    client, _ = _make_client(result=resp)
+
+    result = await client.generate_json(model="m", messages=MESSAGES)
+
+    assert result == {"ok": True}
+    assert client.last_error_category is None
 
 
 # --------------------------------------------------------------------------- #

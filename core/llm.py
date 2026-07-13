@@ -85,7 +85,11 @@ class LLMClient:
         self.wire_max_tokens_param = wire_max_tokens_param
         # Category of the most recent failure (None when last call succeeded or
         # no call has been made). Values: "timeout", "rate_limit", "auth",
-        # "server", "malformed", "not_initialized", "unknown".
+        # "server", "misconfig", "truncated", "malformed", "not_initialized",
+        # "unknown". (OB-1 / INV-16: "misconfig" = 4xx client error such as an
+        # unsupported parameter or unknown model — an operator problem, not an
+        # outage; "truncated" = the model stopped on the token cap, so the
+        # output is untrustworthy AND billed — raise the cap or lower effort.)
         self.last_error_category: Optional[str] = None
 
         if not OPENAI_AVAILABLE:
@@ -152,11 +156,21 @@ class LLMClient:
             logger.error(f"LLM call failed [category=auth]: {e}")
             return None
         except APIStatusError as e:
-            # Non-2xx that isn't already a more specific subclass (e.g. 5xx that
-            # outlived the retry budget). status_code aids operator triage.
-            self.last_error_category = "server"
-            status = getattr(e, "status_code", "?")
-            logger.error(f"LLM call failed [category=server status={status}]: {e}")
+            # Non-2xx that isn't already a more specific subclass (401/429 raise
+            # their own subclasses and never reach here). OB-1 / INV-16: a 4xx
+            # is a client/config problem (unsupported parameter, unknown model,
+            # bad request shape) — distinguishable from a 5xx outage so the
+            # operator runbooks diverge. Missing/non-int status falls to
+            # "server" (never compare None < 500 inside the handler).
+            status = getattr(e, "status_code", None)
+            if isinstance(status, int) and status < 500:
+                self.last_error_category = "misconfig"
+                logger.error(f"LLM call failed [category=misconfig status={status}]: {e}")
+            else:
+                self.last_error_category = "server"
+                logger.error(
+                    f"LLM call failed [category=server status={status if status is not None else '?'}]: {e}"
+                )
             return None
         except APIError as e:
             # Catch-all for remaining SDK-level transport/protocol errors
@@ -178,7 +192,21 @@ class LLMClient:
                                "(content may have been filtered)")
                 self.last_error_category = "malformed"
                 return None
-            content = response.choices[0].message.content
+            choice = response.choices[0]
+            # OB-1 / INV-16: length-stopped output is checked BEFORE the
+            # null-content/parse branches — starved reasoning output arrives as
+            # finish_reason="length" with null/partial content and must not be
+            # misdiagnosed as "malformed" (you paid for tokens; the cap ate the
+            # answer). A partial body that happens to parse is still rejected:
+            # a truncated JSON object is not a trustworthy whisper.
+            if getattr(choice, "finish_reason", None) == "length":
+                logger.warning(
+                    "LLM call failed [category=truncated]: finish_reason=length "
+                    f"(output hit the token cap; configured cap={effective_max_tokens})"
+                )
+                self.last_error_category = "truncated"
+                return None
+            content = choice.message.content
             if content is None:
                 logger.warning("LLM call failed [category=malformed]: null message content")
                 self.last_error_category = "malformed"
