@@ -9,7 +9,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_(nothing yet)_
+### Fixed
+
+- **Post-2.6.0 documentation sweep** — six stale spots the release DOC items
+  didn't enumerate: `EXECUTIVE_SUMMARY.md` still said 2.4.0 (×2) and only named
+  gpt-4o-era models; `technical_spec_agents.md` header said 2.4.0; the docs
+  index still called SPEC_V2_2 "the current release spec"; PLAYBOOK Gate 3
+  quoted the pre-OB-2 `evaluate()` call verbatim; the prompt guide's
+  reliability checklist recommended "gpt-4o for complex reasoning" (now
+  actively misleading — deep lane = reasoning model + explicit effort +
+  budgets); README gained a "What's New in v2.5 / v2.6" section above the v2.2
+  one.
 
 ---
 

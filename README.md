@@ -148,6 +148,19 @@ Earlier releases — v2.0 (structured-blackboard rewrite), v2.1 (hardening), v2.
 are summarized in the [CHANGELOG](CHANGELOG.md); their specs are archived under
 [docs/archive/](docs/archive/). Current-release highlights below.
 
+## What's New in v2.5 / v2.6
+
+Modern-model compatibility (spec: [SPEC_LLM_MODERN_MODELS](docs/SPEC_LLM_MODERN_MODELS.md)) — any OpenAI Chat Completions model is now a valid per-agent choice, with **cheap-by-default two-lane economics**. Full detail in the [CHANGELOG](CHANGELOG.md).
+
+| Change | Release | Impact |
+|--------|---------|--------|
+| Token cap ships as `max_completion_tokens` on the wire (WC-1) | 2.5.0 | Reasoning models (gpt-5.x, o-series) stop rejecting the framework's requests; Python surface unchanged; legacy proxies can pin the old kwarg. |
+| `misconfig` + `truncated` error categories (OB-1) | 2.5.0 | A 4xx config rejection no longer reads as an outage; starved reasoning output no longer masquerades as bad JSON. |
+| Per-call `LLMResult` + token-usage telemetry (OB-2) | 2.5.0 | `generate()` returns race-free per-call attribution; `AgentResponse.usage` carries prompt/completion/reasoning/cached token counts. |
+| Per-agent `reasoning_effort` / `timeout` / `max_tokens` / `model_params` (RC-1..3) | 2.6.0 | Explicit two-lane config: whisper agents pin effort off; deep analyzers opt in. Sent only when set — never injected. |
+| Load-time validation (VL-1) | 2.6.0 | **Deliberate edge:** a reasoning-capable model without explicit `reasoning_effort` fails registration with a copy-pasteable fix (`strict_reasoning_config=False` downgrades to a warning). Vault reloads are all-or-nothing. |
+| Engine LLM knobs + rotation persistence (EN-1) | 2.6.0 | `llm_base_url` and friends are first-class; `update_api_key` no longer resets them. |
+
 ## What's New in v2.2
 
 v2.2 is a **hardening release** driven by a 5-agent audit — one critical contract fix, robustness/consistency hardening, and a documentation sweep. One behavioral contract correction (F-1) may change which fact wins; everything else is additive or internal.
