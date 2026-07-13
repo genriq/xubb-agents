@@ -104,7 +104,8 @@ class LLMClient:
                  timeout: float = DEFAULT_TIMEOUT,
                  max_retries: int = DEFAULT_MAX_RETRIES,
                  max_tokens: int = DEFAULT_MAX_TOKENS,
-                 wire_max_tokens_param: str = DEFAULT_WIRE_MAX_TOKENS_PARAM):
+                 wire_max_tokens_param: str = DEFAULT_WIRE_MAX_TOKENS_PARAM,
+                 base_url: Optional[str] = None):
         # WC-1: validate the wire knob FIRST — loud at load time, regardless of
         # key/SDK availability (the two documented values only).
         if wire_max_tokens_param not in WIRE_MAX_TOKENS_PARAMS:
@@ -117,6 +118,9 @@ class LLMClient:
         self.max_retries = max_retries
         self.max_tokens = max_tokens
         self.wire_max_tokens_param = wire_max_tokens_param
+        # EN-1: OpenAI-compatible endpoint override (proxies, vLLM, Ollama).
+        # None = the SDK default (api.openai.com / OPENAI_BASE_URL env).
+        self.base_url = base_url
         # Category of the most recent failure (None when last call succeeded or
         # no call has been made). Values: "timeout", "rate_limit", "auth",
         # "server", "misconfig", "truncated", "malformed", "not_initialized",
@@ -138,11 +142,14 @@ class LLMClient:
         # Bind the timeout/retry budget at the client level so the SDK's built-in
         # exponential backoff handles transient (429 / 5xx / connection / timeout)
         # failures for us.
-        self.client = AsyncOpenAI(
+        client_kwargs: Dict[str, Any] = dict(
             api_key=self.api_key,
             timeout=timeout,
             max_retries=max_retries,
         )
+        if base_url is not None:
+            client_kwargs["base_url"] = base_url
+        self.client = AsyncOpenAI(**client_kwargs)
 
     def _finish(self, parsed: Optional[Dict[str, Any]] = None,
                 error_category: Optional[str] = None,
