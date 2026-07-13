@@ -13,6 +13,65 @@ _(nothing yet)_
 
 ---
 
+## [2.6.0] - 2026-07-13
+
+Per-agent reasoning configuration (Release B of `docs/SPEC_LLM_MODERN_MODELS.md`).
+Additive config surface + **one deliberate load-time edge** (see Breaking below).
+The two-lane pattern is now first-class: fast whisper agents pin effort off;
+deep analysis agents opt into reasoning with validated budgets.
+
+### Added
+
+- **Per-agent LLM-call config on `AgentConfig` / `model_config`** (RC-1/RC-3,
+  INV-15): `reasoning_effort`, `timeout`, `max_tokens` — forwarded by
+  `DynamicAgent` **only when set** (the framework never injects a parameter the
+  operator didn't write; omission leaves the model's own default; strict-
+  signature fakes and the simulator stay compatible). On custom `BaseAgent`
+  subclasses the fields are a *declaration* consumed by validation — the
+  subclass owns forwarding them into its own calls (PLAYBOOK snippet).
+- **`model_config.model_params`** (RC-2): verbatim Chat-Completions passthrough
+  for parameters the framework doesn't model (e.g. `verbosity`). Framework-owned
+  keys (`model`, `messages`, `response_format`, both token-cap spellings,
+  `timeout`, `reasoning_effort`) are rejected at load with
+  `AgentConfigurationError`; the call-site merge is defensive regardless
+  (framework keys always win). Documented as wire-shaped, not transport-portable.
+- **Load-time validation at registration** (VL-1, INV-19): an ADVISORY
+  model-name heuristic (payload-advisory — provably never alters outbound
+  kwargs) drives warn-once signals: effort on a non-reasoning shape, deep
+  effort with starved budgets (`timeout <= 10s` / `max_tokens < 4096` — billed
+  timeouts/truncation), `temperature`/`top_p` on reasoning models.
+- **`AgentEngine` LLM knobs** (EN-1, INV-18): `llm_timeout`, `llm_max_retries`,
+  `llm_max_tokens`, `llm_base_url` (OpenAI-compatible endpoints, first-class),
+  `llm_wire_max_tokens_param`, `strict_reasoning_config`. The resolved set is
+  stored and **reused by `update_api_key`** — key rotation no longer silently
+  resets the client to module defaults (previously it rebuilt bare).
+- **`xubb_agents.AgentConfigurationError`** — the load-time config failure type.
+
+### Breaking (deliberate, per spec D-1 ruling)
+
+- **A model matching the reasoning heuristic without an explicit
+  `reasoning_effort` now hard-fails registration** with a copy-pasteable fix
+  (the API default — often `medium` — silently blows the real-time envelope
+  and multiplies cost). One config field per affected agent. Escape hatch:
+  `AgentEngine(strict_reasoning_config=False)` downgrades to a warning.
+  `replace_agents` is all-or-nothing: one bad config rejects the whole vault
+  reload and the old registry keeps serving.
+
+### Migration (hosts / xubb_server)
+
+- Audit vault configs before upgrading: every agent on a `gpt-5*` / `o1|o3|o4*`
+  model needs `model_config.reasoning_effort` (`"none"` for 5.1+/5.6 mainline,
+  `"minimal"` for the original gpt-5 family, `"low"` for o-series). Effort
+  value validity is per-model; a wrong pair surfaces as `misconfig`.
+- Recommended lanes: fast = gpt-5.4-nano + `"none"` (or gpt-5-nano +
+  `"minimal"`); standard = gpt-5.4-mini / gpt-5.6-luna + `"none"`; deep
+  (opt-in) = gpt-5.6-terra/sol + `low`–`high` + `timeout >= 30` +
+  `max_tokens >= 25000`.
+- Hosts that relied on `update_api_key` resetting LLM settings (unlikely;
+  previously a bug) must now set them explicitly.
+
+---
+
 ## [2.5.0] - 2026-07-13
 
 Modern-model wire compatibility + observability (Release A of

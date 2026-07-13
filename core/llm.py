@@ -54,6 +54,17 @@ DEFAULT_MAX_TOKENS = 1024   # output cap for the JSON object
 WIRE_MAX_TOKENS_PARAMS = ("max_completion_tokens", "max_tokens")
 DEFAULT_WIRE_MAX_TOKENS_PARAM = "max_completion_tokens"
 
+# RC-2 (SPEC_LLM_MODERN_MODELS / INV-15): wire kwargs the framework owns.
+# A model_params passthrough entry colliding with any of these is rejected at
+# config-load time, and the call-site merge is defensive regardless — an
+# unvalidated dict can never overwrite the wire essentials. BOTH token-cap
+# spellings are owned, independent of the WC-1 wire mode.
+FRAMEWORK_OWNED_PARAMS = frozenset({
+    "model", "messages", "response_format",
+    "max_tokens", "max_completion_tokens",
+    "timeout", "reasoning_effort",
+})
+
 
 @dataclass(frozen=True)
 class LLMResult:
@@ -93,7 +104,8 @@ class LLMClient:
                  timeout: float = DEFAULT_TIMEOUT,
                  max_retries: int = DEFAULT_MAX_RETRIES,
                  max_tokens: int = DEFAULT_MAX_TOKENS,
-                 wire_max_tokens_param: str = DEFAULT_WIRE_MAX_TOKENS_PARAM):
+                 wire_max_tokens_param: str = DEFAULT_WIRE_MAX_TOKENS_PARAM,
+                 base_url: Optional[str] = None):
         # WC-1: validate the wire knob FIRST — loud at load time, regardless of
         # key/SDK availability (the two documented values only).
         if wire_max_tokens_param not in WIRE_MAX_TOKENS_PARAMS:
@@ -106,6 +118,9 @@ class LLMClient:
         self.max_retries = max_retries
         self.max_tokens = max_tokens
         self.wire_max_tokens_param = wire_max_tokens_param
+        # EN-1: OpenAI-compatible endpoint override (proxies, vLLM, Ollama).
+        # None = the SDK default (api.openai.com / OPENAI_BASE_URL env).
+        self.base_url = base_url
         # Category of the most recent failure (None when last call succeeded or
         # no call has been made). Values: "timeout", "rate_limit", "auth",
         # "server", "misconfig", "truncated", "malformed", "not_initialized",
@@ -127,11 +142,14 @@ class LLMClient:
         # Bind the timeout/retry budget at the client level so the SDK's built-in
         # exponential backoff handles transient (429 / 5xx / connection / timeout)
         # failures for us.
-        self.client = AsyncOpenAI(
+        client_kwargs: Dict[str, Any] = dict(
             api_key=self.api_key,
             timeout=timeout,
             max_retries=max_retries,
         )
+        if base_url is not None:
+            client_kwargs["base_url"] = base_url
+        self.client = AsyncOpenAI(**client_kwargs)
 
     def _finish(self, parsed: Optional[Dict[str, Any]] = None,
                 error_category: Optional[str] = None,
@@ -175,7 +193,10 @@ class LLMClient:
 
     async def generate_json(self, model: str, messages: list,
                             max_tokens: Optional[int] = None,
-                            timeout: Optional[float] = None) -> Optional[Dict[str, Any]]:
+                            timeout: Optional[float] = None,
+                            reasoning_effort: Optional[str] = None,
+                            extra_params: Optional[Dict[str, Any]] = None
+                            ) -> Optional[Dict[str, Any]]:
         """Generate a structured JSON response from the LLM.
 
         Thin delegate over :meth:`generate` (OB-2). The public contract is
@@ -185,12 +206,17 @@ class LLMClient:
         needing per-call usage/attribution use :meth:`generate` instead.
         """
         result = await self.generate(model=model, messages=messages,
-                                     max_tokens=max_tokens, timeout=timeout)
+                                     max_tokens=max_tokens, timeout=timeout,
+                                     reasoning_effort=reasoning_effort,
+                                     extra_params=extra_params)
         return result.parsed
 
     async def generate(self, model: str, messages: list,
                        max_tokens: Optional[int] = None,
-                       timeout: Optional[float] = None) -> "LLMResult":
+                       timeout: Optional[float] = None,
+                       reasoning_effort: Optional[str] = None,
+                       extra_params: Optional[Dict[str, Any]] = None
+                       ) -> "LLMResult":
         """Run one structured-JSON LLM call and return the per-call result.
 
         Resilient per INV-10: time-bounded (per-request ``timeout`` override or
@@ -204,9 +230,13 @@ class LLMClient:
             return self._finish(error_category="not_initialized")
 
         effective_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
+        # RC-2 / INV-15: passthrough params go in FIRST so the framework-owned
+        # keys below always win — an unvalidated dict can never overwrite the
+        # wire essentials (defensive even though config load rejects collisions).
+        call_kwargs: Dict[str, Any] = dict(extra_params) if extra_params else {}
         # Per-request timeout override; the SDK accepts ``timeout=`` on the call
         # and falls back to the client-level budget when omitted.
-        call_kwargs: Dict[str, Any] = dict(
+        call_kwargs.update(
             model=model,
             messages=messages,
             response_format={"type": "json_object"},
@@ -215,6 +245,15 @@ class LLMClient:
         # WC-1: token cap under the configured wire name (max_completion_tokens
         # by default; legacy max_tokens for old OpenAI-compatible proxies).
         call_kwargs[self.wire_max_tokens_param] = effective_max_tokens
+        # WC-1 corollary: the passthrough must not smuggle the OTHER token-cap
+        # spelling around the configured wire name.
+        for spelling in WIRE_MAX_TOKENS_PARAMS:
+            if spelling != self.wire_max_tokens_param:
+                call_kwargs.pop(spelling, None)
+        # RC-1 / INV-15: sent ONLY when the operator configured it — the
+        # framework never injects, and omission leaves the model's default.
+        if reasoning_effort is not None:
+            call_kwargs["reasoning_effort"] = reasoning_effort
 
         try:
             response = await self.client.chat.completions.create(**call_kwargs)

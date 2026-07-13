@@ -117,6 +117,46 @@ class DynamicAgent(BaseAgent):
         # Support top-level keys or nested 'model_config'
         model_conf = config_dict.get("model_config", {})
         model = model_conf.get("model", config_dict.get("model", DEFAULT_MODEL))
+
+        # v2.6 RC-1/RC-3: per-agent LLM-call config — coerced defensively per
+        # house pattern (bad values warn and are treated as absent, never a
+        # config crash), stored canonically on AgentConfig.
+        agent_name = config_dict.get("name", "Dynamic Agent")
+        reasoning_effort = model_conf.get("reasoning_effort")
+        if reasoning_effort is not None and not isinstance(reasoning_effort, str):
+            logger.warning(
+                f"Ignoring non-string reasoning_effort ({reasoning_effort!r}) "
+                f"for agent '{agent_name}'"
+            )
+            reasoning_effort = None
+        llm_timeout = self._coerce_positive_number(
+            model_conf.get("timeout"), "timeout", agent_name, float)
+        llm_max_tokens = self._coerce_positive_number(
+            model_conf.get("max_tokens"), "max_tokens", agent_name, int)
+
+        # v2.6 RC-2: model_params passthrough — non-dict warns and is treated
+        # as absent; collisions with framework-owned wire keys are rejected
+        # HERE (pure-config check, reachable even for direct-constructed
+        # agents that never pass engine registration).
+        model_params = model_conf.get("model_params")
+        if model_params is None:
+            model_params = {}
+        elif not isinstance(model_params, dict):
+            logger.warning(
+                f"Ignoring non-dict model_params ({model_params!r}) "
+                f"for agent '{agent_name}'"
+            )
+            model_params = {}
+        else:
+            from ..core.llm import FRAMEWORK_OWNED_PARAMS
+            from ..core.engine import AgentConfigurationError
+            collisions = sorted(set(model_params) & FRAMEWORK_OWNED_PARAMS)
+            if collisions:
+                raise AgentConfigurationError(
+                    f"Agent '{agent_name}': model_params may not set framework-owned "
+                    f"key(s) {collisions} — use the dedicated model_config fields "
+                    f"(model / reasoning_effort / timeout / max_tokens) instead."
+                )
         
         # Parse output format (default, v2_raw, or custom filename)
         output_format = config_dict.get("output_format", "default")
@@ -137,7 +177,12 @@ class DynamicAgent(BaseAgent):
             output_format=output_format,
             # V2 additions
             trigger_conditions=trigger_conditions,
-            subscribed_events=subscribed_events
+            subscribed_events=subscribed_events,
+            # v2.6 per-agent LLM-call config (RC-1/RC-2/RC-3)
+            reasoning_effort=reasoning_effort,
+            timeout=llm_timeout,
+            max_tokens=llm_max_tokens,
+            model_params=model_params,
         ))
         
         self.system_prompt = config_dict.get("text", "")
@@ -231,6 +276,31 @@ class DynamicAgent(BaseAgent):
                 format_name,
                 referenced,
             )
+
+    @staticmethod
+    def _coerce_positive_number(raw, field_name, agent_name, cast):
+        """RC-3: coerce a per-agent LLM budget to a positive number, or None.
+
+        House pattern (cf. trigger_interval): a non-numeric or non-positive
+        value is warned and treated as absent — never a config crash.
+        """
+        if raw is None:
+            return None
+        try:
+            value = cast(raw)
+            if value <= 0:
+                logger.warning(
+                    f"Ignoring non-positive {field_name} ({raw!r}) "
+                    f"for agent '{agent_name}'"
+                )
+                return None
+            return value
+        except (TypeError, ValueError):
+            logger.warning(
+                f"Ignoring non-numeric {field_name} ({raw!r}) "
+                f"for agent '{agent_name}'"
+            )
+            return None
 
     @staticmethod
     def _coerce_confidence(raw) -> float:
@@ -420,15 +490,30 @@ class DynamicAgent(BaseAgent):
         # (race-free category + usage attribution, INV-17); duck-typed fakes and
         # the simulator's MockLLMClient may implement only generate_json — both
         # keep working, the enrichment is simply absent.
+        # RC-1/RC-2/RC-3 / INV-15: per-agent LLM-call config is forwarded
+        # ONLY when configured — an unconfigured agent sends zero extra kwargs,
+        # so strict-signature fakes (simulator MockLLMClient) stay compatible
+        # and the wire carries exactly what the operator wrote.
+        llm_kwargs = {}
+        if self.config.reasoning_effort is not None:
+            llm_kwargs["reasoning_effort"] = self.config.reasoning_effort
+        if self.config.timeout is not None:
+            llm_kwargs["timeout"] = self.config.timeout
+        if self.config.max_tokens is not None:
+            llm_kwargs["max_tokens"] = self.config.max_tokens
+        if self.config.model_params:
+            llm_kwargs["extra_params"] = self.config.model_params
+
         llm_usage = None
         try:
             gen = getattr(self.llm, "generate", None)
             if callable(gen):
-                llm_result = await gen(model=self.model, messages=messages)
+                llm_result = await gen(model=self.model, messages=messages, **llm_kwargs)
                 result = llm_result.parsed
                 llm_usage = llm_result.usage
             else:
-                result = await self.llm.generate_json(model=self.model, messages=messages)
+                result = await self.llm.generate_json(model=self.model, messages=messages,
+                                                      **llm_kwargs)
         except Exception as e:
             self.logger.error(f"LLM call failed for {self.config.name}: {e}", exc_info=True)
             return None
