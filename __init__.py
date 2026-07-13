@@ -1,4 +1,4 @@
-from .core.engine import AgentEngine
+from .core.engine import AgentEngine, AgentConfigurationError
 from .core.agent import BaseAgent, AgentConfig, DEFAULT_MODEL
 from .core.models import (
     AgentContext, AgentConfigOverride, TranscriptSegment, InsightType, AgentResponse, TriggerType,

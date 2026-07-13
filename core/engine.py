@@ -36,6 +36,19 @@ from .conditions import ConditionEvaluator
 logger = logging.getLogger("AgentEngine")
 
 
+class AgentConfigurationError(ValueError):
+    """A per-agent LLM configuration is invalid at load time (v2.6, VL-1/RC-2).
+
+    Raised BEFORE any registry mutation: by ``DynamicAgent.__init__`` for
+    ``model_params`` collisions with framework-owned wire keys, and by
+    ``AgentEngine.register_agent``/``replace_agents`` when a model matching the
+    reasoning heuristic lacks an explicit ``reasoning_effort`` (D-1 ruling;
+    downgraded to a warning when the engine is constructed with
+    ``strict_reasoning_config=False``). The message always contains a
+    copy-pasteable fix.
+    """
+
+
 # References to best-effort background LLM-client close tasks (see _close_llm_client).
 # Holding them prevents a fire-and-forget task from being garbage-collected mid-close;
 # each task's done-callback removes itself and logs any failure.

@@ -576,3 +576,53 @@ async def test_ob2_llmresult_attributes_categories_per_call():
 
     assert result_a.error_category == "timeout"
     assert result_b.error_category == "rate_limit"
+
+
+# --------------------------------------------------------------------------- #
+# RC-1/RC-2 (INV-15): reasoning_effort present-iff-configured; passthrough
+# merged with framework keys winning.
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_reasoning_effort_present_iff_configured():
+    payload = {"ok": True}
+    client, completions = _make_client(result=_Resp(content=json.dumps(payload)))
+
+    await client.generate(model="m", messages=MESSAGES)
+    assert "reasoning_effort" not in completions.calls[0]
+
+    await client.generate(model="m", messages=MESSAGES, reasoning_effort="low")
+    assert completions.calls[1]["reasoning_effort"] == "low"
+
+
+@pytest.mark.asyncio
+async def test_generate_json_forwards_reasoning_effort():
+    payload = {"ok": True}
+    client, completions = _make_client(result=_Resp(content=json.dumps(payload)))
+
+    await client.generate_json(model="m", messages=MESSAGES, reasoning_effort="high")
+
+    assert completions.calls[0]["reasoning_effort"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_extra_params_passthrough_framework_keys_win():
+    """INV-15 defensive merge: passthrough lands verbatim, but an unvalidated
+    dict can never overwrite the wire essentials."""
+    payload = {"ok": True}
+    client, completions = _make_client(result=_Resp(content=json.dumps(payload)))
+
+    await client.generate(
+        model="m", messages=MESSAGES,
+        extra_params={
+            "verbosity": "low",             # legitimate passthrough
+            "model": "evil-override",       # must lose to the framework
+            "max_completion_tokens": 9,     # must lose to the framework
+            "response_format": {"type": "text"},  # must lose
+        },
+    )
+
+    kwargs = completions.calls[0]
+    assert kwargs["verbosity"] == "low"
+    assert kwargs["model"] == "m"
+    assert kwargs["max_completion_tokens"] == 1024
+    assert kwargs["response_format"] == {"type": "json_object"}
