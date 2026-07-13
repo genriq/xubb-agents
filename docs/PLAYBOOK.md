@@ -3027,11 +3027,19 @@ The detector is cheap and always-on; the expensive model only spends tokens on t
 Every call is output-capped. The cap is the per-call override or the client default (1024):
 
 ```python
-# core/llm.py — generate_json
+# core/llm.py — generate()
 effective_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
+call_kwargs[self.wire_max_tokens_param] = effective_max_tokens   # max_completion_tokens by default (v2.5)
 ```
 
 Because responses are forced JSON (`response_format={"type": "json_object"}`), a tight `max_tokens` both bounds cost *and* protects the latency budget — a runaway generation can't blow either. For a HUD insight that's one sentence and a confidence score, 1024 is generous; many agents are happy at 256. **Cap to the shape of the output you actually render.**
+
+> **v2.5 wire note:** the Python parameter is still `max_tokens`, but it ships on the wire as
+> `max_completion_tokens` — required by reasoning models, accepted by everything current. Old
+> OpenAI-compatible proxies that predate the kwarg can pin
+> `LLMClient(wire_max_tokens_param="max_tokens")`. On reasoning models the cap covers
+> *reasoning tokens too*: a cap sized for a one-sentence whisper will starve a reasoning
+> model into a `truncated` failure — billed, with no output.
 
 ---
 
@@ -3087,16 +3095,24 @@ Production resilience in `xubb_agents` rests on three layers that compose into a
 `generate_json` is contractually total: it returns the parsed dict on success or `None` on *any* failure, and it classifies the failure into a typed category recorded on `last_error_category`:
 
 ```python
-# core/llm.py — categories: timeout | rate_limit | auth | server | malformed | not_initialized | unknown
+# core/llm.py — categories: timeout | rate_limit | auth | server | misconfig | truncated | malformed | not_initialized | unknown
 except APITimeoutError as e:
-    self.last_error_category = "timeout";   logger.error(f"… [category=timeout]: {e}");   return None
+    logger.error(f"… [category=timeout]: {e}");   return self._finish(error_category="timeout")
 except RateLimitError as e:
-    self.last_error_category = "rate_limit"; logger.error(f"… [category=rate_limit]: {e}"); return None
+    logger.error(f"… [category=rate_limit]: {e}"); return self._finish(error_category="rate_limit")
 except AuthenticationError as e:
-    self.last_error_category = "auth";      logger.error(f"… [category=auth]: {e}");      return None
+    logger.error(f"… [category=auth]: {e}");      return self._finish(error_category="auth")
 ```
 
-These categories are operationally distinct and you must treat them so. `auth` means **stop** — your key is bad; retrying burns latency on a guaranteed failure and `rate_limit` retries make it worse. `rate_limit` / `server` / `timeout` are transient — the SDK already retried with exponential backoff (`max_retries=2`) before the exception surfaced. `malformed` means the model returned non-JSON or filtered content — a prompt/schema problem, not an infra problem. **Monitoring `last_error_category` is how you tell "OpenAI is down" from "my prompt is broken."** Ignoring it is flying blind during an incident.
+These categories are operationally distinct and you must treat them so. `auth` means **stop** — your key is bad; retrying burns latency on a guaranteed failure and `rate_limit` retries make it worse. `rate_limit` / `server` / `timeout` are transient — the SDK already retried with exponential backoff (`max_retries=2`) before the exception surfaced. `misconfig` (v2.5) is a **4xx client rejection** — an unsupported parameter, unknown model, or bad request shape: an operator problem that no amount of retrying fixes, and *not* an outage. `truncated` (v2.5) means the model stopped on the token cap (`finish_reason="length"`) — with reasoning models this is the classic starved-cap signature: **you were billed for tokens and got no usable output**; raise the cap or lower the effort. `malformed` means the model returned non-JSON or filtered content — a prompt/schema problem, not an infra problem. **Monitoring the error category is how you tell "OpenAI is down" from "my prompt is broken" from "my config is wrong."** Ignoring it is flying blind during an incident.
+
+> **v2.5 attribution note:** for per-call attribution use the enriched
+> `generate()` method, which returns an `LLMResult` carrying `parsed`,
+> `error_category`, `usage` (prompt/completion/reasoning/cached token ints —
+> populated even on `truncated`/`malformed`, which are billed), and
+> `finish_reason`. `generate_json` is now a thin delegate over it and keeps
+> the dict-or-`None` contract. `last_error_category` remains as a deprecated
+> best-effort mirror — see the concurrency caveat in §10.4.
 
 ### Layer 2 — graceful degradation in the agent
 
@@ -3198,7 +3214,7 @@ engine = AgentEngine(api_key=key, callbacks=[StructuredLogTracer()])
 engine.callbacks.append(CostMeter(engine))   # callbacks compose; add as many as you like
 ```
 
-> Note `last_error_category` lives on the **shared** `engine.llm_client` (one client per engine), so read it in `on_agent_finish` right after the call, or correlate via the tracer's per-step `status`. For per-agent attribution, prefer `status == "no_response"` in the trace step as your "this agent's call failed or was a no-op" signal.
+> Note `last_error_category` lives on the **shared** `engine.llm_client` (one client per engine) and agents run concurrently — under `asyncio.gather` it can only report the *last writer*, so it is now a **deprecated best-effort mirror**. For per-agent attribution use the v2.5 path: `DynamicAgent` calls the enriched `generate()` and surfaces the per-call result — `response.usage` (first-class, serializes) and `debug_info["usage"]` — or correlate via the tracer's per-step `status`.
 
 ### The visual debugger (`tools/debugger.html`)
 
@@ -3207,8 +3223,8 @@ engine.callbacks.append(CostMeter(engine))   # callbacks compose; add as many as
 **What to log and monitor in production:**
 - Per-turn: `total_latency_ms` (p50/p95/p99 vs your real-time budget), `final_insight_count`.
 - Per-agent: `latency_ms` (find the slow agent capping your turn), `status` distribution (rising `no_response`/`error` = an agent degrading).
-- LLM health: `last_error_category` distribution — alert hard on `auth`, page on a `rate_limit`/`server` spike, treat a `malformed` spike as a prompt regression.
-- Cost proxy: count of `on_agent_finish` events per turn = real LLM rounds; if it creeps up, your gates are loosening.
+- LLM health: error-category distribution — alert hard on `auth`, page on a `rate_limit`/`server` spike, treat a `malformed` spike as a prompt regression, treat `misconfig` as a config/deploy bug (a 4xx rejection — don't page the outage runbook), and treat `truncated` as a token-budget bug: **you are paying for output you never see** (raise `max_tokens` or lower reasoning effort).
+- Cost: v2.5 puts real token usage on every per-agent response (`response.usage`, incl. `reasoning_tokens`/`cached_tokens` when reported) — sum it per agent per session instead of counting rounds; `on_agent_finish` count per turn remains the sanity check that your gates aren't loosening.
 
 ---
 
@@ -3313,7 +3329,7 @@ The scaling story is intentionally boring: **share nothing, isolate per session,
 - **No timeout / loose `max_tokens`.** A single slow request stalls the `gather` up to the full 10s; an uncapped JSON reply can blow both latency and cost. Pass a tight per-request `timeout` and a `max_tokens` matched to the rendered output.
 - **Sharing one engine/blackboard across sessions.** Cross-session state leakage, snapshot-isolation violations, and a single lock throttling all conversations. One engine + one blackboard **per session**, always.
 - **Calling `update_api_key` mid-turn.** Violates the E-4 precondition; an in-flight agent can get a half-swapped client. Always rotate behind the session lock with no turn in flight.
-- **Ignoring `last_error_category`.** Retrying an `auth` failure burns latency on a guaranteed loss; treating a `malformed` spike as an outage sends you debugging infra when the bug is your prompt. The categories exist so you respond correctly — use them.
+- **Ignoring the error categories.** Retrying an `auth` failure burns latency on a guaranteed loss; treating a `malformed` spike as an outage sends you debugging infra when the bug is your prompt; paging the outage runbook on `misconfig` (a 4xx config rejection) hides a deploy bug; ignoring `truncated` quietly bills you for output the cap ate. The categories exist so you respond correctly — use them.
 - **No observability.** Running the swarm with no tracer means you can't see which agent capped your latency, which agents actually spent tokens, or whether errors are creeping up. Attach `StructuredLogTracer` from day one — callbacks can't break the turn, so there's no excuse.
 
 ---
@@ -3338,7 +3354,7 @@ The scaling story is intentionally boring: **share nothing, isolate per session,
 
 **Observability**
 - [ ] `StructuredLogTracer` is attached; `TURN_TRACE:` lines are shipped to your log store.
-- [ ] Alerts on `last_error_category`: hard-stop on `auth`, page on `rate_limit`/`server` spikes, prompt-regression alert on `malformed`.
+- [ ] Alerts on error categories: hard-stop on `auth`, page on `rate_limit`/`server` spikes, prompt-regression alert on `malformed`, deploy/config alert on `misconfig` (4xx — not an outage), token-budget alert on `truncated` (billed, no output).
 - [ ] Dashboards on `total_latency_ms` (p95/p99) and per-agent `latency_ms` + `status`.
 - [ ] `tools/debugger.html` wired to the live WS for dev, and usable for paste-in post-incident review.
 
@@ -3357,7 +3373,7 @@ The scaling story is intentionally boring: **share nothing, isolate per session,
 > 1. **Four gates before a token.** Conditions (free) → cooldown (free) → model tier (cheap-vs-premium) → `max_tokens` (cap). Most agents, most turns, spend nothing. The premium model only fires after a cheap detector has already paid to notice.
 > 2. **The turn is two parallel rounds, hard-bounded.** `gather` makes latency the slowest agent, not the sum; the `{1,2}` phase cap means the swarm can never cascade into an unbounded chain inside one turn. Tighten per-request `timeout` below the 10s ceiling for the HUD.
 > 3. **Nothing can break a turn.** R-1 (`generate_json` never raises, returns `None`, categorizes the failure) + graceful degradation (`InsightType.ERROR`) + atomic discard (`_run_agent_safe` → `None`) compose into a total guarantee. B4 cooldown-after-error means even a failing agent is rate-limited.
-> 4. **`last_error_category` is your incident compass.** `auth` = stop. `rate_limit`/`server`/`timeout` = transient, already retried. `malformed` = your prompt, not their infra. Monitoring it is how you tell "OpenAI is down" from "I shipped a bad prompt."
+> 4. **The error category is your incident compass.** `auth` = stop. `rate_limit`/`server`/`timeout` = transient, already retried. `misconfig` = 4xx config rejection — your deploy, not their infra. `truncated` = the token cap ate a billed answer. `malformed` = your prompt. Monitoring it is how you tell "OpenAI is down" from "I shipped a bad prompt" from "I shipped a bad config." (Per-call: `LLMResult.error_category`; the shared `last_error_category` mirror is deprecated.)
 > 5. **Share nothing, isolate per session.** One engine + one blackboard per conversation, a per-session lock for the no-concurrent-turn precondition, `asyncio` interleaving the I/O. Scaling to thousands of live sessions is boring on purpose — and *restraint is the feature*: the cheapest, fastest, most resilient turn is the one where every gate did its job and almost nothing ran.
 # Capstone — Designing a Complete Copilot Agent Suite
 
