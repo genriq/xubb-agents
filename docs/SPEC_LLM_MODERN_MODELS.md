@@ -2,7 +2,7 @@
 ## Modern-Model Compatibility Specification (llm-modern-models)
 
 **Version:** 2.5.0 (Release A) / 2.6.0 (Release B) — staged; see §10
-**Status:** APPROVED — 2026-07-13 (owner @genriq; rulings D-1 hard-fail · D-2 two releases · D-3 defer · D-4 defer). Amendment 1 (spec-review findings) applied and ratified same day. **Phase 0 (QW-1..3) and Release A (WC-1, OB-1, OB-2, DOC-A) IMPLEMENTED** on `feature/v2.5-llm-modern-models` — suite green, contract gate 27/27. Release B (2.6.0) pending.
+**Status:** APPROVED — 2026-07-13 (owner @genriq; rulings D-1 hard-fail · D-2 two releases · D-3 defer · D-4 defer). Amendment 1 (spec-review findings) applied and ratified same day. **IMPLEMENTED IN FULL:** Phase 0 + Release A (2.5.0, merged via PR #17) and Release B (2.6.0: RC-1..3, VL-1, EN-1, DOC-B on `feature/v2.6-reasoning-config`) — suite green, contract gate 30/30, INV-15..19 all registered and covered.
 **Date:** July 13, 2026
 **Process Tier:** **Tier 1** (contract change + config-schema change + silent-regression risk → spec approved before code; see docs/PROCESS.md)
 **Scope:** Full compatibility with modern OpenAI models (GPT-5.x, GPT-5.6 sol/terra/luna, o-series) with **cheap-by-default two-lane economics**: whisper agents stay fast and near-free; reasoning is an explicit per-agent opt-in. Derived from a three-lens validation (API-facts vs OpenAI docs, codebase-fit audit, adversarial design review) of the 2026-07-13 modernization proposal.

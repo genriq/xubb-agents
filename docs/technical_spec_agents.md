@@ -178,15 +178,25 @@ class LLMClient:
                  timeout: float = 10.0,
                  max_retries: int = 2,
                  max_tokens: int = 1024,
-                 wire_max_tokens_param: str = "max_completion_tokens")
+                 wire_max_tokens_param: str = "max_completion_tokens",
+                 base_url: Optional[str] = None)              # v2.6 EN-1
     async def generate_json(self, model: str, messages: list,
                             max_tokens: Optional[int] = None,
-                            timeout: Optional[float] = None) -> Optional[Dict[str, Any]]
+                            timeout: Optional[float] = None,
+                            reasoning_effort: Optional[str] = None,     # v2.6 RC-1
+                            extra_params: Optional[Dict[str, Any]] = None  # v2.6 RC-2
+                            ) -> Optional[Dict[str, Any]]
     async def generate(self, model: str, messages: list,
                        max_tokens: Optional[int] = None,
-                       timeout: Optional[float] = None) -> LLMResult
+                       timeout: Optional[float] = None,
+                       reasoning_effort: Optional[str] = None,
+                       extra_params: Optional[Dict[str, Any]] = None) -> LLMResult
     last_error_category: Optional[str]  # DEPRECATED mirror (racy under gather); use LLMResult
 ```
+
+- **Per-agent config (v2.6 — RC-1/RC-2/RC-3, INV-15):** `AgentConfig` carries optional `reasoning_effort` / `timeout` / `max_tokens` / `model_params`. `DynamicAgent` forwards them **only when set** — the framework never injects; omission leaves the model's own default. `model_params` merges with framework-owned keys winning; collisions are rejected at config load (`AgentConfigurationError`).
+- **Load-time validation (v2.6 — VL-1, INV-19; D-1 ruling):** `AgentEngine.register_agent`/`replace_agents` hard-fail (`AgentConfigurationError`) when a model matching the advisory reasoning heuristic lacks explicit `reasoning_effort` (warn-only under `AgentEngine(strict_reasoning_config=False)`); budget/sampling mismatches warn once per agent id. `replace_agents` is all-or-nothing — one bad config rejects the reload and the old registry keeps serving.
+- **Engine LLM knobs (v2.6 — EN-1, INV-18):** `AgentEngine(llm_timeout=, llm_max_retries=, llm_max_tokens=, llm_base_url=, llm_wire_max_tokens_param=, strict_reasoning_config=)`. The resolved set persists across `update_api_key` — key rotation never resets the client to module defaults.
 
 ---
 
