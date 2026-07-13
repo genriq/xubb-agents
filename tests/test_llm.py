@@ -107,7 +107,8 @@ class _FakeChat:
         self.completions = completions
 
 
-def _make_client(*, result=None, raises=None):
+def _make_client(*, result=None, raises=None,
+                 wire_max_tokens_param="max_completion_tokens"):
     """Build an LLMClient with its underlying create() mocked.
 
     We bypass real OpenAI construction by directly attaching a fake ``client``
@@ -118,6 +119,7 @@ def _make_client(*, result=None, raises=None):
     client.timeout = 10.0
     client.max_retries = 2
     client.max_tokens = 1024
+    client.wire_max_tokens_param = wire_max_tokens_param
     client.last_error_category = None
 
     completions = _FakeCompletions(result=result, raises=raises)
@@ -230,7 +232,11 @@ async def test_defaults_passed_to_create():
     assert len(completions.calls) == 1
     kwargs = completions.calls[0]
     assert kwargs["timeout"] == 10.0
-    assert kwargs["max_tokens"] == 1024
+    # WC-1: the token cap ships on the wire as max_completion_tokens (the
+    # successor kwarg; accepted by non-reasoning models, required by reasoning
+    # models). The Python parameter name stays max_tokens.
+    assert kwargs["max_completion_tokens"] == 1024
+    assert "max_tokens" not in kwargs
     assert kwargs["model"] == "gpt-4o-mini"
     assert kwargs["response_format"] == {"type": "json_object"}
 
@@ -246,7 +252,47 @@ async def test_per_call_overrides_passed_to_create():
 
     kwargs = completions.calls[0]
     assert kwargs["timeout"] == 3.5
-    assert kwargs["max_tokens"] == 256
+    assert kwargs["max_completion_tokens"] == 256
+
+
+# --------------------------------------------------------------------------- #
+# WC-1 (SPEC_LLM_MODERN_MODELS): token-cap wire kwarg + legacy opt-out knob.
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_wc1_legacy_wire_mode_sends_max_tokens():
+    """Old OpenAI-compatible proxies can pin the legacy kwarg."""
+    payload = {"ok": True}
+    client, completions = _make_client(
+        result=_Resp(content=json.dumps(payload)),
+        wire_max_tokens_param="max_tokens",
+    )
+
+    await client.generate_json(model="m", messages=MESSAGES)
+
+    kwargs = completions.calls[0]
+    assert kwargs["max_tokens"] == 1024
+    assert "max_completion_tokens" not in kwargs
+
+
+def _ctor_env(monkeypatch):
+    import xubb_agents.core.llm as llm_mod
+
+    monkeypatch.setattr(llm_mod, "OPENAI_AVAILABLE", True)
+    monkeypatch.setattr(llm_mod, "AsyncOpenAI", lambda **kw: object())
+
+
+def test_wc1_constructor_rejects_unknown_wire_param(monkeypatch):
+    """Loud at load time: an unknown wire-param value is a ValueError."""
+    _ctor_env(monkeypatch)
+    with pytest.raises(ValueError):
+        LLMClient(api_key="sk-test", wire_max_tokens_param="max_output_tokens")
+
+
+def test_wc1_constructor_accepts_both_wire_values(monkeypatch):
+    _ctor_env(monkeypatch)
+    for value in ("max_completion_tokens", "max_tokens"):
+        client = LLMClient(api_key="sk-test", wire_max_tokens_param=value)
+        assert client.wire_max_tokens_param == value
 
 
 # --------------------------------------------------------------------------- #
