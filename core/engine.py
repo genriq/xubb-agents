@@ -28,12 +28,56 @@ from .models import (
     AgentContext, AgentResponse, TriggerType, Event
 )
 from .agent import BaseAgent
-from .llm import LLMClient
+from .llm import LLMClient, FRAMEWORK_OWNED_PARAMS
 from .callbacks import AgentCallbackHandler
 from .blackboard import Blackboard
 from .conditions import ConditionEvaluator
 
 logger = logging.getLogger("AgentEngine")
+
+
+class AgentConfigurationError(ValueError):
+    """A per-agent LLM configuration is invalid at load time (v2.6, VL-1/RC-2).
+
+    Raised BEFORE any registry mutation: by ``DynamicAgent.__init__`` for
+    ``model_params`` collisions with framework-owned wire keys, and by
+    ``AgentEngine.register_agent``/``replace_agents`` when a model matching the
+    reasoning heuristic lacks an explicit ``reasoning_effort`` (D-1 ruling;
+    downgraded to a warning when the engine is constructed with
+    ``strict_reasoning_config=False``). The message always contains a
+    copy-pasteable fix.
+    """
+
+
+# VL-1 (SPEC_LLM_MODERN_MODELS / INV-19): ADVISORY capability heuristic —
+# consulted ONLY for load-time validation signals; it never alters outbound
+# payloads (INV-15; pinned by test). OpenAI publishes no capability API and
+# effort value-sets are per-model, so this is deliberately a heuristic:
+# a wrong guess produces a warning or a loud, fixable load error — never a
+# silent wire change. Module-level so tests (and desperate operators) can
+# monkeypatch it.
+REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+# Name shapes that match the prefixes but are known to reject/restrict
+# reasoning_effort (chat-tuned, search, codex, pro tiers).
+REASONING_MODEL_DENY_MARKERS = ("-chat", "-search", "-codex", "-pro")
+REASONING_MODEL_DENY_EXACT = ("o1-mini",)
+# Effort values that keep the real-time envelope; anything above triggers the
+# budget cross-check (VL-1 rule 3; thresholds normative per spec §7.4).
+LOW_EFFORT_VALUES = ("none", "minimal", "low")
+RULE3_MIN_TIMEOUT = 10.0    # seconds — effort > low needs more than this
+RULE3_MIN_MAX_TOKENS = 4096  # tokens — reasoning eats the cap before output
+
+
+def _looks_reasoning_capable(model) -> bool:
+    """Advisory-only heuristic: does this model name look reasoning-capable?"""
+    if not isinstance(model, str):
+        return False
+    name = model.lower()
+    if name in REASONING_MODEL_DENY_EXACT:
+        return False
+    if any(marker in name for marker in REASONING_MODEL_DENY_MARKERS):
+        return False
+    return any(name.startswith(prefix) for prefix in REASONING_MODEL_PREFIXES)
 
 
 # References to best-effort background LLM-client close tasks (see _close_llm_client).
@@ -57,19 +101,46 @@ class AgentEngine:
     
     def __init__(self, api_key: Optional[str] = None,
                  callbacks: List[AgentCallbackHandler] = None,
-                 max_phases: int = 2):
+                 max_phases: int = 2,
+                 llm_timeout: Optional[float] = None,
+                 llm_max_retries: Optional[int] = None,
+                 llm_max_tokens: Optional[int] = None,
+                 llm_base_url: Optional[str] = None,
+                 llm_wire_max_tokens_param: Optional[str] = None,
+                 strict_reasoning_config: bool = True):
         """Initialize the AgentEngine.
-        
+
         Args:
             api_key: OpenAI API key
             callbacks: List of callback handlers for observability
             max_phases: Execution phases — only 1 (Phase 1 only) or 2 (Phase 1 +
                 event-triggered Phase 2) are supported. Other values are clamped (E-7).
+            llm_timeout / llm_max_retries / llm_max_tokens / llm_base_url /
+                llm_wire_max_tokens_param: engine-level LLMClient configuration
+                (EN-1). Unset knobs keep the LLMClient defaults. The resolved
+                set is stored and REUSED by ``update_api_key`` (INV-18) — key
+                rotation never resets the client to module defaults.
+            strict_reasoning_config: VL-1 rule-1 severity (D-1 ruling). True
+                (default): registering an agent whose model looks
+                reasoning-capable without an explicit ``reasoning_effort``
+                raises ``AgentConfigurationError``. False: warns instead.
         """
+        # EN-1 / INV-18: only-when-set, so LLMClient defaults keep applying
+        # otherwise; update_api_key rebuilds from THIS dict, never bare.
+        self._llm_config: Dict[str, Any] = {}
+        for key, value in (("timeout", llm_timeout),
+                           ("max_retries", llm_max_retries),
+                           ("max_tokens", llm_max_tokens),
+                           ("base_url", llm_base_url),
+                           ("wire_max_tokens_param", llm_wire_max_tokens_param)):
+            if value is not None:
+                self._llm_config[key] = value
+
         self.agents: List[BaseAgent] = []
-        self.llm_client = LLMClient(api_key=api_key)
+        self.llm_client = LLMClient(api_key=api_key, **self._llm_config)
         self.callbacks = callbacks or []
         self.condition_evaluator = ConditionEvaluator()
+        self.strict_reasoning_config = strict_reasoning_config
 
         # E-7: the engine only implements Phase 1 + an optional Phase 2. Reject/clamp
         # unsupported values rather than silently accepting a knob that does nothing.
@@ -93,6 +164,93 @@ class AgentEngine:
         # E-6: agent ids already warned about EVENT-subscription misconfig (warn once,
         # not every turn, to avoid flooding logs in a long real-time session).
         self._warned_subscriber_ids: set = set()
+        # VL-1: agent ids already warned about LLM-config issues — warn once,
+        # not on every vault reload re-registering the same id (E-6 discipline).
+        self._warned_config_agent_ids: set = set()
+
+    def _validate_agent_llm_config(self, agent: BaseAgent) -> List[str]:
+        """VL-1 (INV-19): load-time cross-validation of an agent's LLM config.
+
+        Returns the list of HARD violations (registration must fail; empty when
+        clean) and emits warn-once warnings for the advisory rules. Reads
+        ``agent.config`` via ``getattr`` defaults so custom BaseAgent
+        subclasses validate generically. PAYLOAD-ADVISORY (INV-15): this only
+        produces signals — it never touches the config or any outbound kwargs.
+        """
+        cfg = agent.config
+        model = getattr(cfg, "model", "") or ""
+        effort = getattr(cfg, "reasoning_effort", None)
+        timeout = getattr(cfg, "timeout", None)
+        max_tokens = getattr(cfg, "max_tokens", None)
+        model_params = getattr(cfg, "model_params", None) or {}
+        agent_id = getattr(cfg, "id", "?")
+
+        violations: List[str] = []
+        warnings_: List[str] = []
+        reasoning_like = _looks_reasoning_capable(model)
+
+        # Rule 1 (D-1 ruling: hard-fail; warn under strict_reasoning_config=False).
+        if reasoning_like and effort is None:
+            msg = (
+                f"Agent '{agent_id}' uses model '{model}', which looks reasoning-capable, "
+                f"without an explicit reasoning_effort — the API default (often 'medium') "
+                f"blows the real-time latency budget and multiplies cost. Fix: add "
+                f'"reasoning_effort" to its model_config — "none" (gpt-5.1+/5.6 mainline), '
+                f'"minimal" (original gpt-5 family), or "low" (o-series). '
+                f"(Escape hatch: AgentEngine(strict_reasoning_config=False).)"
+            )
+            (violations if self.strict_reasoning_config else warnings_).append(msg)
+
+        # Rule 2: effort declared on a shape known to reject/restrict it.
+        if effort is not None and not reasoning_like:
+            warnings_.append(
+                f"Agent '{agent_id}': reasoning_effort='{effort}' is set but model "
+                f"'{model}' does not look reasoning-capable — the API will likely "
+                f"reject the parameter (category=misconfig)."
+            )
+
+        # Rule 3: deep effort needs real budgets (normative thresholds, spec §7.4).
+        if effort is not None and effort not in LOW_EFFORT_VALUES:
+            eff_timeout = timeout if timeout is not None \
+                else getattr(self.llm_client, "timeout", None)
+            eff_cap = max_tokens if max_tokens is not None \
+                else getattr(self.llm_client, "max_tokens", None)
+            if (not isinstance(eff_timeout, (int, float)) or eff_timeout <= RULE3_MIN_TIMEOUT) or \
+               (not isinstance(eff_cap, int) or eff_cap < RULE3_MIN_MAX_TOKENS):
+                warnings_.append(
+                    f"Agent '{agent_id}': reasoning_effort='{effort}' with "
+                    f"timeout={eff_timeout}s / max_tokens={eff_cap} will likely time out "
+                    f"or starve the output (category=truncated) — and both outcomes are "
+                    f"BILLED. Set model_config timeout > {RULE3_MIN_TIMEOUT:g}s and "
+                    f"max_tokens >= {RULE3_MIN_MAX_TOKENS} (OpenAI suggests ~25000 for "
+                    f"real reasoning headroom)."
+                )
+
+        # Rule 4: sampling params rejected by reasoning models.
+        if reasoning_like and isinstance(model_params, dict) and \
+                any(k in model_params for k in ("temperature", "top_p")):
+            warnings_.append(
+                f"Agent '{agent_id}': model_params sets temperature/top_p, but "
+                f"reasoning models reject them (category=misconfig)."
+            )
+
+        # Rule 5: framework-owned collisions (re-check for custom agents;
+        # DynamicAgent already rejects these in its own __init__).
+        if isinstance(model_params, dict):
+            collisions = sorted(set(model_params) & FRAMEWORK_OWNED_PARAMS)
+            if collisions:
+                violations.append(
+                    f"Agent '{agent_id}': model_params may not set framework-owned "
+                    f"key(s) {collisions} — use the dedicated model_config fields "
+                    f"(model / reasoning_effort / timeout / max_tokens) instead."
+                )
+
+        if warnings_ and agent_id not in self._warned_config_agent_ids:
+            self._warned_config_agent_ids.add(agent_id)
+            for message in warnings_:
+                logger.warning(message)
+
+        return violations
 
     def register_agent(self, agent: BaseAgent) -> None:
         """Register an agent with the engine.
@@ -102,7 +260,15 @@ class AgentEngine:
         the live structures in place), so a lock-free reader on another thread — e.g. a
         turn iterating ``self.agents`` while a vault reload swaps agents — always sees a
         complete, consistent registry.
+
+        Raises ``AgentConfigurationError`` (VL-1/INV-19) BEFORE any mutation —
+        on failure the registry is untouched and the agent's ``llm`` stays None.
         """
+        # VL-1: validate-before-mutate.
+        violations = self._validate_agent_llm_config(agent)
+        if violations:
+            raise AgentConfigurationError(" | ".join(violations))
+
         # Inject the LLM client into the agent.
         agent.llm = self.llm_client
 
@@ -133,8 +299,23 @@ class AgentEngine:
         a complete list (old or new), and ``_agent_meta.get()`` always returns a
         consistent value. ``self.agents`` is rebound LAST, after index/meta, so a
         reader that sees the new agents also sees the new metadata.
+
+        ALL-OR-NOTHING (VL-1/INV-19): every incoming agent is validated FIRST;
+        one bad config raises ``AgentConfigurationError`` naming every
+        violation, no incoming agent is touched (no ``llm`` injection), and the
+        old registry keeps serving.
         """
         with self._agents_lock:
+            # VL-1: validate ALL incoming agents before mutating anything.
+            all_violations: List[str] = []
+            for agent in agents:
+                all_violations.extend(self._validate_agent_llm_config(agent))
+            if all_violations:
+                raise AgentConfigurationError(
+                    "Vault reload rejected (all-or-nothing; old registry still "
+                    "serving): " + " | ".join(all_violations)
+                )
+
             new_agents: List[BaseAgent] = []
             new_index: Dict[str, int] = {}
             new_meta: Dict[str, Tuple[int, int]] = {}
@@ -172,6 +353,7 @@ class AgentEngine:
             self._agent_meta = new_meta
             self.agents = remaining
             self._warned_subscriber_ids.discard(agent_id)
+            self._warned_config_agent_ids.discard(agent_id)
         logger.info(f"Unregistered agent: {agent_id}")
         return True
 
@@ -192,7 +374,11 @@ class AgentEngine:
         """
         old_client = getattr(self, "llm_client", None)
 
-        self.llm_client = LLMClient(api_key=api_key)
+        # EN-1 / INV-18: rebuild from the engine's stored LLM config — never
+        # bare. Key rotation must not silently reset timeout/base_url/wire mode
+        # to module defaults mid-session. (Ctor config is authoritative: a
+        # hand-swapped ``engine.llm_client`` is not preserved across rotation.)
+        self.llm_client = LLMClient(api_key=api_key, **self._llm_config)
         for agent in self.agents:
             agent.llm = self.llm_client
 

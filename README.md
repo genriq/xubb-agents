@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-**Version:** 2.5.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+**Version:** 2.6.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
 
 📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
 
@@ -522,8 +522,12 @@ Define preconditions that must be satisfied:
 | `trigger_config.subscribed_events` | array | [] | Events for EVENT trigger |
 | `trigger_conditions` | object | null | Preconditions (Blackboard-aware) |
 | `priority` | int | 0 | State update priority (higher wins) |
-| `model_config.model` | string | "gpt-4o-mini" | LLM model |
+| `model_config.model` | string | "gpt-4o-mini" | LLM model (`xubb_agents.DEFAULT_MODEL`) |
 | `model_config.context_turns` | int | 6 | Transcript segments to include |
+| `model_config.reasoning_effort` | string | null | v2.6: explicit reasoning effort (`"none"`/`"minimal"`/`"low"`/…). Sent only when set — never injected. **Required** (hard-fail at registration) when the model name looks reasoning-capable; see `strict_reasoning_config`. |
+| `model_config.timeout` | float | null | v2.6: per-agent request timeout (falls back to the client budget). Deep-effort agents need > 10s. |
+| `model_config.max_tokens` | int | null | v2.6: per-agent token cap (wire: `max_completion_tokens`; includes reasoning tokens — deep-effort agents need ≥ 4096, OpenAI suggests ~25000). |
+| `model_config.model_params` | object | {} | v2.6: verbatim Chat-Completions passthrough (e.g. `verbosity`). Framework-owned keys are rejected at load; not transport-portable. |
 | `text` | string | required | System prompt (Jinja2) |
 | `output_format` | string | "default" | Output schema name |
 | `include_context` | bool | true | Inject user profile & RAG docs into prompt. Set `false` for widget trackers and agents that don't need user/session context. Language directive always injected. |
@@ -900,7 +904,13 @@ class AgentConfig:
         priority: int = 0,                                  # Merge priority (higher wins)
         output_format: str = "default",                     # Output schema name
         trigger_conditions: Optional[Dict] = None,          # Blackboard preconditions
-        subscribed_events: Optional[List[str]] = None       # For EVENT trigger
+        subscribed_events: Optional[List[str]] = None,      # For EVENT trigger
+        # v2.6 — per-agent LLM-call config (declarative on custom subclasses:
+        # the subclass owns forwarding these into its own generate() calls)
+        reasoning_effort: Optional[str] = None,             # Sent only when set (INV-15)
+        timeout: Optional[float] = None,                    # Per-agent request timeout
+        max_tokens: Optional[int] = None,                   # Per-agent token cap
+        model_params: Optional[Dict[str, Any]] = None       # Wire passthrough (validated)
     )
 ```
 

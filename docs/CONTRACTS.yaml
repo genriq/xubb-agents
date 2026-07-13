@@ -319,14 +319,69 @@ contracts:
     test_usage_serializes: "tests/test_dynamic_agent.py::TestOB2UsagePassthrough::test_usage_serializes_but_debug_info_does_not"
     status: covered   # v2.5 OB-2: LLMResult path; DynamicAgent duck-types; usage first-class on AgentResponse.
 
+  # ---- v2.6 invariants (SPEC_LLM_MODERN_MODELS, Release B) ----
+  - id: INV-15-no-silent-payload-mutation
+    statement: >
+      The LLM wrapper sends only operator-configured parameters (plus the fixed
+      wire essentials). reasoning_effort ships ONLY when configured (never
+      injected; omission is the model default). model_params passthrough merges
+      with framework-owned keys winning defensively; collisions are rejected at
+      config load. The reasoning heuristic is payload-advisory: it never alters
+      config or outbound kwargs.
+    source:
+      - "core/llm.py: generate() kwargs assembly + FRAMEWORK_OWNED_PARAMS"
+      - "library/dynamic.py: only-when-configured llm_kwargs + __init__ collision check"
+      - "docs/SPEC_LLM_MODERN_MODELS.md: INV-15 / §7.1-§7.2"
+    invariant: INV-15
+    test: "tests/test_llm.py::test_reasoning_effort_present_iff_configured"
+    test_framework_wins: "tests/test_llm.py::test_extra_params_passthrough_framework_keys_win"
+    test_omitted_kwargs: "tests/test_dynamic_agent.py::TestRC1ReasoningConfig::test_unconfigured_kwargs_omitted_from_generate"
+    test_strict_fake: "tests/test_dynamic_agent.py::TestRC1ReasoningConfig::test_unconfigured_agent_drives_strict_fake"
+    test_collision: "tests/test_dynamic_agent.py::TestRC2ModelParams::test_collision_with_framework_key_raises_at_init"
+    test_advisory: "tests/test_reasoning_validation.py::TestPayloadAdvisory::test_registration_never_mutates_config_or_payload"
+    status: covered   # v2.6 RC-1..3: explicit config, no injection, defensive merge.
+
+  - id: INV-18-llm-config-survives-rotation
+    statement: >
+      Engine-level LLM configuration (timeout, retries, token cap, base_url,
+      wire_max_tokens_param) survives update_api_key; key rotation never resets
+      the client to module defaults. Ctor config is authoritative.
+    source:
+      - "core/engine.py: __init__ _llm_config + update_api_key"
+      - "docs/SPEC_LLM_MODERN_MODELS.md: INV-18 / §7.5"
+    invariant: INV-18
+    test: "tests/test_reasoning_validation.py::TestEN1EngineKnobs::test_rotation_persists_engine_llm_config"
+    test_ctor: "tests/test_reasoning_validation.py::TestEN1EngineKnobs::test_ctor_knobs_reach_llm_client"
+    test_reinjection: "tests/test_reasoning_validation.py::TestEN1EngineKnobs::test_rotation_reinjects_into_agents"
+    status: covered   # v2.6 EN-1: rotation rebuilds from stored config, never bare.
+
+  - id: INV-19-reasoning-config-explicit
+    statement: >
+      Every agent config naming a model that matches the reasoning heuristic has
+      an explicit reasoning_effort; a violation hard-fails registration with
+      AgentConfigurationError and a copy-pasteable fix (warns instead when the
+      engine is constructed with strict_reasoning_config=False) — never silence.
+      register_agent validates before any mutation; replace_agents is
+      all-or-nothing (old registry keeps serving).
+    source:
+      - "core/engine.py: _validate_agent_llm_config + register_agent/replace_agents"
+      - "docs/SPEC_LLM_MODERN_MODELS.md: INV-19 / §7.4 (D-1 ruling)"
+    invariant: INV-19
+    test: "tests/test_reasoning_validation.py::TestRule1HardFail::test_reasoning_model_without_effort_hard_fails"
+    test_no_mutation: "tests/test_reasoning_validation.py::TestRule1HardFail::test_hard_fail_leaves_registry_and_agent_untouched"
+    test_escape_hatch: "tests/test_reasoning_validation.py::TestRule1HardFail::test_strict_false_downgrades_to_warning"
+    test_all_or_nothing: "tests/test_reasoning_validation.py::TestReplaceAllOrNothing::test_one_bad_config_rejects_whole_reload_old_registry_serves"
+    status: covered   # v2.6 VL-1: D-1 hard-fail + escape hatch + atomic reload rejection.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       27   (every contract & invariant names a passing, rule-asserting test)
+# covered:       30   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # pending_v2.2:   0
 # uncovered:      0
-# total:         26
+# total:         29
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
-#   config parsing, fail-closed evaluation, bounded cascades, and the v2.5
-#   LLM-layer taxonomy/attribution invariants all covered.
+#   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6
+#   LLM-layer invariants (taxonomy, attribution, no-injection, rotation
+#   persistence, explicit reasoning config) all covered.

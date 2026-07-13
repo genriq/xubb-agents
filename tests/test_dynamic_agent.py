@@ -653,3 +653,131 @@ class TestOB2UsagePassthrough:
 
         assert dumped["usage"] == usage
         assert "debug_info" not in dumped
+
+
+# ---------------------------------------------------------------------------
+# RC-1/RC-2/RC-3 (SPEC_LLM_MODERN_MODELS) — per-agent reasoning config
+# ---------------------------------------------------------------------------
+
+class RecordingGenerateLLM:
+    """Duck-typed enriched fake recording generate() kwargs verbatim."""
+
+    def __init__(self, result):
+        self._result = result
+        self.calls = []
+
+    async def generate(self, model=None, messages=None, **kwargs):
+        from xubb_agents.core.llm import LLMResult
+        self.calls.append({"model": model, "messages": messages, **kwargs})
+        return LLMResult(parsed=self._result)
+
+
+class StrictFakeLLM:
+    """generate_json-only fake with a STRICT signature (no **kwargs) — the
+    simulator's MockLLMClient shape. An unconfigured agent must drive it."""
+
+    def __init__(self, result):
+        self._result = result
+        self.calls = []
+
+    async def generate_json(self, model, messages):
+        self.calls.append({"model": model, "messages": messages})
+        return self._result
+
+
+INSIGHT = {"has_insight": True, "content": "hi", "confidence": 0.9}
+
+
+class TestRC1ReasoningConfig:
+    def _agent(self, model_config):
+        return make_agent(dict(INSIGHT), config_extra={"model_config": model_config})
+
+    def test_fields_land_on_agent_config_canonically(self):
+        agent = self._agent({
+            "model": "gpt-5.6-luna",
+            "reasoning_effort": "low",
+            "timeout": 30,
+            "max_tokens": 25000,
+            "model_params": {"verbosity": "low"},
+        })
+        assert agent.config.reasoning_effort == "low"
+        assert agent.config.timeout == 30.0
+        assert agent.config.max_tokens == 25000
+        assert agent.config.model_params == {"verbosity": "low"}
+
+    def test_unconfigured_defaults_are_absent(self):
+        agent = make_agent(dict(INSIGHT))
+        assert agent.config.reasoning_effort is None
+        assert agent.config.timeout is None
+        assert agent.config.max_tokens is None
+        assert agent.config.model_params == {}
+
+    def test_unconfigured_agent_drives_strict_fake(self):
+        """INV-15 sibling guarantee: no config -> NO extra kwargs -> a strict
+        generate_json(model, messages) fake works unmodified."""
+        agent = make_agent(dict(INSIGHT))
+        agent.llm = StrictFakeLLM(dict(INSIGHT))
+        resp = run(agent.evaluate(make_context()))
+        assert resp is not None and len(resp.insights) == 1
+
+    def test_configured_kwargs_reach_generate(self):
+        agent = self._agent({
+            "model": "gpt-5.6-luna",
+            "reasoning_effort": "low",
+            "timeout": 30,
+            "max_tokens": 25000,
+            "model_params": {"verbosity": "low"},
+        })
+        agent.llm = RecordingGenerateLLM(dict(INSIGHT))
+        run(agent.evaluate(make_context()))
+        call = agent.llm.calls[-1]
+        assert call["reasoning_effort"] == "low"
+        assert call["timeout"] == 30.0
+        assert call["max_tokens"] == 25000
+        assert call["extra_params"] == {"verbosity": "low"}
+
+    def test_unconfigured_kwargs_omitted_from_generate(self):
+        """INV-15: omitted config means the kwarg is ABSENT, never None."""
+        agent = make_agent(dict(INSIGHT))
+        agent.llm = RecordingGenerateLLM(dict(INSIGHT))
+        run(agent.evaluate(make_context()))
+        call = agent.llm.calls[-1]
+        for key in ("reasoning_effort", "timeout", "max_tokens", "extra_params"):
+            assert key not in call, f"unconfigured {key} leaked into the call"
+
+    def test_bad_timeout_and_max_tokens_coerced_absent_with_warning(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            agent = self._agent({"timeout": "fast", "max_tokens": -5})
+        assert agent.config.timeout is None
+        assert agent.config.max_tokens is None
+        assert "timeout" in caplog.text and "max_tokens" in caplog.text
+
+
+class TestRC2ModelParams:
+    def test_collision_with_framework_key_raises_at_init(self):
+        from xubb_agents import AgentConfigurationError
+        for bad_key in ("model", "messages", "response_format",
+                        "max_tokens", "max_completion_tokens",
+                        "timeout", "reasoning_effort"):
+            with pytest.raises(AgentConfigurationError):
+                make_agent(dict(INSIGHT), config_extra={
+                    "model_config": {"model_params": {bad_key: "x"}}
+                })
+
+    def test_non_dict_model_params_warned_and_absent(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            agent = make_agent(dict(INSIGHT), config_extra={
+                "model_config": {"model_params": "verbosity=low"}
+            })
+        assert agent.config.model_params == {}
+        assert "model_params" in caplog.text
+
+    def test_empty_model_params_zero_wire_diff(self):
+        agent = make_agent(dict(INSIGHT), config_extra={
+            "model_config": {"model_params": {}}
+        })
+        agent.llm = RecordingGenerateLLM(dict(INSIGHT))
+        run(agent.evaluate(make_context()))
+        assert "extra_params" not in agent.llm.calls[-1]
