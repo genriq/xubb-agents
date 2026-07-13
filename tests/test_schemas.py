@@ -179,7 +179,22 @@ def test_all_schemas_are_valid_json(schema_name):
 # QW-1 (SPEC_LLM_MODERN_MODELS): JSON-mode precondition drift-lock
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize("schema_name", ALL_SCHEMA_NAMES)
+def _shipped_schema_names():
+    """Every schema on disk — globbed, so a future schema file can't dodge the
+    drift-lock by not being added to the hand-maintained ALL_SCHEMA_NAMES."""
+    return sorted(
+        os.path.splitext(f)[0]
+        for f in os.listdir(SCHEMA_DIR)
+        if f.endswith(".json")
+    )
+
+
+def test_qw1_hand_maintained_list_matches_disk():
+    """The curated list used by the older tests must not drift from disk."""
+    assert sorted(ALL_SCHEMA_NAMES) == _shipped_schema_names()
+
+
+@pytest.mark.parametrize("schema_name", _shipped_schema_names())
 def test_qw1_instruction_contains_the_word_json(schema_name):
     """QW-1: every shipped schema instruction contains the word "json".
 
