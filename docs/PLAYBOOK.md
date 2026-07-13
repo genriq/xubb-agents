@@ -1565,8 +1565,12 @@ Every field maps to constructor logic in `DynamicAgent.__init__`:
 | `trigger_config.subscribed_events` | Events that wake this agent. **Non-empty auto-adds `TriggerType.EVENT`** — you don't have to list `"event"` in `mode`. |
 | `trigger_conditions` | Precondition rules evaluated by the engine *before* the LLM call. Skips cost. |
 | `priority` | From `trigger_config.priority` or top-level `priority`. Drives fact-conflict resolution and selection. |
-| `model_config.model` / `model` | LLM id (default `gpt-4o-mini`). |
+| `model_config.model` / `model` | LLM id (default `gpt-4o-mini` = `xubb_agents.DEFAULT_MODEL`). |
 | `model_config.context_turns` / `context_turns` | Transcript window size (default **6**). `<= 0` means *all* segments. |
+| `model_config.reasoning_effort` | v2.6. Explicit reasoning effort (`"none"`/`"minimal"`/`"low"`/`"medium"`/…). Sent on the wire **only when set** — the framework never injects (INV-15). **Required at registration** when the model name looks reasoning-capable (INV-19; `AgentEngine(strict_reasoning_config=False)` downgrades to a warning). Value validity is per-model — a wrong pair surfaces as `misconfig`. |
+| `model_config.timeout` | v2.6. Per-agent request timeout (seconds); unset → client budget. Deep-effort agents need `> 10`. |
+| `model_config.max_tokens` | v2.6. Per-agent token cap (wire: `max_completion_tokens`; **includes reasoning tokens** — deep-effort agents need `>= 4096`, ~25000 for real headroom). |
+| `model_config.model_params` | v2.6. Verbatim Chat-Completions passthrough dict (e.g. `{"verbosity": "low"}`). Framework-owned keys rejected at load; documented as wire-shaped, **not** transport-portable. |
 | `include_context` | Gates user-profile + RAG injection (default `true`). |
 | `output_format` | Schema filename in `library/schemas/`. Missing file → falls back to `default.json` (with a warning). |
 
@@ -3021,6 +3025,34 @@ AgentConfig(name="Objection Strategist", model="gpt-4o",
 ```
 
 The detector is cheap and always-on; the expensive model only spends tokens on turns where a cheap model already found a reason. You get premium reasoning at detector prices.
+
+> **v2.6 — the two-lane upgrade of this pattern.** With reasoning models the tiering dial gains a second axis: `reasoning_effort`. The fast lane pins it low and cheap; the deep lane buys real thinking *with matching budgets*:
+>
+> ```python
+> # Fast lane: current-gen detector, thinking OFF, real-time envelope
+> AgentConfig(name="Objection Scout", model="gpt-5.4-nano",
+>             reasoning_effort="none", cooldown=8)
+>
+> # Deep lane: silence-triggered analyzer, explicit effort + budgets to match
+> AgentConfig(name="Objection Strategist", model="gpt-5.6-terra",
+>             reasoning_effort="medium", timeout=30.0, max_tokens=25000,
+>             trigger_types=[TriggerType.EVENT],
+>             subscribed_events=["objection_raised"])
+> ```
+>
+> **Custom `BaseAgent` subclasses: the config fields are a declaration, not magic.** Registration validation (INV-19) reads them, but *your* `evaluate()` owns forwarding them into the call — otherwise the wire never carries the effort and you silently pay the model's default:
+>
+> ```python
+> async def evaluate(self, context):
+>     ...
+>     result = await self.llm.generate_json(
+>         model=self.config.model, messages=messages,
+>         reasoning_effort=self.config.reasoning_effort,   # forward the declaration
+>         timeout=self.config.timeout,
+>         max_tokens=self.config.max_tokens,
+>     )
+> ```
+> (`DynamicAgent` does this for you, only-when-configured.)
 
 ### Gate 4 — `max_tokens`: cap the worst case
 
