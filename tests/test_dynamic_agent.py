@@ -338,6 +338,25 @@ class TestPromptAssembly:
         # default_v2 ships a json_instruction (the OUTPUT FORMAT block).
         assert "has_insight" in system
 
+    def test_prompt_has_no_blank_sections_with_user_context(self):
+        """QW-3 (SPEC_LLM_MODERN_MODELS): a set user_context must not create
+        blank-section bloat. The section was built as f"{user_context}\\n\\n"
+        and then "\\n\\n"-joined with the other parts, which yielded an empty
+        joined part whenever user_context was set — invisible to the D1 sweep
+        above only because its fixture omits user_context."""
+        agent = make_agent({"has_insight": False})
+        run(agent.evaluate(make_context(user_context="[USER PROFILE]\nRole: AE.")))
+        assert agent.llm.calls, "LLM was not invoked"
+        messages = agent.llm.calls[-1]["messages"]
+        system = next(m["content"] for m in messages if m["role"] == "system")
+
+        assert "[USER PROFILE]" in system, "user_context section missing"
+        parts = system.split("\n\n")
+        empty_parts = [i for i, p in enumerate(parts) if p.strip() == ""]
+        assert empty_parts == [], (
+            f"user_context created blank joined part(s) {empty_parts}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # A-1 (INV-11) — gate-less schema silence contract
