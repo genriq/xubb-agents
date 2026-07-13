@@ -42,7 +42,7 @@ The final system prompt is assembled from these sections (empty sections are omi
 7. [Output Schema]         — JSON format instruction
 ```
 
-The transcript history is sent as separate user/assistant messages (not embedded in the system prompt), controlled by `context_turns`.
+The transcript history is sent as a **single user message** (prefixed `### TRANSCRIPT:`, one `SPEAKER: text` line per segment — not embedded in the system prompt, and not as separate per-turn messages), windowed by `context_turns`.
 
 ---
 

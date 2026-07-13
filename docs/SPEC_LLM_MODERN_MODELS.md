@@ -2,7 +2,7 @@
 ## Modern-Model Compatibility Specification (llm-modern-models)
 
 **Version:** 2.5.0 (Release A) / 2.6.0 (Release B) — staged; see §10
-**Status:** APPROVED — 2026-07-13 (owner @genriq; rulings D-1 hard-fail · D-2 two releases · D-3 defer · D-4 defer). Three-lens spec review in flight at approval time; findings land via §16 Amendment procedure.
+**Status:** APPROVED — 2026-07-13 (owner @genriq; rulings D-1 hard-fail · D-2 two releases · D-3 defer · D-4 defer). Amendment 1 (spec-review findings) applied and ratified same day. **Phase 0 (QW-1..3) and Release A (WC-1, OB-1, OB-2, DOC-A) IMPLEMENTED** on `feature/v2.5-llm-modern-models` — suite green, contract gate 27/27. Release B (2.6.0) pending.
 **Date:** July 13, 2026
 **Process Tier:** **Tier 1** (contract change + config-schema change + silent-regression risk → spec approved before code; see docs/PROCESS.md)
 **Scope:** Full compatibility with modern OpenAI models (GPT-5.x, GPT-5.6 sol/terra/luna, o-series) with **cheap-by-default two-lane economics**: whisper agents stay fast and near-free; reasoning is an explicit per-agent opt-in. Derived from a three-lens validation (API-facts vs OpenAI docs, codebase-fit audit, adversarial design review) of the 2026-07-13 modernization proposal.
@@ -103,8 +103,8 @@ forbids `to_verify` stubs).
 | ID | Invariant | Current Status |
 |----|-----------|---------------|
 | **INV-15** | The LLM wrapper sends **only operator-configured parameters** (plus the fixed wire essentials: model, messages, response_format, token cap, timeout). It never injects, rewrites, or omits a configured parameter based on model-name guessing. | New (Release B; enforced by RC-1/RC-2 design + test pinning the outbound kwargs) |
-| **INV-16** | A parameter or model rejection (HTTP 4xx other than 401/429) is surfaced as **`misconfig`**, and a length-stopped/starved response as **`truncated`** — both distinguishable from `server`, `malformed`, and each other. | Violated (4xx → `server`, `core/llm.py:135-141`; truncation → `malformed`, `core/llm.py:156-171`) — Release A / OB-1 |
-| **INV-17** | Per-call telemetry (usage, error category, finish reason) is attributed to **the call that produced it**, immune to interleaving under `asyncio.gather` on the shared client. (`last_error_category` remains as a deprecated best-effort mirror.) | Violated for the existing mirror (documented race, PLAYBOOK:3201) — Release A / OB-2 |
+| **INV-16** | A parameter or model rejection (HTTP 4xx other than 401/429) is surfaced as **`misconfig`**, and a length-stopped/starved response as **`truncated`** — both distinguishable from `server`, `malformed`, and each other. | **Resolved** (OB-1 — v2.5; registered in CONTRACTS.yaml) |
+| **INV-17** | Per-call telemetry (usage, error category, finish reason) is attributed to **the call that produced it**, immune to interleaving under `asyncio.gather` on the shared client. (`last_error_category` remains as a deprecated best-effort mirror.) | **Resolved** (OB-2 — v2.5; `LLMResult` path; registered in CONTRACTS.yaml) |
 | **INV-18** | Engine-level LLM configuration (timeout, retries, token cap, `base_url`) **survives `update_api_key`**; key rotation never resets the client to module defaults. | Violated (`core/engine.py:195` rebuilds `LLMClient(api_key=...)` bare) — Release B / EN-1 |
 | **INV-19** | Every agent config naming a model that **matches the reasoning heuristic** has an **explicit** `reasoning_effort`; a violation **hard-fails registration** (warns instead when `strict_reasoning_config=False`) — never silence. | New (Release B / VL-1; predicate is the testable heuristic match, per Amendment 1) |
 
