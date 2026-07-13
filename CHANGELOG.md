@@ -9,7 +9,77 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+_(nothing yet)_
+
+---
+
+## [2.5.0] - 2026-07-13
+
+Modern-model wire compatibility + observability (Release A of
+`docs/SPEC_LLM_MODERN_MODELS.md`). Inert on the OpenAI-wire and
+`generate_json`-return surfaces for every working config (one deliberate
+deviation noted below); reasoning *configuration* (per-agent `reasoning_effort`
+etc.) lands in 2.6.0.
+
+### Added
+
+- **`LLMClient.generate() -> LLMResult`** (OB-2, INV-17): per-call result object
+  (`parsed`, `error_category`, `usage`, `finish_reason`) — attribution-safe under
+  concurrent agents on the shared client, where the old `last_error_category`
+  attribute can only report the last writer (it remains as a deprecated
+  best-effort mirror with a single write site). `generate_json` is now a thin
+  delegate; its dict-or-`None` never-raise contract is unchanged.
+- **Token-usage telemetry** (OB-2): plain-int usage (`prompt_tokens`,
+  `completion_tokens`, plus `reasoning_tokens`/`cached_tokens` when reported)
+  flattened from the SDK response — populated even on billed failures
+  (`truncated`/`malformed`). Surfaced on the new first-class
+  **`AgentResponse.usage`** field (additive, default `None`; `debug_info` is
+  `exclude=True` and never serializes) and in `debug_info["usage"]` for the tracer.
+  `DynamicAgent` duck-types the client (`generate()` when present,
+  `generate_json` fallback), so `generate_json`-only fakes and the simulator's
+  `MockLLMClient` keep working unmodified.
+- **Error categories `misconfig` and `truncated`** (OB-1, INV-16): a 4xx
+  parameter/model rejection is `misconfig` (an operator problem — previously
+  miscategorized as `server`, paging the outage runbook); a length-stopped
+  response (`finish_reason="length"` — the starved-reasoning signature) is
+  `truncated` (previously masqueraded as `malformed`). Missing/non-int
+  status_code falls to `server`. Contracts:
+  `INV-16-error-taxonomy-misconfig-truncated`, `INV-17-per-call-attribution`.
+- **`LLMClient(wire_max_tokens_param=...)`** (WC-1): legacy opt-out for old
+  OpenAI-compatible proxies (`"max_tokens"`); ctor-validated.
+
+### Changed
+
+- **The token cap ships on the wire as `max_completion_tokens`** (WC-1) — the
+  successor kwarg, required by reasoning models (gpt-5.x, o-series) and accepted
+  by current non-reasoning models. The Python parameter name (`max_tokens`)
+  does not change anywhere. Old configs keep working; reasoning models stop
+  400-ing on the framework's requests.
+- **openai SDK floor raised to `>=1.60.0`** — older SDKs TypeError on the new
+  kwarg, and the never-raise wrapper would swallow every call into
+  `category=unknown` (silent agent death).
+- **Deliberate deviation:** a length-stopped response whose partial content
+  happens to parse now returns `None` (`truncated`) instead of the parsed
+  fragment — a truncated JSON object is not a trustworthy whisper.
+
 ### Fixed
+
+- **`ui_control.json` violated JSON mode's precondition** (QW-1): its
+  instruction never contained the word "json", so
+  `response_format={"type":"json_object"}` 400s for any agent whose own prompt
+  doesn't contain it. Reworded; a drift-lock test (globbed over
+  `library/schemas/*.json`) pins every shipped schema.
+- **`user_context` created a blank prompt section** (QW-3): the section carried
+  a trailing `"\n\n"` and the joiner added another — exactly the D1
+  blank-section bloat the sweep exists to catch; its fixture just never set
+  `user_context`. Now covered both ways.
+- **Default model hardcoded in two places** (QW-2): now a single framework
+  constant `xubb_agents.DEFAULT_MODEL` (value unchanged: `gpt-4o-mini`;
+  changing the value is a separate, eval-gated decision).
+- `docs/prompt_engineering_guide.md` wrongly said the transcript is sent as
+  separate user/assistant messages; it is one `### TRANSCRIPT:` user message.
+
+### Fixed (carried from post-2.4.0 unreleased)
 
 - **Contract-gate CI was red** (so the "every contract is CI-gated" claim was fragile).
   The repo root *is* the `xubb_agents` package, and pytest names it after the checkout

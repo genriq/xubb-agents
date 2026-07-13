@@ -282,13 +282,51 @@ contracts:
     test_clamp: "tests/test_engine.py::TestV22Closeout::test_e7_max_phases_clamped"
     status: covered   # Registered v2.2.1: behavior existed and was tested, but had no registry entry.
 
+  # ---- v2.5 invariants (SPEC_LLM_MODERN_MODELS, Release A) ----
+  - id: INV-16-error-taxonomy-misconfig-truncated
+    statement: >
+      A parameter/model rejection (HTTP 4xx other than 401/429) is surfaced as
+      category "misconfig", and a length-stopped/starved response (finish_reason
+      = "length") as "truncated" — both distinguishable from "server",
+      "malformed", and each other. Missing/non-int status_code falls to
+      "server"; the never-raise contract is preserved on every path.
+    source:
+      - "core/llm.py: generate() APIStatusError handler + truncated check"
+      - "docs/SPEC_LLM_MODERN_MODELS.md: INV-16 / §6.2"
+    invariant: INV-16
+    test: "tests/test_llm.py::test_typed_errors_return_none_and_log_category"
+    test_truncated_null: "tests/test_llm.py::test_length_stopped_null_content_is_truncated"
+    test_truncated_partial: "tests/test_llm.py::test_length_stopped_partial_content_is_truncated"
+    test_normal_stop: "tests/test_llm.py::test_normal_stop_is_not_truncated"
+    status: covered   # v2.5 OB-1: 4xx split from server; truncated checked before null-content/parse.
+
+  - id: INV-17-per-call-attribution
+    statement: >
+      Per-call telemetry (usage, error category, finish reason) is attributed to
+      the call that produced it via the LLMResult returned by generate(),
+      immune to interleaving under asyncio.gather on the shared client.
+      last_error_category remains as a deprecated best-effort mirror with a
+      single write site in generate().
+    source:
+      - "core/llm.py: LLMResult + generate() + _finish"
+      - "docs/SPEC_LLM_MODERN_MODELS.md: INV-17 / §6.3"
+    invariant: INV-17
+    test: "tests/test_llm.py::test_ob2_llmresult_attributes_categories_per_call"
+    test_baseline_race: "tests/test_llm.py::test_ob2_baseline_mirror_race_reports_last_writer_only"
+    test_usage_flatten: "tests/test_llm.py::test_generate_success_returns_llmresult_with_flattened_usage"
+    test_billed_failures: "tests/test_llm.py::test_generate_truncated_still_reports_usage"
+    test_duck_type_fallback: "tests/test_dynamic_agent.py::TestOB2UsagePassthrough::test_generate_json_only_fake_still_yields_insights"
+    test_usage_serializes: "tests/test_dynamic_agent.py::TestOB2UsagePassthrough::test_usage_serializes_but_debug_info_does_not"
+    status: covered   # v2.5 OB-2: LLMResult path; DynamicAgent duck-types; usage first-class on AgentResponse.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       25   (every contract & invariant names a passing, rule-asserting test)
+# covered:       27   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # pending_v2.2:   0
 # uncovered:      0
-# total:         24
+# total:         26
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
-#   config parsing, fail-closed evaluation, and bounded cascades all covered.
+#   config parsing, fail-closed evaluation, bounded cascades, and the v2.5
+#   LLM-layer taxonomy/attribution invariants all covered.

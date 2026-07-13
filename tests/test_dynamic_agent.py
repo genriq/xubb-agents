@@ -338,6 +338,25 @@ class TestPromptAssembly:
         # default_v2 ships a json_instruction (the OUTPUT FORMAT block).
         assert "has_insight" in system
 
+    def test_prompt_has_no_blank_sections_with_user_context(self):
+        """QW-3 (SPEC_LLM_MODERN_MODELS): a set user_context must not create
+        blank-section bloat. The section was built as f"{user_context}\\n\\n"
+        and then "\\n\\n"-joined with the other parts, which yielded an empty
+        joined part whenever user_context was set — invisible to the D1 sweep
+        above only because its fixture omits user_context."""
+        agent = make_agent({"has_insight": False})
+        run(agent.evaluate(make_context(user_context="[USER PROFILE]\nRole: AE.")))
+        assert agent.llm.calls, "LLM was not invoked"
+        messages = agent.llm.calls[-1]["messages"]
+        system = next(m["content"] for m in messages if m["role"] == "system")
+
+        assert "[USER PROFILE]" in system, "user_context section missing"
+        parts = system.split("\n\n")
+        empty_parts = [i for i, p in enumerate(parts) if p.strip() == ""]
+        assert empty_parts == [], (
+            f"user_context created blank joined part(s) {empty_parts}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # A-1 (INV-11) — gate-less schema silence contract
@@ -539,3 +558,98 @@ class TestLegacyMemoryAliasing:
         agent.private_state["seen"] = "mutated_later"
         agent.private_state["extra"] = "later"
         assert emitted == {"seen": "first"}
+
+
+# ---------------------------------------------------------------------------
+# QW-2 (SPEC_LLM_MODERN_MODELS) — single default-model constant
+# ---------------------------------------------------------------------------
+
+class TestQW2DefaultModelConstant:
+    """QW-2: the default model string lives in ONE framework constant.
+
+    Both default paths (AgentConfig's parameter default and DynamicAgent's
+    config-parse fallback) must resolve to core.agent.DEFAULT_MODEL, and the
+    package must export it for hosts. The VALUE stays "gpt-4o-mini" in this
+    release — changing it is a separate, eval-gated decision
+    (SPEC_LLM_MODERN_MODELS §3 non-goals).
+    """
+
+    def test_agent_config_default_model_is_the_constant(self):
+        from xubb_agents.core.agent import DEFAULT_MODEL, AgentConfig
+        assert AgentConfig(name="X").model == DEFAULT_MODEL
+
+    def test_dynamic_agent_fallback_model_is_the_constant(self):
+        from xubb_agents.core.agent import DEFAULT_MODEL
+        agent = make_agent({"has_insight": False})
+        assert agent.model == DEFAULT_MODEL
+        assert agent.config.model == DEFAULT_MODEL
+
+    def test_package_exports_default_model(self):
+        import xubb_agents
+        from xubb_agents.core.agent import DEFAULT_MODEL
+        assert xubb_agents.DEFAULT_MODEL == DEFAULT_MODEL
+
+    def test_default_model_value_unchanged_this_release(self):
+        from xubb_agents.core.agent import DEFAULT_MODEL
+        assert DEFAULT_MODEL == "gpt-4o-mini"
+
+
+# ---------------------------------------------------------------------------
+# OB-2 (SPEC_LLM_MODERN_MODELS) — duck-typed client + usage passthrough
+# ---------------------------------------------------------------------------
+
+class EnrichedFakeLLM:
+    """Fake exposing the enriched generate() path (real LLMClient shape)."""
+
+    def __init__(self, result, usage=None):
+        self._result = result
+        self._usage = usage
+        self.calls = []
+
+    async def generate(self, model=None, messages=None, **kwargs):
+        from xubb_agents.core.llm import LLMResult
+        self.calls.append({"model": model, "messages": messages})
+        return LLMResult(parsed=self._result, error_category=None,
+                         usage=self._usage, finish_reason="stop")
+
+
+class TestOB2UsagePassthrough:
+    INSIGHT = {"has_insight": True, "content": "Budget is tight", "confidence": 0.9}
+
+    def test_generate_json_only_fake_still_yields_insights(self):
+        """Duck-type fallback: a client implementing ONLY generate_json (the
+        simulator's MockLLMClient shape, and every in-repo fake) keeps
+        working; enrichment is simply absent."""
+        agent = make_agent(dict(self.INSIGHT))
+        resp = run(agent.evaluate(make_context()))
+        assert resp is not None
+        assert len(resp.insights) == 1
+        assert resp.usage is None
+        assert "usage" not in resp.debug_info
+
+    def test_enriched_client_populates_usage(self):
+        usage = {"prompt_tokens": 11, "completion_tokens": 7, "reasoning_tokens": 3}
+        agent = make_agent(dict(self.INSIGHT))
+        agent.llm = EnrichedFakeLLM(dict(self.INSIGHT), usage=usage)
+
+        resp = run(agent.evaluate(make_context()))
+
+        assert resp is not None
+        assert len(resp.insights) == 1
+        assert resp.usage == usage
+        assert resp.debug_info["usage"] == usage
+        # debug_info shape contract (simulator/tracer): core keys unchanged.
+        assert set(resp.debug_info) >= {"prompt_messages", "model", "llm_output"}
+
+    def test_usage_serializes_but_debug_info_does_not(self):
+        """AgentResponse.usage is first-class because debug_info is
+        exclude=True — hosts billing per agent need it to survive dumps."""
+        usage = {"prompt_tokens": 2, "completion_tokens": 1}
+        agent = make_agent(dict(self.INSIGHT))
+        agent.llm = EnrichedFakeLLM(dict(self.INSIGHT), usage=usage)
+
+        resp = run(agent.evaluate(make_context()))
+        dumped = resp.model_dump()
+
+        assert dumped["usage"] == usage
+        assert "debug_info" not in dumped

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xubb-agents"
-version = "2.4.0"
+version = "2.5.0"
 description = "A lightweight, event-driven framework for real-time conversational AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,7 +24,11 @@ classifiers = [
 ]
 
 dependencies = [
-    "openai>=1.0.0",
+    # WC-1: >=1.60 covers max_completion_tokens (~1.45+) and reasoning_effort
+    # (~1.59+). On an older SDK those kwargs TypeError and the never-raise
+    # wrapper swallows every call into category=unknown — agents die silently.
+    # Do not lower this floor.
+    "openai>=1.60.0",
     "pydantic>=2.0.0",
     # Prompt templates render through Jinja2's SandboxedEnvironment. The sandbox is
     # only as strong as the installed patch level: <3.1.5 has sandbox-escape CVEs

@@ -6,6 +6,12 @@ from .models import AgentContext, AgentResponse, AgentInsight, InsightType, Trig
 
 logger = logging.getLogger(__name__)
 
+# QW-2 (SPEC_LLM_MODERN_MODELS): the ONE place the framework's default model is
+# named. AgentConfig's parameter default and DynamicAgent's config-parse fallback
+# both resolve here. Changing the VALUE is a separate, eval-gated decision
+# (spec §3 non-goals) — do not repoint it as part of unrelated changes.
+DEFAULT_MODEL = "gpt-4o-mini"
+
 
 class AgentConfig:
     """Configuration for an agent.
@@ -20,7 +26,7 @@ class AgentConfig:
     """
     
     def __init__(self, name: str, id: str = None, trigger_interval: Optional[int] = None,
-                 cooldown: int = 10, model: str = "gpt-4o-mini",
+                 cooldown: int = 10, model: str = DEFAULT_MODEL,
                  trigger_types: List[TriggerType] = None,
                  trigger_keywords: List[str] = None,
                  silence_threshold: Optional[int] = None,

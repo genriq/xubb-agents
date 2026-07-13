@@ -1,7 +1,7 @@
 {
   "id": "ui_control",
   "description": "Schema for controlling UI widgets (Hands) alongside Insights (Voice).",
-  "instruction": "\nIMPORTANT: You are a UI Controller. You can output verbal insights AND/OR silent UI actions.\n\nOUTPUT FORMAT:\n{\n  \"insight\": {\n    \"type\": \"suggestion\" | \"warning\" | \"fact\",\n    \"content\": \"Verbal advice for the user.\",\n    \"confidence\": 0.0 to 1.0\n  },\n  \"ui_actions\": [\n    {\n      \"target_widget\": \"goals_widget\" | \"sentiment_meter\" | \"flash_zone\",\n      \"action\": \"update\" | \"set\" | \"flash\",\n      \"payload\": { ... }\n    }\n  ],\n  \"state_snapshot\": { \"key\": \"value\" }\n}\n",
+  "instruction": "\nIMPORTANT: You are a UI Controller. You can output verbal insights AND/OR silent UI actions.\n\nOUTPUT FORMAT (respond with a single JSON object):\n{\n  \"insight\": {\n    \"type\": \"suggestion\" | \"warning\" | \"fact\",\n    \"content\": \"Verbal advice for the user.\",\n    \"confidence\": 0.0 to 1.0\n  },\n  \"ui_actions\": [\n    {\n      \"target_widget\": \"goals_widget\" | \"sentiment_meter\" | \"flash_zone\",\n      \"action\": \"update\" | \"set\" | \"flash\",\n      \"payload\": { ... }\n    }\n  ],\n  \"state_snapshot\": { \"key\": \"value\" }\n}\n",
   "mapping": {
     "root_key": "insight",
     "check_field": null,

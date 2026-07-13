@@ -1,5 +1,5 @@
 from .core.engine import AgentEngine
-from .core.agent import BaseAgent, AgentConfig
+from .core.agent import BaseAgent, AgentConfig, DEFAULT_MODEL
 from .core.models import (
     AgentContext, AgentConfigOverride, TranscriptSegment, InsightType, AgentResponse, TriggerType,
     # V2 additions
@@ -9,5 +9,5 @@ from .core.blackboard import Blackboard
 from .core.conditions import ConditionEvaluator
 from .library.dynamic import DynamicAgent
 
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 

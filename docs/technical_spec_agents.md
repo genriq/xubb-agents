@@ -161,18 +161,31 @@ A thin wrapper around `AsyncOpenAI`. The framework targets **OpenAI / OpenAI-com
 - **Abstraction:** Centralizes API key management and client initialization.
 - **JSON Enforcement:** Enforces `response_format={"type": "json_object"}` to ensure agents return structured data.
 - **OpenAI-compatible:** Works with OpenAI and any OpenAI-compatible endpoint.
-- **Resilience (v2.2 — R-1, INV-10):** Every call is time-bounded by a per-request `timeout` (default `10.0s`), retries transient failures (429 / 5xx / connection / timeout) with the SDK's exponential backoff (`max_retries`, default `2`), and caps output via `max_tokens` (default `1024`). Failures are mapped to **typed, logged categories** — `timeout`, `rate_limit`, `auth`, `server`, `malformed`, `not_initialized`, `unknown` — surfaced via `LLMClient.last_error_category`. The public contract is preserved: `generate_json` **never raises into the turn** and returns the parsed dict on success or `None` on any failure.
+- **Resilience (v2.2 — R-1, INV-10):** Every call is time-bounded by a per-request `timeout` (default `10.0s`), retries transient failures (429 / 5xx / connection / timeout) with the SDK's exponential backoff (`max_retries`, default `2`), and caps output via `max_tokens` (default `1024`). Failures are mapped to **typed, logged categories** — `timeout`, `rate_limit`, `auth`, `server`, `misconfig`, `truncated`, `malformed`, `not_initialized`, `unknown` — the last two categories added in v2.5 (INV-16: a 4xx parameter/model rejection is `misconfig`, not an outage; a length-stopped response is `truncated`, not bad JSON). The public contract is preserved: `generate_json` **never raises into the turn** and returns the parsed dict on success or `None` on any failure.
+- **Wire compatibility (v2.5 — WC-1):** the token cap ships as `max_completion_tokens` (required by reasoning models; accepted by current non-reasoning models). The Python parameter name stays `max_tokens`. Legacy OpenAI-compatible proxies can pin `wire_max_tokens_param="max_tokens"` (ctor-validated).
+- **Per-call attribution (v2.5 — OB-2, INV-17):** `generate()` returns an `LLMResult` (`parsed`, `error_category`, `usage`, `finish_reason`) so concurrent agents on the shared client attribute outcomes per call; `usage` holds plain token ints (incl. `reasoning_tokens`/`cached_tokens` when reported) and is populated even on billed failures (`truncated`/`malformed`). `generate_json` is a thin delegate; `last_error_category` remains as a deprecated best-effort mirror.
 
 ```python
+@dataclass(frozen=True)
+class LLMResult:
+    parsed: Optional[Dict[str, Any]] = None
+    error_category: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None
+    finish_reason: Optional[str] = None
+
 class LLMClient:
     def __init__(self, api_key: Optional[str] = None,
                  timeout: float = 10.0,
                  max_retries: int = 2,
-                 max_tokens: int = 1024)
+                 max_tokens: int = 1024,
+                 wire_max_tokens_param: str = "max_completion_tokens")
     async def generate_json(self, model: str, messages: list,
                             max_tokens: Optional[int] = None,
                             timeout: Optional[float] = None) -> Optional[Dict[str, Any]]
-    last_error_category: Optional[str]  # category of the most recent failure, or None on success
+    async def generate(self, model: str, messages: list,
+                       max_tokens: Optional[int] = None,
+                       timeout: Optional[float] = None) -> LLMResult
+    last_error_category: Optional[str]  # DEPRECATED mirror (racy under gather); use LLMResult
 ```
 
 ---
