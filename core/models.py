@@ -163,3 +163,11 @@ class AgentResponse(BaseModel):
     # Per-agent keyed memory updates (aggregated final response only)
     memory_updates_by_agent: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Memory updates keyed by agent_id (populated on aggregated responses from process_turn)")
 
+    # OB-2 (SPEC_LLM_MODERN_MODELS): per-call token usage (plain ints:
+    # prompt_tokens / completion_tokens / reasoning_tokens / cached_tokens when
+    # reported). First-class — debug_info is exclude=True and never serializes —
+    # so hosts can attribute cost per agent. Populated on per-agent responses
+    # only; NOT propagated into the aggregated process_turn response (deferred
+    # with the cost-ceiling follow-up).
+    usage: Optional[Dict[str, int]] = Field(default=None, description="LLM token usage for this agent's call (per-agent responses only)")
+

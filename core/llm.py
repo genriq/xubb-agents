@@ -1,6 +1,7 @@
 import json
 import os
 import logging
+from dataclasses import dataclass
 from typing import Optional, Dict, Any
 
 # Try to import openai, but don't crash if not present (graceful degradation or mocking)
@@ -52,6 +53,28 @@ DEFAULT_MAX_TOKENS = 1024   # output cap for the JSON object
 # new kwarg. The Python parameter name (``max_tokens``) does not change.
 WIRE_MAX_TOKENS_PARAMS = ("max_completion_tokens", "max_tokens")
 DEFAULT_WIRE_MAX_TOKENS_PARAM = "max_completion_tokens"
+
+
+@dataclass(frozen=True)
+class LLMResult:
+    """Per-call outcome of one LLM request (OB-2 / INV-17).
+
+    Attribution-safe: everything about THIS call rides on the returned object,
+    not on shared client state — agents run concurrently against one shared
+    ``LLMClient`` (``asyncio.gather`` in the engine), so a shared attribute can
+    only report the last writer. ``last_error_category`` remains as a
+    deprecated best-effort mirror for that reason.
+
+    ``usage`` holds plain ints (``prompt_tokens``, ``completion_tokens``, plus
+    ``reasoning_tokens`` / ``cached_tokens`` when the API reports them). It is
+    populated whenever a response object was received — including ``truncated``
+    and ``malformed`` outcomes, which are billed even though they carry no
+    usable content.
+    """
+    parsed: Optional[Dict[str, Any]] = None
+    error_category: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None
+    finish_reason: Optional[str] = None
 
 
 class LLMClient:
@@ -110,23 +133,75 @@ class LLMClient:
             max_retries=max_retries,
         )
 
+    def _finish(self, parsed: Optional[Dict[str, Any]] = None,
+                error_category: Optional[str] = None,
+                usage: Optional[Dict[str, int]] = None,
+                finish_reason: Optional[str] = None) -> "LLMResult":
+        """Build the per-call result and write the deprecated mirror.
+
+        OB-2 / INV-17: ``generate()`` assigns ``last_error_category`` exactly
+        once per call, here, on the way out — both entry points keep the
+        mirror live, but per-call attribution belongs to the returned object.
+        """
+        self.last_error_category = error_category
+        return LLMResult(parsed=parsed, error_category=error_category,
+                         usage=usage, finish_reason=finish_reason)
+
+    @staticmethod
+    def _extract_usage(response: Any) -> Optional[Dict[str, int]]:
+        """Flatten SDK usage into plain ints (fake-safe: pure getattr).
+
+        Nested details map: ``reasoning_tokens`` ←
+        ``completion_tokens_details.reasoning_tokens``; ``cached_tokens`` ←
+        ``prompt_tokens_details.cached_tokens``. Absent values → key omitted.
+        """
+        u = getattr(response, "usage", None)
+        if u is None:
+            return None
+        out: Dict[str, int] = {}
+        for key in ("prompt_tokens", "completion_tokens"):
+            v = getattr(u, key, None)
+            if isinstance(v, int):
+                out[key] = v
+        details = getattr(u, "completion_tokens_details", None)
+        v = getattr(details, "reasoning_tokens", None)
+        if isinstance(v, int):
+            out["reasoning_tokens"] = v
+        details = getattr(u, "prompt_tokens_details", None)
+        v = getattr(details, "cached_tokens", None)
+        if isinstance(v, int):
+            out["cached_tokens"] = v
+        return out or None
+
     async def generate_json(self, model: str, messages: list,
                             max_tokens: Optional[int] = None,
                             timeout: Optional[float] = None) -> Optional[Dict[str, Any]]:
         """Generate a structured JSON response from the LLM.
 
+        Thin delegate over :meth:`generate` (OB-2). The public contract is
+        unchanged: never raises into the turn; returns the parsed dict on
+        success, or ``None`` on any failure; ``self.last_error_category``
+        records the failure class and a categorized error is logged. Callers
+        needing per-call usage/attribution use :meth:`generate` instead.
+        """
+        result = await self.generate(model=model, messages=messages,
+                                     max_tokens=max_tokens, timeout=timeout)
+        return result.parsed
+
+    async def generate(self, model: str, messages: list,
+                       max_tokens: Optional[int] = None,
+                       timeout: Optional[float] = None) -> "LLMResult":
+        """Run one structured-JSON LLM call and return the per-call result.
+
         Resilient per INV-10: time-bounded (per-request ``timeout`` override or
         the client default), output-capped (``max_tokens`` override or default),
         and transparently retried with backoff on transient failures by the SDK.
-
-        Never raises into the turn. Returns the parsed dict on success, or
-        ``None`` on any failure. On failure, ``self.last_error_category`` records
-        the failure class and a categorized error is logged.
+        Never raises into the turn; every outcome — success, typed failure,
+        truncated, malformed — comes back as an :class:`LLMResult` (INV-17).
         """
         if not self.client:
             logger.error("LLM Client not initialized (missing key or package).")
-            self.last_error_category = "not_initialized"
-            return None
+            return self._finish(error_category="not_initialized")
 
         effective_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
         # Per-request timeout override; the SDK accepts ``timeout=`` on the call
@@ -144,17 +219,14 @@ class LLMClient:
         try:
             response = await self.client.chat.completions.create(**call_kwargs)
         except APITimeoutError as e:
-            self.last_error_category = "timeout"
             logger.error(f"LLM call failed [category=timeout]: {e}")
-            return None
+            return self._finish(error_category="timeout")
         except RateLimitError as e:
-            self.last_error_category = "rate_limit"
             logger.error(f"LLM call failed [category=rate_limit]: {e}")
-            return None
+            return self._finish(error_category="rate_limit")
         except AuthenticationError as e:
-            self.last_error_category = "auth"
             logger.error(f"LLM call failed [category=auth]: {e}")
-            return None
+            return self._finish(error_category="auth")
         except APIStatusError as e:
             # Non-2xx that isn't already a more specific subclass (401/429 raise
             # their own subclasses and never reach here). OB-1 / INV-16: a 4xx
@@ -164,58 +236,56 @@ class LLMClient:
             # "server" (never compare None < 500 inside the handler).
             status = getattr(e, "status_code", None)
             if isinstance(status, int) and status < 500:
-                self.last_error_category = "misconfig"
                 logger.error(f"LLM call failed [category=misconfig status={status}]: {e}")
-            else:
-                self.last_error_category = "server"
-                logger.error(
-                    f"LLM call failed [category=server status={status if status is not None else '?'}]: {e}"
-                )
-            return None
+                return self._finish(error_category="misconfig")
+            logger.error(
+                f"LLM call failed [category=server status={status if status is not None else '?'}]: {e}"
+            )
+            return self._finish(error_category="server")
         except APIError as e:
             # Catch-all for remaining SDK-level transport/protocol errors
             # (connection errors, etc.) that aren't APIStatusError.
-            self.last_error_category = "server"
             logger.error(f"LLM call failed [category=server]: {e}")
-            return None
+            return self._finish(error_category="server")
         except Exception as e:
             # Defensive: anything not classified above must still not raise into
             # the turn (preserves the never-raise contract).
-            self.last_error_category = "unknown"
             logger.error(f"LLM call failed [category=unknown]: {e}")
-            return None
+            return self._finish(error_category="unknown")
+
+        # A response object arrived: usage is billable and reportable even when
+        # the content below turns out to be truncated/malformed (OB-2).
+        usage = self._extract_usage(response)
 
         # --- Response shape / parse validation (malformed category) ---
         try:
             if not response.choices:
                 logger.warning("LLM call failed [category=malformed]: empty choices "
                                "(content may have been filtered)")
-                self.last_error_category = "malformed"
-                return None
+                return self._finish(error_category="malformed", usage=usage)
             choice = response.choices[0]
+            finish_reason = getattr(choice, "finish_reason", None)
             # OB-1 / INV-16: length-stopped output is checked BEFORE the
             # null-content/parse branches — starved reasoning output arrives as
             # finish_reason="length" with null/partial content and must not be
             # misdiagnosed as "malformed" (you paid for tokens; the cap ate the
             # answer). A partial body that happens to parse is still rejected:
             # a truncated JSON object is not a trustworthy whisper.
-            if getattr(choice, "finish_reason", None) == "length":
+            if finish_reason == "length":
                 logger.warning(
                     "LLM call failed [category=truncated]: finish_reason=length "
                     f"(output hit the token cap; configured cap={effective_max_tokens})"
                 )
-                self.last_error_category = "truncated"
-                return None
+                return self._finish(error_category="truncated", usage=usage,
+                                    finish_reason=finish_reason)
             content = choice.message.content
             if content is None:
                 logger.warning("LLM call failed [category=malformed]: null message content")
-                self.last_error_category = "malformed"
-                return None
+                return self._finish(error_category="malformed", usage=usage,
+                                    finish_reason=finish_reason)
             parsed = json.loads(content)
         except (json.JSONDecodeError, AttributeError, TypeError, IndexError) as e:
             logger.warning(f"LLM call failed [category=malformed]: {e}")
-            self.last_error_category = "malformed"
-            return None
+            return self._finish(error_category="malformed", usage=usage)
 
-        self.last_error_category = None
-        return parsed
+        return self._finish(parsed=parsed, usage=usage, finish_reason=finish_reason)

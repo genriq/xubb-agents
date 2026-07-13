@@ -415,20 +415,37 @@ class DynamicAgent(BaseAgent):
         ]
         
         # 4. Call LLM (Dynamic Model)
+        # OB-2: duck-type the client (same house pattern as _close_llm_client).
+        # A real LLMClient exposes the enriched per-call generate() -> LLMResult
+        # (race-free category + usage attribution, INV-17); duck-typed fakes and
+        # the simulator's MockLLMClient may implement only generate_json — both
+        # keep working, the enrichment is simply absent.
+        llm_usage = None
         try:
-            result = await self.llm.generate_json(model=self.model, messages=messages)
+            gen = getattr(self.llm, "generate", None)
+            if callable(gen):
+                llm_result = await gen(model=self.model, messages=messages)
+                result = llm_result.parsed
+                llm_usage = llm_result.usage
+            else:
+                result = await self.llm.generate_json(model=self.model, messages=messages)
         except Exception as e:
             self.logger.error(f"LLM call failed for {self.config.name}: {e}", exc_info=True)
             return None
-        
+
         response = AgentResponse()
-        
+
         # SoC Principle: The Agent knows what it sent. We attach it for observability.
         response.debug_info = {
             "prompt_messages": messages,
             "model": self.model,
             "llm_output": result
         }
+        # OB-2: per-call usage — first-class on the response (debug_info is
+        # exclude=True and never serializes) AND in debug_info for the tracer.
+        if llm_usage is not None:
+            response.usage = llm_usage
+            response.debug_info["usage"] = llm_usage
         
         if result:
             # Log for debugging
