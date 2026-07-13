@@ -3007,8 +3007,13 @@ Default cooldown is `10` seconds. In a fast back-and-forth conversation that alo
 Each agent carries its own `model` (`AgentConfig.model`, default `gpt-4o-mini`), and `DynamicAgent` passes exactly that into the call:
 
 ```python
-# library/dynamic.py — evaluate()
-result = await self.llm.generate_json(model=self.model, messages=messages)
+# library/dynamic.py — evaluate() (v2.6: duck-typed, per-agent config forwarded only-when-set)
+gen = getattr(self.llm, "generate", None)
+if callable(gen):
+    llm_result = await gen(model=self.model, messages=messages, **llm_kwargs)
+    result = llm_result.parsed
+else:
+    result = await self.llm.generate_json(model=self.model, messages=messages, **llm_kwargs)
 ```
 
 This is the **detector → analyzer** tiering pattern, and it is the framework's most underused cost capability. Run a swarm of cheap `gpt-4o-mini` *detectors* on every turn; let each emit a blackboard fact or event when it sees something worth a closer look. Gate one premium `gpt-4o` *analyzer* on that signal so it fires only when a detector has already paid the cheap cost of noticing:
