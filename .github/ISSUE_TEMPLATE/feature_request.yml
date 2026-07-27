@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose new behavior or an API change
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Changes here land spec-first (see CONTRIBUTING.md) — a short problem statement up
+        front is the fastest path to a design discussion.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can't you do today, or what is awkward? Concrete host-application context helps.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What you'd like the framework to do — API sketch welcome but optional.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you tried, or why existing config/hooks don't cover it.
+    validations:
+      required: false

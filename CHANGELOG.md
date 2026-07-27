@@ -5,9 +5,28 @@ All notable changes to the Xubb Agents Framework are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> Short codes like `F-1`, `WC-1`, or `INV-15` are spec item / invariant IDs — they trace an
+> entry back to its section in the specs under [docs/](docs/) and to the contract registry
+> ([docs/CONTRACTS.yaml](docs/CONTRACTS.yaml)).
+
 ---
 
 ## [Unreleased]
+
+### Changed
+
+- **`src/` layout.** The package moved from repo-root to `src/xubb_agents/`; `pip install -e .`
+  and `pytest` now work from a checkout with **any** directory name (previously the checkout
+  had to be named `xubb_agents` or test collection failed). Wheels additionally ship a
+  `py.typed` marker, and packaging metadata migrated to PEP 639.
+- The all-or-nothing bulk-reload rejection message now reads
+  `Agent reload rejected (...)` (was `Vault reload rejected (...)`).
+
+### Added
+
+- Community files for public contribution: `CODE_OF_CONDUCT.md`, issue forms
+  (bug/feature), a fork-based contribution flow in `CONTRIBUTING.md`, and a CI matrix
+  over Python 3.11–3.13.
 
 ### Fixed
 
@@ -502,3 +521,14 @@ See [SPEC_V2.md](docs/archive/SPEC_V2.md) for full details.
 ## [1.0.0] - 2025
 
 Initial release: parallel agent execution with flat shared state.
+
+[Unreleased]: https://github.com/genriq/xubb-agents/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/genriq/xubb-agents/compare/v2.5.0...v2.6.0
+[2.5.0]: https://github.com/genriq/xubb-agents/compare/v2.4.0...v2.5.0
+[2.4.0]: https://github.com/genriq/xubb-agents/compare/v2.3.0...v2.4.0
+[2.3.0]: https://github.com/genriq/xubb-agents/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/genriq/xubb-agents/releases/tag/v2.2.0
+[2.1.1]: https://github.com/genriq/xubb-agents/blob/main/CHANGELOG.md
+[2.1.0]: https://github.com/genriq/xubb-agents/blob/main/CHANGELOG.md
+[2.0.0]: https://github.com/genriq/xubb-agents/blob/main/CHANGELOG.md
+[1.0.0]: https://github.com/genriq/xubb-agents/blob/main/CHANGELOG.md
