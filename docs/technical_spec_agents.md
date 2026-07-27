@@ -11,7 +11,7 @@
 
 The **Xubb Agents Framework** is a standalone, event-driven Python library designed to power real-time conversational intelligence. It provides the infrastructure for creating, managing, and executing autonomous AI agents that "listen" to a conversation and intervene with context-aware insights.
 
-It is designed to be **consumed** by host applications (like `xubb_server`) but maintains strict decoupling, ensuring it can be used in any Python-based conversational system (e.g., a CLI tool, a desktop app, or a web service).
+It is designed to be **consumed** by host applications but maintains strict decoupling, ensuring it can be used in any Python-based conversational system (e.g., a CLI tool, a desktop app, or a web service).
 
 ### What's New in v2.0
 

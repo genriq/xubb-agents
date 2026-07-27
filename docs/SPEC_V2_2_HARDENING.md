@@ -48,7 +48,7 @@ A 5-agent comprehensive review of v2.1.1 confirmed that the v2.1/v2.1.1 hardenin
 
 ### Impact Summary
 
-- **1 critical contract bug (F-1):** `Blackboard.add_fact` resolves `(type, key)` conflicts by **confidence only**, silently inverting the documented "higher agent **priority** wins" rule (SPEC_V2 §6.5.4). **Empirically proven live:** a low-priority/conf-0.9 agent beats a high-priority/conf-0.5 agent on the same fact. A high-priority authoritative extractor (budget, stakeholders, timeline) can be silently overruled. No error, no log. **Silent-regression risk to `xubb_server`.**
+- **1 critical contract bug (F-1):** `Blackboard.add_fact` resolves `(type, key)` conflicts by **confidence only**, silently inverting the documented "higher agent **priority** wins" rule (SPEC_V2 §6.5.4). **Empirically proven live:** a low-priority/conf-0.9 agent beats a high-priority/conf-0.5 agent on the same fact. A high-priority authoritative extractor (budget, stakeholders, timeline) can be silently overruled. No error, no log. **Silent-regression risk to consuming hosts.**
 - **4 high-severity gaps:** the LLM call site has no timeout/retry/`max_tokens` and collapses all failures to silent `None` (R-1); schemas without a `check_field` lose the "stay silent" contract and spam the HUD (A-1); the Phase-2 `trigger_type` mutation is not exception-safe and can permanently corrupt the host-reused context (E-1); the two most-recently-changed public surfaces — `DynamicAgent` and the tracer — have **zero** test coverage (T-1).
 - **13 medium items:** memory write-side aliasing, three condition-evaluation traps (fail-open operator, truthy membership, mod-by-zero), three schema/parser drifts (`expiry` requested-but-dropped, `is_state_at_root` dead config, inconsistent v2 state-write path), wall-clock timestamps violating the session-relative convention, unvalidated LLM confidence, `sys.*` leakage, v1 dual-path drop, `update_api_key` races, and an O(n²) merge lookup.
 - **Hygiene & docs:** Pydantic deprecation cleanup, debugger v2-field rendering, pytest config robustness, deflaking, and six documentation corrections including the OpenAI provider clarification.
@@ -383,7 +383,7 @@ Release-level DoD (end of Phase 4): full suite green, coverage added for `Dynami
 
 ## 13. Migration Notes
 
-**One behavioral change for consumers (`xubb_server` and other hosts):**
+**One behavioral change for consumers (host applications):**
 
 - **F-1 (fact conflict resolution):** Facts that collide on `(type, key)` now resolve by **priority first**, then confidence, then registration order — matching the always-documented contract. **Consumers that (knowingly or not) depended on the buggy v2.1.1 "highest-confidence-regardless-of-priority" behavior may see a different fact win.** This is a deliberate correction of a documented contract, not a new feature. **Action for hosts:** verify that agent `priority` values reflect intended authority for fact extraction; a high-priority extractor will now correctly override lower-priority agents even at lower confidence.
 

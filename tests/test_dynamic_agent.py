@@ -618,8 +618,8 @@ class TestOB2UsagePassthrough:
 
     def test_generate_json_only_fake_still_yields_insights(self):
         """Duck-type fallback: a client implementing ONLY generate_json (the
-        simulator's MockLLMClient shape, and every in-repo fake) keeps
-        working; enrichment is simply absent."""
+        minimal fake-client shape, used by every in-repo fake and downstream
+        test doubles) keeps working; enrichment is simply absent."""
         agent = make_agent(dict(self.INSIGHT))
         resp = run(agent.evaluate(make_context()))
         assert resp is not None
@@ -638,7 +638,7 @@ class TestOB2UsagePassthrough:
         assert len(resp.insights) == 1
         assert resp.usage == usage
         assert resp.debug_info["usage"] == usage
-        # debug_info shape contract (simulator/tracer): core keys unchanged.
+        # debug_info shape contract (tracer + downstream tooling): core keys unchanged.
         assert set(resp.debug_info) >= {"prompt_messages", "model", "llm_output"}
 
     def test_usage_serializes_but_debug_info_does_not(self):
@@ -674,7 +674,8 @@ class RecordingGenerateLLM:
 
 class StrictFakeLLM:
     """generate_json-only fake with a STRICT signature (no **kwargs) — the
-    simulator's MockLLMClient shape. An unconfigured agent must drive it."""
+    minimal client shape a downstream test double may use. An unconfigured
+    agent must drive it."""
 
     def __init__(self, result):
         self._result = result

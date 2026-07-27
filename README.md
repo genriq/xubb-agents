@@ -10,7 +10,7 @@
 
 📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
 
-> **Note**: This is a **separate, standalone library**, consumed by `xubb_server` and other applications that need real-time conversation agents.
+> **Note**: This is a **separate, standalone library**, designed to be embedded in any host application that needs real-time conversation agents — a web server, a desktop app, a CLI tool.
 
 > 📖 **New here? Read [THE PLAYBOOK](docs/PLAYBOOK.md)** — the definitive guide to leveraging this framework to its full potential in a real-time copilot (the design doctrine, patterns, anti-patterns, a checklist, a golden-path build, testing & metrics, and an end-to-end worked agent suite). The README is the reference; the Playbook is how to *wield* it.
 
@@ -189,7 +189,7 @@ v2.2 is a **hardening release** driven by a 5-agent audit — one critical contr
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         HOST APPLICATION                                 │
-│  (xubb_server, CLI tool, desktop app, etc.)                             │
+│  (web server, CLI tool, desktop app, etc.)                             │
 │                                                                          │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                   │
 │  │ Transcription│  │ Preprocessing│  │   Session    │                   │

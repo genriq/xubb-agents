@@ -77,7 +77,7 @@ explicit, validated at load time, and observable per call.
   `gpt-5-chat/-search/-codex/-pro` variants reject or restrict the parameter — blind injection
   converts working configs into silent 400-loops); authoritative prefix tables (refuted in both
   directions); cache-aware prompt reordering (zero measurable savings below the 1024-token cache
-  floor; behavioral risk to every vault agent with no eval harness).
+  floor; behavioral risk to every registered agent with no eval harness).
 
 ### Guiding Principles
 
@@ -90,7 +90,7 @@ explicit, validated at load time, and observable per call.
 4. **Preserve the never-raise contract** — `generate_json` still returns dict-or-`None` into the
    turn; the taxonomy gets richer, the contract does not change shape.
 5. **Sibling-safe** — new kwargs are passed only-when-configured so the simulator's
-   `MockLLMClient` and in-repo strict-signature fakes keep working unmodified.
+   downstream test doubles and in-repo strict-signature fakes keep working unmodified.
 
 ---
 
@@ -230,7 +230,7 @@ validation Claim 1 PARTIALLY-TRUE).
    **Python parameter name `max_tokens` does not change** anywhere (`generate_json` signature,
    `LLMClient` ctor, config keys) — renaming it would break hosts (`docs/PLAYBOOK.md:3059-3061`),
    the pinned signature (`docs/technical_spec_agents.md:173`), and the simulator's
-   `MockLLMClient` mirror.
+   downstream fake-client mirrors.
 2. **SDK floor:** `pyproject.toml` `openai>=1.0.0` → `openai>=1.60.0` (covers
    `max_completion_tokens` ~1.45+ and `reasoning_effort` ~1.59+ for Release B). On an old SDK the
    TypeError is swallowed into `category=unknown` and every call dies silently — the floor bump
@@ -321,7 +321,7 @@ unchanged.
 ## 7. Release B — Reasoning Configuration & Engine Plumbing
 
 > **Release B contract: additive config, one deliberate load-time edge (VL-1, per D-1), zero
-> wire change for agents that don't opt in.** Coordinated with xubb_server (README/CHANGELOG
+> wire change for agents that don't opt in.** Coordinated with the host application (README/CHANGELOG
 > migration note).
 
 ### 7.1 RC-1 — Per-agent `reasoning_effort`
@@ -413,7 +413,7 @@ a same-id re-registration — same as E-6). Rules:
    custom agents.
 **Hard-fail mechanics (stated):** `register_agent` validates **before any mutation** — on failure
 the registry and the agent's `llm` are untouched. `replace_agents` **validates ALL incoming
-agents first** (collecting every violation into one error), then builds, then rebinds — a vault
+agents first** (collecting every violation into one error), then builds, then rebinds — a bulk
 reload with one bad config is all-or-nothing and the old registry keeps serving.
 `strict_reasoning_config: bool = True` is an `AgentEngine.__init__` kwarg, stored on the engine,
 read by the hook, and added to the pinned-signature doc update.
@@ -509,7 +509,7 @@ Commit convention: `v2.5/<ITEM-ID>: <summary>` / `v2.6/<ITEM-ID>: <summary>`.
 | **A3** | Release A close | DOC-7 (A-scope), DOC-8 (INV-16/17), DOC-9, DOC-10 (2.5.0) | Doc items parallel | Gate: inert-release checks (§15) → PR → PyPI 2.5.0 (per D-2). |
 | **B1** | Config surface | RC-1, RC-2, RC-3 | RC-1/RC-3 tightly coupled (one parse site); RC-2 after RC-1 | The additive per-agent surface, passed only-when-configured. |
 | **B2** | Validation + engine | VL-1, EN-1 | **Independent of each other** (fan-out candidates); both after B1 | VL-1 needs RC fields to validate; EN-1 needs WC-1's client knob. |
-| **B3** | Release B close | DOC-7 (B-scope), DOC-8 (INV-15/18/19), DOC-10 (2.6.0) | Doc items parallel | Gate: xubb_server migration note + D-1 policy verified → PR → PyPI 2.6.0. |
+| **B3** | Release B close | DOC-7 (B-scope), DOC-8 (INV-15/18/19), DOC-10 (2.6.0) | Doc items parallel | Gate: host migration note + D-1 policy verified → PR → PyPI 2.6.0. |
 
 Serial constraints (process §3.1 dependency-layer fan-out): WC-1 → OB-2 → RC-* → {VL-1, EN-1}.
 Everything in Phase 0 and OB-1 is fan-out-safe from the start. Doc items are formally split
@@ -582,13 +582,13 @@ output; `/trace-check` passes Appendix A.
 **Release B (2.6.0) — one deliberate edge + additive config.**
 - **Per D-1 ruling (hard-fail):** an agent config naming a reasoning-heuristic model without
   `reasoning_effort` fails at registration (`AgentConfigurationError`) with a copy-pasteable fix.
-  Hosts audit vault configs before upgrading (one field per affected agent). Escape hatch:
+  Hosts audit their agent configs before upgrading (one field per affected agent). Escape hatch:
   `strict_reasoning_config=False`.
 - New optional `model_config` keys: `reasoning_effort`, `timeout`, `max_tokens`, `model_params`.
   Absent keys → wire behavior identical to 2.5.0.
 - `update_api_key` now **preserves** engine LLM config — hosts that (buggily) relied on rotation
   resetting timeouts must set them explicitly.
-- **Cost guidance for the host (xubb_server):** production baseline gpt-4.1 is sunset-track and
+- **Cost guidance for the host:** production baseline gpt-4.1 is sunset-track and
   premium-priced; recommended lanes — **every heuristic-matching model carries an explicit
   effort** (D-1 makes omission a load failure): fast: gpt-5.4-nano + `"none"` / gpt-5-nano +
   `"minimal"`; standard: gpt-5.4-mini or gpt-5.6-luna + `"none"`; deep (opt-in):
@@ -630,7 +630,7 @@ output; `/trace-check` passes Appendix A.
 1. Suite green; sibling check (simulator + strict fakes) green unmodified.
 2. INV-15/18/19 CONTRACTS entries + named tests green; VL-1 advisory-only proof green.
 3. EN-1 rotation-persistence repro green; E-4 suite green.
-4. D-1 policy implemented as signed off; migration note published; xubb_server config audit done.
+4. D-1 policy implemented as signed off; migration note published; host config audit done.
 
 **Success metrics:**
 - Any current OpenAI chat model is usable via config alone; a **new** model release requires
