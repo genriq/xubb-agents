@@ -36,12 +36,16 @@
 Requires **Python >= 3.11**. Runtime dependencies: `openai`, `pydantic` (v2), `jinja2`.
 
 ```bash
-# Install from a local checkout of github.com/genriq/xubb-agents
+git clone https://github.com/genriq/xubb-agents.git
 cd xubb-agents
 pip install -e .
+```
 
-# Or install from PyPI (when published)
-pip install xubb-agents
+Running the test suite needs no API key and makes no network calls:
+
+```bash
+pip install -e ".[dev]"
+pytest
 ```
 
 ## Quickstart (copy-paste runnable)
@@ -142,47 +146,11 @@ context = AgentContext(
 response = await engine.process_turn(context, trigger_type=TriggerType.TURN_BASED)
 ```
 
-## Release History
+## What's New
 
-Earlier releases — v2.0 (structured-blackboard rewrite), v2.1 (hardening), v2.1.1 (bugfixes) —
-are summarized in the [CHANGELOG](CHANGELOG.md); their specs are archived under
-[docs/archive/](docs/archive/). Current-release highlights below.
+**v2.6 / v2.5 — modern-model compatibility.** Any OpenAI Chat Completions model is a valid per-agent choice — gpt-4.x, gpt-5.x, o-series — with cheap-by-default economics: whisper agents stay fast and near-free, reasoning is an explicit per-agent opt-in (`reasoning_effort`, per-agent `timeout`/`max_tokens`, a validated `model_params` passthrough, and per-call token-usage telemetry). One deliberate edge: registering a reasoning-capable model *without* an explicit `reasoning_effort` fails at load time with a copy-pasteable fix (`strict_reasoning_config=False` downgrades it to a warning).
 
-## What's New in v2.5 / v2.6
-
-Modern-model compatibility (spec: [SPEC_LLM_MODERN_MODELS](docs/SPEC_LLM_MODERN_MODELS.md)) — any OpenAI Chat Completions model is now a valid per-agent choice, with **cheap-by-default two-lane economics**. Full detail in the [CHANGELOG](CHANGELOG.md).
-
-| Change | Release | Impact |
-|--------|---------|--------|
-| Token cap ships as `max_completion_tokens` on the wire (WC-1) | 2.5.0 | Reasoning models (gpt-5.x, o-series) stop rejecting the framework's requests; Python surface unchanged; legacy proxies can pin the old kwarg. |
-| `misconfig` + `truncated` error categories (OB-1) | 2.5.0 | A 4xx config rejection no longer reads as an outage; starved reasoning output no longer masquerades as bad JSON. |
-| Per-call `LLMResult` + token-usage telemetry (OB-2) | 2.5.0 | `generate()` returns race-free per-call attribution; `AgentResponse.usage` carries prompt/completion/reasoning/cached token counts. |
-| Per-agent `reasoning_effort` / `timeout` / `max_tokens` / `model_params` (RC-1..3) | 2.6.0 | Explicit two-lane config: whisper agents pin effort off; deep analyzers opt in. Sent only when set — never injected. |
-| Load-time validation (VL-1) | 2.6.0 | **Deliberate edge:** a reasoning-capable model without explicit `reasoning_effort` fails registration with a copy-pasteable fix (`strict_reasoning_config=False` downgrades to a warning). Vault reloads are all-or-nothing. |
-| Engine LLM knobs + rotation persistence (EN-1) | 2.6.0 | `llm_base_url` and friends are first-class; `update_api_key` no longer resets them. |
-
-## What's New in v2.2
-
-v2.2 is a **hardening release** driven by a 5-agent audit — one critical contract fix, robustness/consistency hardening, and a documentation sweep. One behavioral contract correction (F-1) may change which fact wins; everything else is additive or internal.
-
-| Change | Type | Impact |
-|--------|------|--------|
-| Fact conflict resolution honors agent **priority** (F-1) | Bug fix (contract) | Colliding `(type, key)` facts now resolve by priority → confidence → registration order (was confidence-only). `Fact.priority` added (engine-stamped). |
-| LLM calls are time-bounded with typed failures (R-1) | Bug fix | Per-request timeout, bounded retries, `max_tokens` cap, and categorized errors (`timeout`/`rate_limit`/`auth`/`server`/`malformed`). Still never raises into the turn; returns `None` on failure. |
-| Gate-less + rootless schemas default to **silence** (A-1) | Bug fix | A custom schema with no `check_field` and no `root_key` stays silent unless it opts in via `speak_without_gate: true`. Shipped schemas are unaffected. |
-| Phase-2 context mutation is exception-safe (E-1) | Bug fix | `trigger_type`/`phase` are restored via `try/finally` even if Phase 2 raises. |
-| Cross-turn agent memory persists via the blackboard (MR-1) | Bug fix | The engine syncs `blackboard.memory[id]` → `shared_state["memory_<id>"]` before agents run, so persistent memory survives per-turn agent re-instantiation. |
-| Memory is deep-copied on write as well as read (M-1) | Bug fix | `set_memory`/`update_memory` no longer retain caller references. |
-| Conditions fail **closed** on unknown operators (C-1) | Bug fix | A typo'd operator no longer fires the agent every turn. |
-| `Event`/`Fact` timestamps are session-relative (A-2) | Bug fix | `DynamicAgent` no longer stamps wall-clock epoch. |
-| `expiry`/`action_label` parsed from LLM output (S-1) | Bug fix | Previously requested by schemas but dropped. |
-| Model-supplied `confidence` is clamped to `[0,1]` (A-3) | Bug fix | A bad value no longer turns a good insight into an error. |
-| `max_phases` accepts only `1` or `2` (E-7) | Hardening | Unsupported values are clamped with a warning instead of silently ignored. |
-| Keyword matching documented as case-insensitive **substring** (E-8) | Docs | Behavior was previously unspecified. |
-| Zero-deprecation-warning suite + robust import config (G-1, T-2) | Hardening | Pydantic `ConfigDict` migration; suite importable independent of the checkout dir name. |
-| Provider clarified as **OpenAI / OpenAI-compatible** (DOC-1) | Docs | The LLM client wraps `AsyncOpenAI`; a future Anthropic adapter is out of scope. |
-
-> **See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md) for full details.**
+Full release notes in the [CHANGELOG](CHANGELOG.md); design rationale in [SPEC_LLM_MODERN_MODELS](docs/SPEC_LLM_MODERN_MODELS.md). Earlier releases — v2.2 (hardening), v2.1 (robustness), v2.0 (structured-blackboard rewrite) — are summarized there too, with archived specs under [docs/archive/](docs/archive/).
 
 ## Architecture
 
