@@ -2,12 +2,11 @@
 ## Modern-Model Compatibility Specification (llm-modern-models)
 
 **Version:** 2.5.0 (Release A) / 2.6.0 (Release B) — staged; see §10
-**Status:** APPROVED — 2026-07-13 (owner @genriq; rulings D-1 hard-fail · D-2 two releases · D-3 defer · D-4 defer). Amendment 1 (spec-review findings) applied and ratified same day. **IMPLEMENTED IN FULL:** Phase 0 + Release A (2.5.0, merged via PR #17) and Release B (2.6.0: RC-1..3, VL-1, EN-1, DOC-B on `feature/v2.6-reasoning-config`) — suite green, contract gate 30/30, INV-15..19 all registered and covered.
+**Status:** **IMPLEMENTED IN FULL** — shipped as releases 2.5.0 and 2.6.0 (2026-07-13); suite green, contract gate 30/30, INV-15..19 all registered and covered. Design rulings D-1 hard-fail · D-2 two releases · D-3 defer · D-4 defer (see §8). Amendment 1 (spec-review findings) applied.
 **Date:** July 13, 2026
-**Process Tier:** **Tier 1** (contract change + config-schema change + silent-regression risk → spec approved before code; see docs/PROCESS.md)
 **Scope:** Full compatibility with modern OpenAI models (GPT-5.x, GPT-5.6 sol/terra/luna, o-series) with **cheap-by-default two-lane economics**: whisper agents stay fast and near-free; reasoning is an explicit per-agent opt-in. Derived from a three-lens validation (API-facts vs OpenAI docs, codebase-fit audit, adversarial design review) of the 2026-07-13 modernization proposal.
+**Terminology:** "the host" is whatever application embeds this library; "the simulator" is a downstream consumer that replays recorded conversations against strict fake LLM clients — mentioned where compatibility with `generate_json`-only fakes was a design constraint.
 **Compatibility:** Release A is **inert on the OpenAI-wire and `generate_json`-return surfaces, measured post-Phase-0** (Amendment 1 scopes this precisely; QW-1/QW-3 change prompt text as deliberate bug fixes, and new error categories / an additive `AgentResponse.usage` key are host-visible). Release B introduces **one deliberate load-time edge** (reasoning-model configs without explicit effort **hard-fail** per D-1 ruling; escape hatch `strict_reasoning_config=False`) plus additive config fields. See [Section 13: Migration Notes](#13-migration-notes).
-**Baseline:** Validation performed against `main` @ `16832a2`; work branches `feature/v2.5-llm-modern-models` (Release A), `feature/v2.6-reasoning-config` (Release B).
 **Design rulings (this spec, from validation):** (1) The framework **never mutates a payload it didn't validate** — no silent parameter injection; explicit config + loud load-time validation instead. (2) Model-name knowledge is **payload-advisory** — it never alters outbound kwargs (pinned by test); at load time its severity is per-rule (VL-1 rule 1 hard-fails per D-1, rule 5 errors, rules 2–4 warn-once) — OpenAI publishes no capability API and effort value-sets are per-model. (3) Cache-aware prompt reordering is **out of scope** (below the 1024-token cache floor; Jinja per-turn rendering defeats prefix stability; conflicts with documented prompt-order contracts). (4) Responses API (pro mode, `reasoning.context`, effort `max`) is **deferred** to a future deep-lane spec.
 
 ---
@@ -29,8 +28,8 @@
 13. [Migration Notes](#13-migration-notes)
 14. [Rollback Plan](#14-rollback-plan)
 15. [Release Gates & Success Metrics](#15-release-gates--success-metrics)
-16. [Spec Amendment Procedure](#16-spec-amendment-procedure)
-17. [Sign-off](#17-sign-off)
+16. [Amendments](#16-amendments)
+17. [Disposition](#17-disposition)
 18. [Appendix A: Full Finding → Item Traceability](#appendix-a-full-finding--item-traceability)
 
 ---
@@ -89,8 +88,8 @@ explicit, validated at load time, and observable per call.
    Release B's deliberate edges ship.
 4. **Preserve the never-raise contract** — `generate_json` still returns dict-or-`None` into the
    turn; the taxonomy gets richer, the contract does not change shape.
-5. **Sibling-safe** — new kwargs are passed only-when-configured so the simulator's
-   downstream test doubles and in-repo strict-signature fakes keep working unmodified.
+5. **Fake-safe** — new kwargs are passed only-when-configured so downstream test
+   doubles and in-repo strict-signature fakes keep working unmodified.
 
 ---
 
@@ -532,7 +531,7 @@ A phase is **Done** when **all** hold:
    fixture set shows the only wire delta is the token-cap kwarg name.
 6. **Docs in lockstep:** every contract touched has its doc/docstring updated in the same phase.
 7. **CHANGELOG:** running, not end-loaded.
-8. **Sibling check (B phases):** simulator `MockLLMClient` + `tests/test_schemas.py::_FakeLLM`
+8. **Fake-compat check (B phases):** downstream test doubles + `tests/test_schemas.py::_FakeLLM`
    pass unmodified for unconfigured agents (only-when-configured guarantee).
 9. **Self-review:** diff reviewed for scope creep.
 
@@ -552,12 +551,12 @@ output; `/trace-check` passes Appendix A.
   passthrough verbatim (RC-2), per-agent budgets (RC-3), advisory-table-changes-nothing (VL-1).
 - **Never-raise envelope:** every new failure path (misconfig, truncated) proves dict-or-`None`,
   no exception into the turn.
-- **Sibling/fake safety:** explicit test that an unconfigured agent drives a strict-signature
+- **Fake safety:** explicit test that an unconfigured agent drives a strict-signature
   fake (`_FakeLLM` shape) successfully.
 - **Eval gate (process, not pytest):** any future change to the *value* of `DEFAULT_MODEL` or to
   a shipped schema's effort guidance requires a simulator golden-replay comparison — recorded
   here as the standing rule; out of scope to build in this spec.
-- **Target count:** TODO at implementation (~25–35 new tests: QW ×4, WC-1 ×3, OB-1 ×6, OB-2 ×6,
+- **Target count (as drafted):** ~25–35 new tests (QW ×4, WC-1 ×3, OB-1 ×6, OB-2 ×6,
   RC ×6, VL-1 ×6, EN-1 ×4).
 
 ---
@@ -627,7 +626,7 @@ output; `/trace-check` passes Appendix A.
 4. Version/CHANGELOG/docs consistent; `/trace-check` passes.
 
 **Gates — Release B (2.6.0):**
-1. Suite green; sibling check (simulator + strict fakes) green unmodified.
+1. Suite green; fake-compat check (strict-signature fakes) green unmodified.
 2. INV-15/18/19 CONTRACTS entries + named tests green; VL-1 advisory-only proof green.
 3. EN-1 rotation-persistence repro green; E-4 suite green.
 4. D-1 policy implemented as signed off; migration note published; host config audit done.
@@ -642,22 +641,18 @@ output; `/trace-check` passes Appendix A.
 
 ---
 
-## 16. Spec Amendment Procedure
+## 16. Amendments
 
-Per Tier-1 process: pause the affected item → propose here + to owner with rationale → owner
-sign-off → append "Amendment N" (date, reason) → resume. No silent scope changes; deferrals only
-via amendment. Decisions (§8) resolved at sign-off count as the initial rulings, recorded in
-the sign-off table.
+Amendments record post-approval changes to this spec with date and reason — no silent scope
+changes; deferrals only via amendment.
 
-### Amendment 1 — three-lens spec review findings applied (2026-07-13)
+### Amendment 1 — spec review findings applied (2026-07-13)
 
-**Reason:** The owner approved the spec while a three-reviewer validation (citation accuracy /
-consistency+process / implementability) was in flight, with findings directed to land via this
-procedure. Citation review: 60 accurate, 2 imprecise ranges (fixed inline), 0 inaccurate.
-The two design reviews converged on **4 blockers**, all resolved by inline amendment above;
-resolutions were chosen to *preserve* the owner's ruled properties (Release A inertness, D-1
-hard-fail) — none alters a ruling. **Sign-off:** applied under the standing approval; the owner
-may veto any resolution here, which reverts to the pre-amendment text and pauses the item.
+**Reason:** A three-reviewer validation (citation accuracy / consistency / implementability)
+completed after initial approval. Citation review: 60 accurate, 2 imprecise ranges (fixed
+inline), 0 inaccurate. The two design reviews converged on **4 blockers**, all resolved by
+inline amendment above; resolutions were chosen to *preserve* the spec's ruled properties
+(Release A inertness, D-1 hard-fail) — none alters a ruling.
 
 | # | Finding (reviewer) | Resolution (section amended) |
 |---|---|---|
@@ -675,49 +670,45 @@ may veto any resolution here, which reverts to the pre-amendment text and pauses
 
 ---
 
-## 17. Sign-off
+## 17. Disposition
 
-| Role | Name | Decision | Date |
-|------|------|----------|------|
-| Owner | @genriq | D-1: hard-fail · D-2: two releases · D-3: defer · D-4: defer (rulings recorded; spec approval pending review) | 2026-07-13 |
-| Owner | @genriq | ☑ **APPROVED** → Phase 0 begun | 2026-07-13 |
-| Author | Claude (validation + spec) | Drafted | 2026-07-13 |
-
-**This spec is DRAFT. No code will be written until the owner signs off (Tier-1 gate).** On
-approval, implementation proceeds Phase 0 → A3 → B3, each phase green before the next, ending in
-two PRs / releases (per D-2).
+Approved 2026-07-13 with rulings D-1 hard-fail · D-2 two releases · D-3 defer · D-4 defer
+(§8). Implemented in full and shipped as releases **2.5.0** (Release A) and **2.6.0**
+(Release B) — see `CHANGELOG.md` for the release notes and `docs/CONTRACTS.yaml` for the
+contract → test mapping (INV-15..19 all covered).
 
 ---
 
 ## Appendix A: Full Finding → Item Traceability
 
-Every finding from the three-lens validation (API-facts / codebase-audit / design-review agents,
+Every finding from the three-lens validation (API-facts / codebase-audit / design-review,
 2026-07-13) maps to one item (or item pair) or an explicit disposition; DOC items are
-process/release items with no originating finding. Test column filled at implementation;
-`/trace-check` verifies.
+process/release items with no originating finding. All Fix items below **shipped in
+2.5.0/2.6.0**; the authoritative contract → test mapping lives in `docs/CONTRACTS.yaml`
+(the table's status column reflects the original draft).
 
-| Validation finding | Source lens | Item | Test (named at impl) | Disposition |
+| Validation finding | Source lens | Item | Status | Disposition |
 |---|---|---|---|---|
-| `ui_control.json` lacks "json"; json_object 400 | codebase | **QW-1** | TODO | Fix (quick win) |
-| Default model hardcoded ×2 | codebase | **QW-2** | TODO | Fix (quick win) |
-| `user_context` blank joined section | codebase | **QW-3** | TODO | Fix (latent bug) |
-| `max_tokens` rejected by reasoning models | API-facts | **WC-1** | TODO | Fix (wire only) |
-| SDK floor 1.0.0 too low → silent `unknown` death | codebase | **WC-1** | TODO | Fix (floor bump) |
-| Old proxies reject `max_completion_tokens` | API-facts | **WC-1** | TODO | Opt-out knob |
-| 4xx categorized as `server` | codebase | **OB-1** | TODO | Fix |
-| Truncation lands in `malformed`; `finish_reason` unread | codebase+design | **OB-1** | TODO | Fix |
-| `last_error_category` race under gather | codebase+design | **OB-2** | TODO | Fix (result path) |
-| Usage discarded; `debug_info` exclude=True | codebase | **OB-2** | TODO | Fix (+first-class field) |
-| Omitted effort = `medium` on 5.5/5.6 (not 5.1) | API-facts | **RC-1 + VL-1** | TODO | Explicit config + load signal |
-| `"none"` not universal (minimal/low-floor/rejected) — injection REFUTED | API-facts | **RC-1** (design ruling 1) | TODO (kwargs pin) | Rejected: no injection |
-| Prefix table refuted both directions; no capability API | API-facts | **VL-1** | TODO (advisory-only pin) | Demoted to advisory |
-| Effort × timeout × budget starvation interaction | design | **VL-1** | TODO | Warn rules |
-| `temperature` in passthrough on reasoning model | design | **VL-1** | TODO | Warn rule |
-| Future params need framework releases | design | **RC-2** | TODO | Passthrough |
-| Per-agent budgets never plumbed | codebase | **RC-3** | TODO | Fix |
-| Strict-signature fakes (`_FakeLLM`, simulator) | codebase | **RC-1/RC-3** | TODO (sibling check) | Only-when-configured |
-| `update_api_key` resets config incl. `base_url` | codebase | **EN-1** | TODO (repro) | Fix (persistence) |
-| Engine doesn't expose LLM knobs / `base_url` | codebase+design | **EN-1** | TODO | Fix |
+| `ui_control.json` lacks "json"; json_object 400 | codebase | **QW-1** | Shipped | Fix (quick win) |
+| Default model hardcoded ×2 | codebase | **QW-2** | Shipped | Fix (quick win) |
+| `user_context` blank joined section | codebase | **QW-3** | Shipped | Fix (latent bug) |
+| `max_tokens` rejected by reasoning models | API-facts | **WC-1** | Shipped | Fix (wire only) |
+| SDK floor 1.0.0 too low → silent `unknown` death | codebase | **WC-1** | Shipped | Fix (floor bump) |
+| Old proxies reject `max_completion_tokens` | API-facts | **WC-1** | Shipped | Opt-out knob |
+| 4xx categorized as `server` | codebase | **OB-1** | Shipped | Fix |
+| Truncation lands in `malformed`; `finish_reason` unread | codebase+design | **OB-1** | Shipped | Fix |
+| `last_error_category` race under gather | codebase+design | **OB-2** | Shipped | Fix (result path) |
+| Usage discarded; `debug_info` exclude=True | codebase | **OB-2** | Shipped | Fix (+first-class field) |
+| Omitted effort = `medium` on 5.5/5.6 (not 5.1) | API-facts | **RC-1 + VL-1** | Shipped | Explicit config + load signal |
+| `"none"` not universal (minimal/low-floor/rejected) — injection REFUTED | API-facts | **RC-1** (design ruling 1) | Shipped (kwargs pin) | Rejected: no injection |
+| Prefix table refuted both directions; no capability API | API-facts | **VL-1** | Shipped (advisory-only pin) | Demoted to advisory |
+| Effort × timeout × budget starvation interaction | design | **VL-1** | Shipped | Warn rules |
+| `temperature` in passthrough on reasoning model | design | **VL-1** | Shipped | Warn rule |
+| Future params need framework releases | design | **RC-2** | Shipped | Passthrough |
+| Per-agent budgets never plumbed | codebase | **RC-3** | Shipped | Fix |
+| Strict-signature fakes (`_FakeLLM`, simulator) | codebase | **RC-1/RC-3** | Shipped (strict-fake check) | Only-when-configured |
+| `update_api_key` resets config incl. `base_url` | codebase | **EN-1** | Shipped (repro) | Fix (persistence) |
+| Engine doesn't expose LLM knobs / `base_url` | codebase+design | **EN-1** | Shipped | Fix |
 | Cache reordering: zero savings < 1024 floor; contract conflicts | design+codebase | — | — | **Dropped** (out of scope; §3) |
 | `reasoning_effort: "max"` unverified on Chat Completions | API-facts | — | — | **Deferred** (Responses/deep-lane spec) |
 | Pro mode / `reasoning.context` Responses-only | API-facts | — | — | **Deferred** (deep-lane spec) |

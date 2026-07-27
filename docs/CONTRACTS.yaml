@@ -6,26 +6,22 @@
 # status is `uncovered`.
 #
 # This registry is the artifact that turns the F-1 escape ("a documented contract with no
-# asserting test") into a day-one red build. It is seeded here (R0) from the existing
-# invariants in SPEC_V2_1_HARDENING (INV-1..8) and SPEC_V2_2_HARDENING (INV-8'..13). The
-# `to_verify` entries are honest debt for R1 (invariant↔test bijection back-fill); they are
-# NOT claims of coverage.
+# asserting test") into a day-one red build. Originally seeded from the invariants in
+# SPEC_V2_1_HARDENING (INV-1..8) and SPEC_V2_2_HARDENING (INV-8'..13); now fully certified
+# through INV-19 (see the coverage summary at the bottom).
 #
 # status vocabulary:
 #   covered       — a test asserts the rule and passes; mapping verified.
-#   to_verify     — a plausible test exists but the assertion/bijection is not yet verified
-#                   (R1 back-fill). Treated as UNCOVERED by the gate until promoted.
+#   to_verify     — a plausible test exists but the assertion/bijection is not yet verified.
+#                   Treated as UNCOVERED by the gate until promoted.
 #   failing_probe — the rule is documented by a probe that currently FAILS on `main`,
 #                   making the gap visible (the contract is unimplemented). The probe is the
 #                   permanent regression once the fix lands.
-#   pending_v2.2  — a v2.2 hardening target not yet implemented; no passing test can exist
-#                   yet. Becomes `covered` when the corresponding v2.2 item lands with its test.
 #
 # Each entry: id, statement, source[], invariant?, test, status.
 
 schema_version: 1
-baseline_commit: "47f742d"
-seeded: "2026-06-08 (R0)"
+seeded: "2026-06-08 (v2.2 hardening audit)"
 
 # Debt ratchet: the gate fails if the number of to_verify/uncovered/pending entries
 # exceeds this baseline. Debt may SHRINK (lower this when you promote an entry to
@@ -377,9 +373,8 @@ contracts:
 # covered:       30   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
-# pending_v2.2:   0
 # uncovered:      0
-# total:         29
+# total:         30
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

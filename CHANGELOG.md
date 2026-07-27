@@ -309,7 +309,7 @@ Public-release hardening. One additive API (`unregister_agent`); no breaking cha
 
 ## [2.2.0] - 2026-06-08
 
-Production-hardening release driven by the v2.2 5-agent audit: 1 critical contract bug,
+Production-hardening release driven by the v2.2 comprehensive audit: 1 critical contract bug,
 4 high-severity gaps, 13 medium fixes, an additive memory-persistence fix (MR-1), plus
 test-infra, hygiene, and a full documentation refresh. Suite 105 → 224, zero warnings.
 See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md).
