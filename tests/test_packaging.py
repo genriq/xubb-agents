@@ -15,7 +15,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-SCHEMAS_DIR = REPO_ROOT / "library" / "schemas"
+PACKAGE_DIR = REPO_ROOT / "src" / "xubb_agents"
+SCHEMAS_DIR = PACKAGE_DIR / "library" / "schemas"
 
 # The schemas DynamicAgent actually loads at runtime (library/dynamic.py).
 REQUIRED_SCHEMAS = [
@@ -43,8 +44,16 @@ class TestSchemaPackaging:
     def test_version_is_consistent(self):
         """pyproject version and __init__.__version__ must agree (release identity)."""
         pyproject_version = re.search(r'^version\s*=\s*"([^"]+)"', PYPROJECT, re.M).group(1)
-        init_text = (REPO_ROOT / "__init__.py").read_text(encoding="utf-8")
+        init_text = (PACKAGE_DIR / "__init__.py").read_text(encoding="utf-8")
         init_version = re.search(r'__version__\s*=\s*"([^"]+)"', init_text).group(1)
         assert pyproject_version == init_version, (
             f"pyproject.toml says {pyproject_version} but __init__.py says {init_version}"
         )
+
+    def test_py_typed_marker_ships(self):
+        """py.typed must exist and be declared in package-data, or downstream
+        type-checkers see the whole API as Any."""
+        assert (PACKAGE_DIR / "py.typed").is_file(), "src/xubb_agents/py.typed missing"
+        assert re.search(
+            r'"xubb_agents"\s*=\s*\[[^\]]*"py\.typed"', PYPROJECT
+        ), 'pyproject.toml must declare "xubb_agents" = ["py.typed"] package-data'

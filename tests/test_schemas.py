@@ -28,6 +28,8 @@ from xubb_agents.core.models import AgentContext, TriggerType
 
 SCHEMA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "src",
+    "xubb_agents",
     "library",
     "schemas",
 )

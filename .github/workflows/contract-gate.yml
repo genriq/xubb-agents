@@ -9,27 +9,27 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   contract-gate:
     runs-on: ubuntu-latest
-    # The repo root IS the `xubb_agents` package (pyproject package-dir maps it to ".").
-    # pytest names that root package after the checkout directory, so the directory must
-    # be a valid Python identifier. Check out into `xubb_agents` (not the default
-    # `xubb-agents`, whose hyphen is not an importable module name) and run every step
-    # from there — otherwise collection fails with "attempted relative import with no
-    # known parent package".
-    defaults:
-      run:
-        working-directory: xubb_agents
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: xubb_agents
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install
         run: |
