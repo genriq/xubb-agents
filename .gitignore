@@ -27,6 +27,9 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+junit.xml
+contract_gate_*.xml
+.ruff_cache/
 
 # Environment
 .env
@@ -39,7 +42,6 @@ Thumbs.db
 # Internal process notes (not shipped). The framework's own QA artifacts
 # (docs/CONTRACTS.yaml, docs/PROCESS.md, tests/qa_probes/) ARE in this repo.
 process-lab/
-.claude/commands/
 .mypy_cache/
 .benchmarks/
 .claude/

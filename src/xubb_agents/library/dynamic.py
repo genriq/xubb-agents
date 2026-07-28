@@ -77,7 +77,7 @@ class DynamicAgent(BaseAgent):
         # Parse interval (seconds between INTERVAL-mode firings). Previously never
         # read here, so AgentConfig.trigger_interval stayed None and the host's
         # `if interval and ...` gate never fired an interval-mode agent (DOA for
-        # vault-authored configs). Coerced defensively: a non-numeric or
+        # externally-authored configs). Coerced defensively: a non-numeric or
         # non-positive value is treated as absent (warn), not a config crash.
         trigger_interval = trigger_conf.get("trigger_interval")
         if trigger_interval is not None:
@@ -487,12 +487,12 @@ class DynamicAgent(BaseAgent):
         # 4. Call LLM (Dynamic Model)
         # OB-2: duck-type the client (same house pattern as _close_llm_client).
         # A real LLMClient exposes the enriched per-call generate() -> LLMResult
-        # (race-free category + usage attribution, INV-17); duck-typed fakes and
-        # the simulator's MockLLMClient may implement only generate_json — both
+        # (race-free category + usage attribution, INV-17); duck-typed fakes
+        # (e.g. a test double) may implement only generate_json — both
         # keep working, the enrichment is simply absent.
         # RC-1/RC-2/RC-3 / INV-15: per-agent LLM-call config is forwarded
         # ONLY when configured — an unconfigured agent sends zero extra kwargs,
-        # so strict-signature fakes (simulator MockLLMClient) stay compatible
+        # so strict-signature fakes (no **kwargs) stay compatible
         # and the wire carries exactly what the operator wrote.
         llm_kwargs = {}
         if self.config.reasoning_effort is not None:

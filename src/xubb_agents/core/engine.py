@@ -165,7 +165,7 @@ class AgentEngine:
         # not every turn, to avoid flooding logs in a long real-time session).
         self._warned_subscriber_ids: set = set()
         # VL-1: agent ids already warned about LLM-config issues — warn once,
-        # not on every vault reload re-registering the same id (E-6 discipline).
+        # not on every bulk config reload re-registering the same id (E-6 discipline).
         self._warned_config_agent_ids: set = set()
 
     def _validate_agent_llm_config(self, agent: BaseAgent) -> List[str]:
@@ -258,7 +258,7 @@ class AgentEngine:
         Concurrency-safe: mutates the registry under ``self._agents_lock`` using the
         same build-fresh-and-rebind discipline as ``replace_agents`` (never mutating
         the live structures in place), so a lock-free reader on another thread — e.g. a
-        turn iterating ``self.agents`` while a vault reload swaps agents — always sees a
+        turn iterating ``self.agents`` while a bulk reload swaps agents — always sees a
         complete, consistent registry.
 
         Raises ``AgentConfigurationError`` (VL-1/INV-19) BEFORE any mutation —
@@ -289,7 +289,8 @@ class AgentEngine:
                    f"Model: {agent.config.model}, Triggers: {agent.config.trigger_types})")
 
     def replace_agents(self, agents: List[BaseAgent]) -> None:
-        """Atomically replace the full agent set (e.g. on a vault reload).
+        """Atomically replace the full agent set (e.g. when the host reloads
+        agent configs from its config store).
 
         Concurrency-safe alternative to ``agents.clear()`` + ``register_agent`` loop:
         a hot turn iterating ``self.agents`` (or reading ``_agent_meta``) must never
@@ -312,7 +313,7 @@ class AgentEngine:
                 all_violations.extend(self._validate_agent_llm_config(agent))
             if all_violations:
                 raise AgentConfigurationError(
-                    "Vault reload rejected (all-or-nothing; old registry still "
+                    "Agent reload rejected (all-or-nothing; old registry still "
                     "serving): " + " | ".join(all_violations)
                 )
 

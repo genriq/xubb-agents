@@ -1,13 +1,7 @@
-<!--
-  THE XUBB AGENTS PLAYBOOK
-  Synthesized from a 10-agent deep analysis of the v2.2 codebase.
-  Every pattern is grounded in the real code under core/, library/, utils/.
--->
-
 # The Xubb Agents Playbook
 ### The secret formula for building a world-class real-time conversational copilot on `xubb_agents`
 
-**For:** engineers building a live HUD/overlay copilot on the `xubb_agents` framework (v2.2) — something that listens to a conversation as it happens, understands it, and surfaces the *right* insight at the *right* moment.
+**For:** engineers building a live HUD/overlay copilot on the `xubb_agents` framework — something that listens to a conversation as it happens, understands it, and surfaces the *right* insight at the *right* moment. Grounded in a deep analysis of the real code under `src/xubb_agents/`; core patterns date to v2.2 and remain current through v2.6.
 
 **What this is (and isn't):** the README and the technical spec tell you *what each piece is*. This playbook tells you *how to compose the pieces into something magical* — the design philosophy, the high-leverage patterns, the anti-patterns, and the non-obvious moves that separate a mediocre agent suite from a copilot people trust. It is opinionated on purpose. Every claim is grounded in the real v2.2 code.
 
@@ -96,7 +90,7 @@ This chapter sets the altitude. Before you write a single agent config, you have
 
 ## 1. What `xubb_agents` fundamentally IS
 
-It is a **library**, not an application. The README is explicit: it is "a separate product/project that provides the agent framework... consumed by `xubb_server` and other applications." It does not own the microphone, the transcription, the UI, the session store, or the keyword scanner. It owns exactly one thing: **turning a snapshot of conversational context into a set of structured insights and state updates, by running a swarm of agents.**
+It is a **library**, not an application. The README is explicit: it is a separate, standalone library, consumed by host applications that need real-time conversation agents. It does not own the microphone, the transcription, the UI, the session store, or the keyword scanner. It owns exactly one thing: **turning a snapshot of conversational context into a set of structured insights and state updates, by running a swarm of agents.**
 
 Concretely, the entire surface area you orchestrate against is one method:
 
@@ -600,7 +594,7 @@ This buys you three things that matter for a copilot:
 
 1. **Decoupling.** Add a tenth observer that reacts to `risk_score`; you change zero existing agents. The new agent just reads a variable that's already there.
 2. **Determinism at the seams.** Every write goes through one merge step with defined ordering (Chapter on the engine covers this). No two agents race to mutate each other.
-3. **A single integration contract with the host.** Your `xubb_server` HUD doesn't subscribe to ten agents. It reads five containers off one object. (More on this at the end — it's the most underused property of the whole framework.)
+3. **A single integration contract with the host.** Your host's HUD doesn't subscribe to ten agents. It reads five containers off one object. (More on this at the end — it's the most underused property of the whole framework.)
 
 The Blackboard is a Pydantic model with exactly five typed containers (`core/blackboard.py`):
 
@@ -824,7 +818,7 @@ results = await asyncio.gather(*tasks)
 
 ## The Blackboard as the integration contract with the host
 
-Here is the underused superpower. Your host (`xubb_server`, the HUD) should **not** be wired to individual agents. It should read the Blackboard. The framework hands you a clean serialization boundary:
+Here is the underused superpower. Your host (the HUD application) should **not** be wired to individual agents. It should read the Blackboard. The framework hands you a clean serialization boundary:
 
 ```python
 state = bb.to_dict()    # deep copies: events, variables, queues, facts, memory
@@ -3265,7 +3259,7 @@ engine.callbacks.append(CostMeter(engine))   # callbacks compose; add as many as
 
 ---
 
-## 10.5 The host loop: how a host like `xubb_server` drives the engine
+## 10.5 The host loop: how a host application drives the engine
 
 The engine is a stateless-per-call orchestrator over *host-owned* state. The division of labor is strict:
 

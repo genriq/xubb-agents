@@ -28,6 +28,22 @@ enforces it in CI:
 - `--strict` requires a passing test for every entry: the full-coverage release
   gate.
 
+The CI job and tooling refer to the gate's three checks by short names:
+
+| Gate | Check |
+|------|-------|
+| **G1** | Registry ↔ test **bijection**: every `covered` contract names a test that exists at the node level (`file::Class::test`). |
+| **G2** | **Invariant marker coverage**: tests guarding a documented contract carry the `@pytest.mark.invariant` marker, so contract-asserting tests are identifiable and countable. |
+| **G3** | The named test **actually ran and passed** in this build (verified against the JUnit report — a collected-but-skipped test does not count). |
+
+## Escaped-defect probes (`tests/qa_probes/`)
+
+A defect that escapes to production earns a **probe**: a regression test that
+drives the real engine end-to-end (not a unit in isolation), kept in
+`tests/qa_probes/` as a permanent record of the escape. Probes are hard gates —
+never deleted, never `xfail`-ed. PROBE-F1 (fact precedence) is the canonical
+example.
+
 ## Negative controls
 
 A test that can only pass proves nothing. Contract assertions carry their own

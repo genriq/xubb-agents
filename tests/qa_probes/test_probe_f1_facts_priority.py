@@ -1,14 +1,15 @@
 """
-QA Probe Registry — PROBE-F1: fact conflict resolution honors agent priority.
+QA Probe — PROBE-F1: fact conflict resolution honors agent priority.
 
 Origin:    v2.1.1 escaped defect (the "facts-vs-priority" contract bug). It survived
-           SPEC_V2.1, SPEC_V2.1.1, and was only found by the v2.2 5-agent audit.
+           SPEC_V2.1, SPEC_V2.1.1, and was only found by the v2.2 audit.
 Contract:  FACT-PRECEDENCE (docs/CONTRACTS.yaml) / INV-9 (docs/SPEC_V2_2_HARDENING.md).
            On a (type, key) collision: higher agent PRIORITY wins; ties broken by
            higher confidence; remaining ties by later registration order.
 
-This is the canonical escaped-defect probe (see docs/PROCESS.md) from
-the QA-agent design proposal. It drives the REAL AgentEngine (the framework is the
+This is the canonical escaped-defect probe (see docs/PROCESS.md): a regression
+test born from a defect that escaped to production, kept separate from tests/ as
+a permanent record. It drives the REAL AgentEngine (the framework is the
 system-under-test — the one valuable "dogfood" slice) rather than unit-testing add_fact
 in isolation, because the bug lives in the engine-merge ↔ blackboard contract.
 

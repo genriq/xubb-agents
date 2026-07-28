@@ -6,26 +6,22 @@
 # status is `uncovered`.
 #
 # This registry is the artifact that turns the F-1 escape ("a documented contract with no
-# asserting test") into a day-one red build. It is seeded here (R0) from the existing
-# invariants in SPEC_V2_1_HARDENING (INV-1..8) and SPEC_V2_2_HARDENING (INV-8'..13). The
-# `to_verify` entries are honest debt for R1 (invariant↔test bijection back-fill); they are
-# NOT claims of coverage.
+# asserting test") into a day-one red build. Originally seeded from the invariants in
+# SPEC_V2_1_HARDENING (INV-1..8) and SPEC_V2_2_HARDENING (INV-8'..13); now fully certified
+# through INV-19 (see the coverage summary at the bottom).
 #
 # status vocabulary:
 #   covered       — a test asserts the rule and passes; mapping verified.
-#   to_verify     — a plausible test exists but the assertion/bijection is not yet verified
-#                   (R1 back-fill). Treated as UNCOVERED by the gate until promoted.
+#   to_verify     — a plausible test exists but the assertion/bijection is not yet verified.
+#                   Treated as UNCOVERED by the gate until promoted.
 #   failing_probe — the rule is documented by a probe that currently FAILS on `main`,
 #                   making the gap visible (the contract is unimplemented). The probe is the
 #                   permanent regression once the fix lands.
-#   pending_v2.2  — a v2.2 hardening target not yet implemented; no passing test can exist
-#                   yet. Becomes `covered` when the corresponding v2.2 item lands with its test.
 #
 # Each entry: id, statement, source[], invariant?, test, status.
 
 schema_version: 1
-baseline_commit: "47f742d"
-seeded: "2026-06-08 (R0)"
+seeded: "2026-06-08 (v2.2 hardening audit)"
 
 # Debt ratchet: the gate fails if the number of to_verify/uncovered/pending entries
 # exceeds this baseline. Debt may SHRINK (lower this when you promote an entry to
@@ -40,7 +36,7 @@ contracts:
       On a Fact (type, key) collision, higher agent PRIORITY wins; ties broken by higher
       confidence; remaining ties by later registration order.
     source:
-      - "core/models.py: Fact docstring"
+      - "src/xubb_agents/core/models.py: Fact docstring"
       - "docs/archive/SPEC_V2.md: §6.5.4"
       - "docs/SPEC_V2_2_HARDENING.md: INV-9 / §5"
       - "README.md: fact-precedence rule (~L526 / ~L870)"
@@ -55,7 +51,7 @@ contracts:
       Facts dedupe by (type, key); when key is None, dedupe by type alone (the type is a
       singleton).
     source:
-      - "core/blackboard.py: add_fact"
+      - "src/xubb_agents/core/blackboard.py: add_fact"
       - "docs/archive/SPEC_V2.md: §6.5.4"
     test: "tests/test_blackboard.py::TestBlackboardFacts::test_dedupe_by_type_key_pair"
     test_none_key: "tests/test_blackboard.py::TestBlackboardFacts::test_dedupe_none_key_by_type"
@@ -163,7 +159,7 @@ contracts:
       read-path (shared_state["memory_<id>"]) regardless of whether the agent instance is
       reused.
     source:
-      - "core/engine.py: _sync_state_to_legacy (MR-1)"
+      - "src/xubb_agents/core/engine.py: _sync_state_to_legacy (MR-1)"
       - "docs/SPEC_V2_2_HARDENING.md: Amendment 1 / INV-14"
     invariant: INV-14
     test: "tests/test_engine.py::TestV22Closeout::test_mr1_blackboard_memory_synced_to_shared_state"
@@ -212,7 +208,7 @@ contracts:
       are rebuilt fresh and rebound (agents last) — never mutated in place — so a
       reader sees a complete old or complete new set, with no stale-meta leak.
     source:
-      - "core/engine.py: replace_agents"
+      - "src/xubb_agents/core/engine.py: replace_agents"
     test: "tests/test_engine.py::TestReplaceAgents::test_replace_agents_swaps_registry_and_clears_stale_meta"
     test_concurrent: "tests/test_engine.py::TestReplaceAgents::test_replace_agents_never_observed_half_cleared"
     status: covered   # guards hosts that hot-reload the agent registry during a live turn.
@@ -223,11 +219,11 @@ contracts:
       than mutating in place, matching replace_agents: register_agent and
       unregister_agent rebuild agents/_agent_index/_agent_meta and rebind them, so a
       lock-free reader (a turn iterating self.agents, possibly on another thread during
-      a vault reload) always sees a complete registry. unregister_agent also EXISTS and
-      is symmetric with register_agent (the host's test-agent cleanup depends on it).
+      a bulk config reload) always sees a complete registry. unregister_agent also EXISTS
+      and is symmetric with register_agent (host agent-cleanup paths depend on it).
     source:
-      - "core/engine.py: register_agent (rebind under lock)"
-      - "core/engine.py: unregister_agent (rebind under lock; recomputes indices)"
+      - "src/xubb_agents/core/engine.py: register_agent (rebind under lock)"
+      - "src/xubb_agents/core/engine.py: unregister_agent (rebind under lock; recomputes indices)"
     test: "tests/test_registry_mutators.py::test_register_rebinds_rather_than_mutating"
     test_unregister: "tests/test_registry_mutators.py::test_unregister_agent_removes_and_reports"
     test_unregister_rebinds: "tests/test_registry_mutators.py::test_unregister_rebinds_rather_than_mutating"
@@ -238,9 +234,9 @@ contracts:
       DynamicAgent parses trigger_config.trigger_interval into
       AgentConfig.trigger_interval (int-coerced; non-numeric/non-positive values are
       warned and treated as absent). Previously never read, so an interval-mode
-      vault agent could never fire — the host gates on `if interval and ...`.
+      agent could never fire — the host gates on `if interval and ...`.
     source:
-      - "library/dynamic.py: __init__ (trigger_interval parse)"
+      - "src/xubb_agents/library/dynamic.py: __init__ (trigger_interval parse)"
     invariant: CFG-INTERVAL
     test: "tests/test_dynamic_agent.py::TestIntervalTriggerConfig::test_trigger_interval_is_parsed_into_config"
     test_coerce: "tests/test_dynamic_agent.py::TestIntervalTriggerConfig::test_numeric_string_interval_is_coerced"
@@ -257,9 +253,9 @@ contracts:
       always-run paths are conditions=None/empty and rules=[] (absent gating is
       a deliberate default, not a failure).
     source:
-      - "core/conditions.py: evaluate (mode dispatch + unknown-mode fail-closed)"
-      - "core/conditions.py: _evaluate_rule (never-raises except)"
-      - "core/conditions.py: _compare (unknown-operator fail-closed)"
+      - "src/xubb_agents/core/conditions.py: evaluate (mode dispatch + unknown-mode fail-closed)"
+      - "src/xubb_agents/core/conditions.py: _evaluate_rule (never-raises except)"
+      - "src/xubb_agents/core/conditions.py: _compare (unknown-operator fail-closed)"
     invariant: EVAL-FAIL-CLOSED
     test: "tests/test_conditions.py::TestHardeningV22::test_c4_unknown_mode_fails_closed"
     test_operator: "tests/test_conditions.py::TestHardeningV22::test_c1_unknown_operator_fails_closed"
@@ -274,9 +270,9 @@ contracts:
       hard-clamped to [1, 2]. No authored prompt set can create multi-hop or
       unbounded cascade chains.
     source:
-      - "core/engine.py: process_turn (Phase-2 gate + subscriber resolution)"
-      - "core/engine.py: Phase-2 event recording (not dispatched)"
-      - "core/engine.py: max_phases clamp"
+      - "src/xubb_agents/core/engine.py: process_turn (Phase-2 gate + subscriber resolution)"
+      - "src/xubb_agents/core/engine.py: Phase-2 event recording (not dispatched)"
+      - "src/xubb_agents/core/engine.py: max_phases clamp"
     invariant: CASCADE-BOUNDED
     test: "tests/test_engine.py::TestMultiPhaseExecution::test_phase2_events_not_dispatched"
     test_clamp: "tests/test_engine.py::TestV22Closeout::test_e7_max_phases_clamped"
@@ -291,7 +287,7 @@ contracts:
       "malformed", and each other. Missing/non-int status_code falls to
       "server"; the never-raise contract is preserved on every path.
     source:
-      - "core/llm.py: generate() APIStatusError handler + truncated check"
+      - "src/xubb_agents/core/llm.py: generate() APIStatusError handler + truncated check"
       - "docs/SPEC_LLM_MODERN_MODELS.md: INV-16 / §6.2"
     invariant: INV-16
     test: "tests/test_llm.py::test_typed_errors_return_none_and_log_category"
@@ -308,7 +304,7 @@ contracts:
       last_error_category remains as a deprecated best-effort mirror with a
       single write site in generate().
     source:
-      - "core/llm.py: LLMResult + generate() + _finish"
+      - "src/xubb_agents/core/llm.py: LLMResult + generate() + _finish"
       - "docs/SPEC_LLM_MODERN_MODELS.md: INV-17 / §6.3"
     invariant: INV-17
     test: "tests/test_llm.py::test_ob2_llmresult_attributes_categories_per_call"
@@ -329,8 +325,8 @@ contracts:
       config load. The reasoning heuristic is payload-advisory: it never alters
       config or outbound kwargs.
     source:
-      - "core/llm.py: generate() kwargs assembly + FRAMEWORK_OWNED_PARAMS"
-      - "library/dynamic.py: only-when-configured llm_kwargs + __init__ collision check"
+      - "src/xubb_agents/core/llm.py: generate() kwargs assembly + FRAMEWORK_OWNED_PARAMS"
+      - "src/xubb_agents/library/dynamic.py: only-when-configured llm_kwargs + __init__ collision check"
       - "docs/SPEC_LLM_MODERN_MODELS.md: INV-15 / §7.1-§7.2"
     invariant: INV-15
     test: "tests/test_llm.py::test_reasoning_effort_present_iff_configured"
@@ -347,7 +343,7 @@ contracts:
       wire_max_tokens_param) survives update_api_key; key rotation never resets
       the client to module defaults. Ctor config is authoritative.
     source:
-      - "core/engine.py: __init__ _llm_config + update_api_key"
+      - "src/xubb_agents/core/engine.py: __init__ _llm_config + update_api_key"
       - "docs/SPEC_LLM_MODERN_MODELS.md: INV-18 / §7.5"
     invariant: INV-18
     test: "tests/test_reasoning_validation.py::TestEN1EngineKnobs::test_rotation_persists_engine_llm_config"
@@ -364,7 +360,7 @@ contracts:
       register_agent validates before any mutation; replace_agents is
       all-or-nothing (old registry keeps serving).
     source:
-      - "core/engine.py: _validate_agent_llm_config + register_agent/replace_agents"
+      - "src/xubb_agents/core/engine.py: _validate_agent_llm_config + register_agent/replace_agents"
       - "docs/SPEC_LLM_MODERN_MODELS.md: INV-19 / §7.4 (D-1 ruling)"
     invariant: INV-19
     test: "tests/test_reasoning_validation.py::TestRule1HardFail::test_reasoning_model_without_effort_hard_fails"
@@ -377,9 +373,8 @@ contracts:
 # covered:       30   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
-# pending_v2.2:   0
 # uncovered:      0
-# total:         29
+# total:         30
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

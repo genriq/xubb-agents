@@ -5,10 +5,8 @@
 **Status:** IMPLEMENTED — 2026-06-08. All 33 items + Amendment 1 (MR-1) landed across 3 PRs
 (F-1 + medium; HIGH; Phase 0/4 closeout). Suite 105 → 224. See CHANGELOG `[2.2.0]`.
 **Date:** June 8, 2026
-**Process Tier:** **Tier 1** (contract change + silent-regression risk → spec approved before code; see docs/PROCESS.md)
-**Scope:** One confirmed critical contract bug, four high-severity robustness gaps, a cluster of medium contract/robustness fixes, and code/doc hygiene — identified during a 5-agent comprehensive audit of v2.1.1.
+**Scope:** One confirmed critical contract bug, four high-severity robustness gaps, a cluster of medium contract/robustness fixes, and code/doc hygiene — identified during a comprehensive audit of v2.1.1.
 **Compatibility:** One **deliberate behavioral contract correction** (fact conflict resolution, F-1) that may change which fact wins in consumers relying on the buggy v2.1.1 behavior. All other changes are additive or internal. See [Section 13: Migration Notes](#13-migration-notes).
-**Baseline:** Audit performed against `main` @ `47f742d`; work branch `hardening/v2.2.0`.
 **Provider decision (this release):** The LLM client remains **OpenAI / OpenAI-compatible** by explicit owner decision. v2.2 does **not** migrate to the Anthropic SDK; it documents OpenAI as the intended provider and removes the "Claude library" ambiguity from prose. (A future Anthropic adapter is out of scope.)
 
 ---
@@ -31,14 +29,14 @@
 14. [Rollback Plan](#14-rollback-plan)
 15. [Release Gates & Success Metrics](#15-release-gates--success-metrics)
 16. [Spec Amendment Procedure](#16-spec-amendment-procedure)
-17. [Sign-off](#17-sign-off)
+17. [Disposition](#17-disposition)
 18. [Appendix A: Full Finding → Item Traceability](#appendix-a-full-finding--item-traceability)
 
 ---
 
 ## 1. Executive Summary
 
-A 5-agent comprehensive review of v2.1.1 confirmed that the v2.1/v2.1.1 hardening was effective — **every** documented prior fix (B1–B12, NP1–NP16, D1–D3, T1) actually landed, and the suite passes 105/105. The review surfaced **one genuine critical contract bug that escaped all three prior specs**, plus a set of high/medium robustness and contract-consistency gaps that stand between v2.1.1 and a beyond-production-grade bar.
+A comprehensive multi-perspective review of v2.1.1 confirmed that the v2.1/v2.1.1 hardening was effective — **every** documented prior fix (B1–B12, NP1–NP16, D1–D3, T1) actually landed, and the suite passes 105/105. The review surfaced **one genuine critical contract bug that escaped all three prior specs**, plus a set of high/medium robustness and contract-consistency gaps that stand between v2.1.1 and a beyond-production-grade bar.
 
 ### Headline Numbers
 
@@ -48,7 +46,7 @@ A 5-agent comprehensive review of v2.1.1 confirmed that the v2.1/v2.1.1 hardenin
 
 ### Impact Summary
 
-- **1 critical contract bug (F-1):** `Blackboard.add_fact` resolves `(type, key)` conflicts by **confidence only**, silently inverting the documented "higher agent **priority** wins" rule (SPEC_V2 §6.5.4). **Empirically proven live:** a low-priority/conf-0.9 agent beats a high-priority/conf-0.5 agent on the same fact. A high-priority authoritative extractor (budget, stakeholders, timeline) can be silently overruled. No error, no log. **Silent-regression risk to `xubb_server`.**
+- **1 critical contract bug (F-1):** `Blackboard.add_fact` resolves `(type, key)` conflicts by **confidence only**, silently inverting the documented "higher agent **priority** wins" rule (SPEC_V2 §6.5.4). **Empirically proven live:** a low-priority/conf-0.9 agent beats a high-priority/conf-0.5 agent on the same fact. A high-priority authoritative extractor (budget, stakeholders, timeline) can be silently overruled. No error, no log. **Silent-regression risk to consuming hosts.**
 - **4 high-severity gaps:** the LLM call site has no timeout/retry/`max_tokens` and collapses all failures to silent `None` (R-1); schemas without a `check_field` lose the "stay silent" contract and spam the HUD (A-1); the Phase-2 `trigger_type` mutation is not exception-safe and can permanently corrupt the host-reused context (E-1); the two most-recently-changed public surfaces — `DynamicAgent` and the tracer — have **zero** test coverage (T-1).
 - **13 medium items:** memory write-side aliasing, three condition-evaluation traps (fail-open operator, truthy membership, mod-by-zero), three schema/parser drifts (`expiry` requested-but-dropped, `is_state_at_root` dead config, inconsistent v2 state-write path), wall-clock timestamps violating the session-relative convention, unvalidated LLM confidence, `sys.*` leakage, v1 dual-path drop, `update_api_key` races, and an O(n²) merge lookup.
 - **Hygiene & docs:** Pydantic deprecation cleanup, debugger v2-field rendering, pytest config robustness, deflaking, and six documentation corrections including the OpenAI provider clarification.
@@ -230,7 +228,7 @@ The rule is also correct for **direct host calls** to `add_fact` that set `prior
 - **Engine-level (`test_engine.py`):** two agents, `priority=10/conf=0.5` vs `priority=1/conf=0.9`, same `(type,key)` → high-priority value wins on the blackboard **and** in `final_response.facts`. (This is the empirical repro, promoted to a permanent regression test. Mirrors the existing `test_higher_priority_wins` which only covers `variable_updates`.)
 
 ### 5.5 Acceptance
-INV-9 holds. The new engine-level test fails on `47f742d` and passes after F-1. `test_higher_priority_wins` remains green (variables unchanged).
+INV-9 holds. The new engine-level test fails on the pre-fix audit baseline and passes after F-1. `test_higher_priority_wins` remains green (variables unchanged).
 
 ---
 
@@ -383,7 +381,7 @@ Release-level DoD (end of Phase 4): full suite green, coverage added for `Dynami
 
 ## 13. Migration Notes
 
-**One behavioral change for consumers (`xubb_server` and other hosts):**
+**One behavioral change for consumers (host applications):**
 
 - **F-1 (fact conflict resolution):** Facts that collide on `(type, key)` now resolve by **priority first**, then confidence, then registration order — matching the always-documented contract. **Consumers that (knowingly or not) depended on the buggy v2.1.1 "highest-confidence-regardless-of-priority" behavior may see a different fact win.** This is a deliberate correction of a documented contract, not a new feature. **Action for hosts:** verify that agent `priority` values reflect intended authority for fact extraction; a high-priority extractor will now correctly override lower-priority agents even at lower confidence.
 
@@ -429,19 +427,18 @@ Release-level DoD (end of Phase 4): full suite green, coverage added for `Dynami
 
 ## 16. Spec Amendment Procedure
 
-Per Tier-1 process: if implementation reveals a needed deviation (e.g., a better F-1 design, or an item that turns out to be larger than scoped):
+If implementation reveals a needed deviation (e.g., a better F-1 design, or an item that turns out to be larger than scoped):
 1. **Pause** the affected item.
-2. **Propose** the change here (and to the owner) with rationale.
-3. **Sign-off** from the owner.
-4. **Append** an "Amendment N" block to this section recording the change, date, and reason.
+2. **Propose** the change here with rationale.
+3. **Append** an "Amendment N" block to this section recording the change, date, and reason.
 5. **Resume.**
 
-No silent scope changes. Items may be **downgraded/deferred** to v2.2.1 only via an amendment with owner sign-off.
+No silent scope changes. Items may be **downgraded/deferred** to v2.2.1 only via a recorded amendment.
 
 ### Amendment 1 — MR-1: cross-turn memory read-path (pulled forward from v2.2.1)
 
 **Date:** 2026-06-08 · **Reason:** owner requested pulling the deferred memory read-path item
-into the v2.2 closeout. **Sign-off:** owner (PR merge is the human gate for this outward-facing change).
+into the v2.2 closeout. **Gate:** PR merge (the human review gate for this outward-facing change).
 
 **The defect (INV-14):** Agent memory is *stored* on the blackboard
 (`blackboard.memory[agent_id]`, via `update_memory`), but `DynamicAgent` *reads* its persistent
@@ -467,20 +464,17 @@ value before agents run (the blackboard is authoritative) — switch such hosts 
 
 ---
 
-## 17. Sign-off
+## 17. Disposition
 
-| Role | Name | Decision | Date |
-|------|------|----------|------|
-| Owner | @genriq | ☐ Approve spec → begin Phase 0 | — |
-| Author | Claude (audit + spec) | Drafted | 2026-06-08 |
-
-**This spec is DRAFT. No code will be written until the owner signs off (Tier-1 gate).** On approval, implementation proceeds Phase 0 → 4 on `hardening/v2.2.0`, each phase green before the next, ending in a PR.
+Approved and implemented in full — **shipped in release 2.2.0** (2026-06-08): all 33 items
+plus Amendment 1 (MR-1) landed; the suite grew from 105 to 224 tests. See `CHANGELOG.md`
+`[2.2.0]` for the release notes and `docs/CONTRACTS.yaml` for the contract → test mapping.
 
 ---
 
 ## Appendix A: Full Finding → Item Traceability
 
-Every finding from the 5-agent audit maps to exactly one v2.2 item (or is explicitly deferred).
+Every finding from the audit maps to exactly one v2.2 item (or is explicitly deferred).
 
 | Audit finding | Source agent(s) | v2.2 Item | Disposition |
 |---------------|-----------------|-----------|-------------|

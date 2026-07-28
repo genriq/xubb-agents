@@ -5,9 +5,28 @@ All notable changes to the Xubb Agents Framework are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> Short codes like `F-1`, `WC-1`, or `INV-15` are spec item / invariant IDs — they trace an
+> entry back to its section in the specs under [docs/](docs/) and to the contract registry
+> ([docs/CONTRACTS.yaml](docs/CONTRACTS.yaml)).
+
 ---
 
 ## [Unreleased]
+
+### Changed
+
+- **`src/` layout.** The package moved from repo-root to `src/xubb_agents/`; `pip install -e .`
+  and `pytest` now work from a checkout with **any** directory name (previously the checkout
+  had to be named `xubb_agents` or test collection failed). Wheels additionally ship a
+  `py.typed` marker, and packaging metadata migrated to PEP 639.
+- The all-or-nothing bulk-reload rejection message now reads
+  `Agent reload rejected (...)` (was `Vault reload rejected (...)`).
+
+### Added
+
+- Community files for public contribution: `CODE_OF_CONDUCT.md`, issue forms
+  (bug/feature), a fork-based contribution flow in `CONTRIBUTING.md`, and a CI matrix
+  over Python 3.11–3.13.
 
 ### Fixed
 
@@ -36,7 +55,7 @@ deep analysis agents opt into reasoning with validated budgets.
   INV-15): `reasoning_effort`, `timeout`, `max_tokens` — forwarded by
   `DynamicAgent` **only when set** (the framework never injects a parameter the
   operator didn't write; omission leaves the model's own default; strict-
-  signature fakes and the simulator stay compatible). On custom `BaseAgent`
+  signature fakes and downstream test doubles stay compatible). On custom `BaseAgent`
   subclasses the fields are a *declaration* consumed by validation — the
   subclass owns forwarding them into its own calls (PLAYBOOK snippet).
 - **`model_config.model_params`** (RC-2): verbatim Chat-Completions passthrough
@@ -64,12 +83,12 @@ deep analysis agents opt into reasoning with validated budgets.
   (the API default — often `medium` — silently blows the real-time envelope
   and multiplies cost). One config field per affected agent. Escape hatch:
   `AgentEngine(strict_reasoning_config=False)` downgrades to a warning.
-  `replace_agents` is all-or-nothing: one bad config rejects the whole vault
+  `replace_agents` is all-or-nothing: one bad config rejects the whole bulk
   reload and the old registry keeps serving.
 
-### Migration (hosts / xubb_server)
+### Migration (hosts)
 
-- Audit vault configs before upgrading: every agent on a `gpt-5*` / `o1|o3|o4*`
+- Audit your agent configs before upgrading: every agent on a `gpt-5*` / `o1|o3|o4*`
   model needs `model_config.reasoning_effort` (`"none"` for 5.1+/5.6 mainline,
   `"minimal"` for the original gpt-5 family, `"low"` for o-series). Effort
   value validity is per-model; a wrong pair surfaces as `misconfig`.
@@ -105,8 +124,8 @@ etc.) lands in 2.6.0.
   **`AgentResponse.usage`** field (additive, default `None`; `debug_info` is
   `exclude=True` and never serializes) and in `debug_info["usage"]` for the tracer.
   `DynamicAgent` duck-types the client (`generate()` when present,
-  `generate_json` fallback), so `generate_json`-only fakes and the simulator's
-  `MockLLMClient` keep working unmodified.
+  `generate_json` fallback), so `generate_json`-only fakes and downstream
+  test doubles keep working unmodified.
 - **Error categories `misconfig` and `truncated`** (OB-1, INV-16): a 4xx
   parameter/model rejection is `misconfig` (an operator problem — previously
   miscategorized as `server`, paging the outage runbook); a length-stopped
@@ -212,7 +231,7 @@ Public-release hardening. One additive API (`unregister_agent`); no breaking cha
 ### Fixed
 
 - **`register_agent` now mutates the registry lock-safely.** It appended/assigned in
-  place while `replace_agents` (called from the vault-reload callback thread) rebinds
+  place while `replace_agents` (called from the host's config-reload thread) rebinds
   under a lock, so the two could race. `register_agent` now uses the same
   rebind-under-lock discipline; a lock-free reader always sees a complete registry.
 - **Legacy memory path no longer aliases live agent state.** The default-format memory
@@ -309,7 +328,7 @@ Public-release hardening. One additive API (`unregister_agent`); no breaking cha
 
 ## [2.2.0] - 2026-06-08
 
-Production-hardening release driven by the v2.2 5-agent audit: 1 critical contract bug,
+Production-hardening release driven by the v2.2 comprehensive audit: 1 critical contract bug,
 4 high-severity gaps, 13 medium fixes, an additive memory-persistence fix (MR-1), plus
 test-infra, hygiene, and a full documentation refresh. Suite 105 → 224, zero warnings.
 See [SPEC_V2_2_HARDENING.md](docs/SPEC_V2_2_HARDENING.md).
@@ -502,3 +521,14 @@ See [SPEC_V2.md](docs/archive/SPEC_V2.md) for full details.
 ## [1.0.0] - 2025
 
 Initial release: parallel agent execution with flat shared state.
+
+[Unreleased]: https://github.com/genriq/xubb-agents/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/genriq/xubb-agents/compare/v2.5.0...v2.6.0
+[2.5.0]: https://github.com/genriq/xubb-agents/compare/v2.4.0...v2.5.0
+[2.4.0]: https://github.com/genriq/xubb-agents/compare/v2.3.0...v2.4.0
+[2.3.0]: https://github.com/genriq/xubb-agents/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/genriq/xubb-agents/releases/tag/v2.2.0
+[2.1.1]: https://github.com/genriq/xubb-agents/blob/main/CHANGELOG.md
+[2.1.0]: https://github.com/genriq/xubb-agents/blob/main/CHANGELOG.md
+[2.0.0]: https://github.com/genriq/xubb-agents/blob/main/CHANGELOG.md
+[1.0.0]: https://github.com/genriq/xubb-agents/blob/main/CHANGELOG.md

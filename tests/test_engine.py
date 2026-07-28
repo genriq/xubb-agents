@@ -1280,7 +1280,7 @@ class TestE1Phase2ExceptionSafety:
 class TestReplaceAgents:
     """replace_agents atomically swaps the full registry (hot-reload race guard).
 
-    A vault reload previously did agents.clear() + register loop, which a hot turn
+    A bulk config reload previously did agents.clear() + register loop, which a hot turn
     iterating self.agents could observe half-cleared. replace_agents rebuilds and
     rebinds the three structures so readers only ever see a complete set.
     """

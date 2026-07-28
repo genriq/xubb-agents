@@ -128,8 +128,8 @@ class TestWarnRules:
             engine.register_agent(agent)
         assert "temperature" in caplog.text
 
-    def test_warn_once_across_vault_reloads(self, caplog):
-        """A vault reload re-registering the same misconfigured id must not
+    def test_warn_once_across_config_reloads(self, caplog):
+        """A bulk config reload re-registering the same misconfigured id must not
         re-warn every few minutes (E-6 discipline)."""
         engine = AgentEngine(api_key="test_key", strict_reasoning_config=False)
         with caplog.at_level(logging.WARNING, logger="AgentEngine"):

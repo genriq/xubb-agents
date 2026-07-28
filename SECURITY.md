@@ -5,9 +5,11 @@
 Please report suspected vulnerabilities **privately** — do not open a public issue.
 
 Use GitHub's **[Report a vulnerability](https://github.com/genriq/xubb-agents/security/advisories/new)**
-(the repository's Security tab → "Report a vulnerability"). You will receive an
+(the repository's Security tab → "Report a vulnerability"). If that form is unavailable
+to you, reach the maintainer through the contact options on
+[github.com/genriq](https://github.com/genriq) instead. You will receive an
 acknowledgment within a few business days, and a fix or mitigation plan once the report
-is triaged.
+is triaged; coordinated disclosure within **90 days** of triage is the default.
 
 ## Supported versions
 

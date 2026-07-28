@@ -2,10 +2,10 @@
 
 register_agent / unregister_agent / replace_agents all mutate the same three
 structures (agents / _agent_index / _agent_meta) that a lock-free reader may be
-traversing — a turn iterating self.agents, possibly on another thread while a vault
-reload swaps agents (see the host's register_agents_from_vault). They must rebind
+traversing — a turn iterating self.agents, possibly on another thread while a host's
+bulk config reload swaps agents via replace_agents. They must rebind
 FRESH structures under the lock, never mutate in place. unregister_agent was also
-missing entirely though the host relied on it (its test-agent cleanup called it).
+missing entirely though host applications rely on it for agent cleanup.
 These lock the fixed behavior. Contract: AGENT-REGISTRY-MUTATORS-CONSISTENT.
 """
 

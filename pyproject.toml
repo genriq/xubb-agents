@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,8 @@ version = "2.6.0"
 description = "A lightweight, event-driven framework for real-time conversational AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "genriq", email = "genriq@users.noreply.github.com"}
 ]
@@ -16,11 +17,14 @@ keywords = ["ai", "agents", "conversation", "llm", "real-time", "copilot", "blac
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
     "Framework :: AsyncIO",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
 ]
 
 dependencies = [
@@ -58,30 +62,25 @@ Security = "https://github.com/genriq/xubb-agents/blob/main/SECURITY.md"
 packages = ["xubb_agents", "xubb_agents.core", "xubb_agents.library", "xubb_agents.utils"]
 
 [tool.setuptools.package-dir]
-xubb_agents = "."
+"" = "src"
 
 [tool.setuptools.package-data]
 # The schemas MUST ship: DynamicAgent loads library/schemas/*.json at runtime and
-# silently degrades to an emergency fallback schema when they're missing. The old
-# '"*" = ["*.json"]' glob was non-recursive (schemas/ is not a package), so built
+# silently degrades to an emergency fallback schema when they're missing. A bare
+# '"*" = ["*.json"]' glob is non-recursive (schemas/ is not a package), so built
 # wheels shipped WITHOUT them — caught by the public-release audit and locked by
 # tests/test_packaging.py.
+"xubb_agents" = ["py.typed"]
 "xubb_agents.library" = ["schemas/*.json"]
-"*" = ["*.md", "*.txt", "*.json", "*.html"]
 
 
 [tool.pytest.ini_options]
 # Strict asyncio: every async test must be explicitly marked @pytest.mark.asyncio.
 asyncio_mode = "strict"
 testpaths = ["tests"]
-# Put the parent of the repo root on sys.path so ``import xubb_agents`` resolves
-# without ``pip install -e .``. IMPORTANT: the repo root IS the ``xubb_agents``
-# package, and pytest names that root package after the checkout directory — so the
-# directory MUST be named ``xubb_agents`` (a valid module name). A default
-# ``xubb-agents`` clone (hyphen) breaks collection with "attempted relative import
-# with no known parent package". Clone with:  git clone <url> xubb_agents  (CI does
-# the equivalent via actions/checkout `path: xubb_agents`).
-pythonpath = [".."]
+# Make ``import xubb_agents`` resolve from a source checkout without
+# ``pip install -e .`` (works from any checkout directory name).
+pythonpath = ["src"]
 markers = [
     "asyncio: marks a test as an asyncio coroutine (handled by pytest-asyncio).",
     "invariant: marks a test as guarding a documented contract/invariant (G2 gate).",
