@@ -186,7 +186,7 @@ contracts:
   - id: CONTRACT-BIJECTION
     statement: >
       Every `covered` contract maps to a test that exists, is not skipped, and
-      passes; skipped/failed/missing all hard-fail the gate (G2 bijection).
+      passes; skipped/failed/missing all hard-fail the gate (G1 bijection + G2/G3 state).
     source: ["docs/PROCESS.md: contract-test bijection", "tools/check_contracts.py: evaluate"]
     invariant: G2
     test: "tests/test_check_contracts.py::TestGate::test_contract_test_bijection"

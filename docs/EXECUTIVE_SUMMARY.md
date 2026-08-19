@@ -66,6 +66,8 @@ integrator writes agent prompts, not plumbing:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+*The named agents in the diagram are host-defined examples: the library ships zero personas — every agent is data-defined from configuration (see the technical spec). (Caption added 2026-08-19.)*
+
 **Key concepts:**
 
 | Concept | Description |

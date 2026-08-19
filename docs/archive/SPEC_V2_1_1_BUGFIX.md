@@ -1,6 +1,8 @@
 # Xubb Agents Framework v2.1.1
 ## Bugfix & Polish Specification
 
+> **ARCHIVED** — This document describes the v2.1.1 fixes as shipped in March 2026. The current version is **v2.6.0**; the live behavioral contract is [CONTRACTS.yaml](../CONTRACTS.yaml). The "Locked (Rev 4)" status below is historical. Do not use as a reference for current behavior.
+
 **Version:** 2.1.1
 **Status:** Locked (Rev 4)
 **Date:** March 19, 2026
