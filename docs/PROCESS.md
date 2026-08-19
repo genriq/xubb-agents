@@ -32,9 +32,11 @@ The CI job and tooling refer to the gate's three checks by short names:
 
 | Gate | Check |
 |------|-------|
-| **G1** | Registry ↔ test **bijection**: every `covered` contract names a test that exists at the node level (`file::Class::test`). |
-| **G2** | **Invariant marker coverage**: tests guarding a documented contract carry the `@pytest.mark.invariant` marker, so contract-asserting tests are identifiable and countable. |
-| **G3** | The named test **actually ran and passed** in this build (verified against the JUnit report — a collected-but-skipped test does not count). |
+| **G1** | Registry ↔ test **bijection**: every `covered` contract names a test that exists at the node level (`file::Class::test`), so a renamed test breaks loudly instead of rotting silently. |
+| **G2** | **No silent skips**: a named test that is missing or skipped hard-fails the gate — a collected-but-skipped test does not count as coverage. |
+| **G3** | **Ran and passed**: the named test actually executed and passed in this build (verified against the JUnit report), and the **debt ratchet** holds (`--strict` is the full-coverage release gate). |
+
+*(Definition note, 2026-08-19: an earlier revision of this table described G2 as `@pytest.mark.invariant` marker coverage — a check the gate never implemented. The table above matches `tools/check_contracts.py` exactly.)*
 
 ## Escaped-defect probes (`tests/qa_probes/`)
 

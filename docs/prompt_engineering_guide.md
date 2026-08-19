@@ -474,8 +474,8 @@ If nothing to report:
 ### Separate Detection from Response
 
 Use event chains instead of monolithic agents:
-- **Detector agent**: Cheap model (gpt-4o-mini), high frequency, emits events
-- **Responder agent**: Better model (gpt-4o), triggered only by events, produces insights
+- **Detector agent**: Fast-lane model (e.g. `gpt-5.4-nano` / `gpt-5.4-mini`), high frequency, emits events
+- **Responder agent**: Quality-lane model (e.g. `gpt-5.6-luna`), triggered only by events, produces insights *(model names updated 2026-08-19 to the v2.6 two-lane policy; see §9)*
 
 This saves tokens and improves response quality.
 

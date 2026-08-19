@@ -1,6 +1,10 @@
 # The Xubb Agents Playbook
 ### The secret formula for building a world-class real-time conversational copilot on `xubb_agents`
 
+**Version:** dated to the v2.2 code analysis (2026-06); revision note added 2026-08-19.
+
+> **Accuracy note (2026-08-19).** This playbook's patterns remain valid through v2.6, but three things in it predate the current tree: file paths are pre-`src/`-layout (every `core/...` and `library/...` path now lives under `src/xubb_agents/...`), model guidance predates the v2.6 two-lane model policy (see `prompt_engineering_guide.md` §9 for current model names), and quoted marketing lines may no longer appear in their cited documents. Where this document and `CONTRACTS.yaml` or `technical_spec_agents.md` disagree, they win. A full revision is queued.
+
 **For:** engineers building a live HUD/overlay copilot on the `xubb_agents` framework — something that listens to a conversation as it happens, understands it, and surfaces the *right* insight at the *right* moment. Grounded in a deep analysis of the real code under `src/xubb_agents/`; core patterns date to v2.2 and remain current through v2.6.
 
 **What this is (and isn't):** the README and the technical spec tell you *what each piece is*. This playbook tells you *how to compose the pieces into something magical* — the design philosophy, the high-leverage patterns, the anti-patterns, and the non-obvious moves that separate a mediocre agent suite from a copilot people trust. It is opinionated on purpose. Every claim is grounded in the real v2.2 code.

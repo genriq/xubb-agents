@@ -5,9 +5,10 @@ This is the artifact that turns the F-1 escape ("a documented contract with no
 asserting test") into a day-one red build. It reads ``docs/CONTRACTS.yaml`` and
 enforces, for every ``covered`` contract, that each named test:
 
-  * exists / is collectible (no missing node),
-  * is not skipped, and
-  * passes on the current tree (G1 bijection + G3: the test must actually run).
+  * exists / is collectible (no missing node)  — G1, bijection,
+  * is not skipped                              — G2, no silent skips,
+  * passes on the current tree                  — G3, ran-and-passed.
+  (The short names G1/G2/G3 are defined in docs/PROCESS.md.)
 
 ``to_verify`` / ``uncovered`` / ``pending_v2.2`` entries are honest debt: they are
 REPORTED (coverage %) but do not hard-fail the default gate, so the framework is

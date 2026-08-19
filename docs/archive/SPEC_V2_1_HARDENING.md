@@ -1,6 +1,8 @@
 # Xubb Agents Framework v2.1
 ## Hardening & Production-Release Specification
 
+> **ARCHIVED** — This document describes the v2.1 hardening as shipped in March 2026. The current version is **v2.6.0**; the live behavioral contract is [CONTRACTS.yaml](../CONTRACTS.yaml). The "Implemented (Rev 4)" status below is historical, and host names referenced in rollout sections are internal names of that era. Do not use as a reference for current behavior.
+
 **Version:** 2.1.0
 **Status:** Implemented (Rev 4)
 **Date:** March 19, 2026

@@ -20,6 +20,7 @@ SCHEMAS_DIR = PACKAGE_DIR / "library" / "schemas"
 
 # The schemas DynamicAgent actually loads at runtime (library/dynamic.py).
 REQUIRED_SCHEMAS = [
+    "custom1.json",
     "default.json",
     "default_v2.json",
     "v2_raw.json",
@@ -48,6 +49,27 @@ class TestSchemaPackaging:
         init_version = re.search(r'__version__\s*=\s*"([^"]+)"', init_text).group(1)
         assert pyproject_version == init_version, (
             f"pyproject.toml says {pyproject_version} but __init__.py says {init_version}"
+        )
+
+    def test_public_version_strings_consistent(self):
+        """README's Version line and SECURITY's supported-versions row must track
+        pyproject — the exact pair that drifted once before (SECURITY still listed
+        2.3.x after the 2.4.0 bump; see CHANGELOG). Prose is now drift-locked."""
+        pyproject_version = re.search(r'^version\s*=\s*"([^"]+)"', PYPROJECT, re.M).group(1)
+        major_minor = ".".join(pyproject_version.split(".")[:2])
+
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        m = re.search(r"\*\*Version:\*\*\s*(\d+\.\d+\.\d+)", readme)
+        assert m, "README.md must carry a '**Version:** X.Y.Z' line"
+        assert m.group(1) == pyproject_version, (
+            f"README.md says {m.group(1)} but pyproject.toml says {pyproject_version}"
+        )
+
+        security = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
+        m = re.search(r"\|\s*(\d+\.\d+)\.x\s*\|\s*✅", security)
+        assert m, "SECURITY.md must carry a '| X.Y.x | ✅' supported-versions row"
+        assert m.group(1) == major_minor, (
+            f"SECURITY.md supports {m.group(1)}.x but pyproject.toml is {pyproject_version}"
         )
 
     def test_py_typed_marker_ships(self):
