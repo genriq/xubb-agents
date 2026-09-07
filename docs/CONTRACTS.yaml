@@ -1048,7 +1048,7 @@ contracts:
     test_pause: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_declared_pause_admits_detailed_with_its_own_budget"
     test_pause_declared: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_pause_must_be_declared_and_post_session_is_fine"
     test_missing_context: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_missing_execution_context_rejects"
-    test_isolated_gate: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_isolated_active_path_is_refused_until_c2"
+    test_isolated_gate: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_host_declared_isolated_path_is_refused"
     test_depth_and_evasion: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_unsupported_depth_and_brief_profile_evasion"
     test_default: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_brief_default_in_live_session"
     status: covered   # C1. Isolated active execution (C2) not claimed.
@@ -1112,12 +1112,49 @@ contracts:
     test_silence: "tests/test_long_form_c1.py::TestBodyPreviewAndLimits::test_valid_silence_still_commits_under_the_extension"
     status: covered   # C1.
 
+  # ---- XUBB-ITC-1 — C2: isolated active-session extended generation (§14.6.1, §14.9; DL-6) ----
+
+  - id: CONTENT-ISOLATED-PATH
+    statement: >
+      AgentEngine.start_content_request runs extended generation OUTSIDE the live turn
+      path: on a FRESH agent instance (DynamicAgent only; custom instances are refused as
+      shared mutable state), over a frozen deep copy of the context, under an
+      ENGINE-issued isolated declaration — a host-authored isolated declaration is
+      refused. The task never holds the live turn path, never writes the live Blackboard
+      or private memory, never bumps the live turn counter and never reserves correction
+      targets; live turns proceed concurrently. Its output is result-only: proposed
+      domain effects or interactive types reject it. Admission is bounded
+      (content_limits.max_concurrent_content_tasks, default 1; exhaustion rejects without
+      queueing). Cancelling the handle or closing the session revokes publication — a late
+      result reports cancelled with usage and diagnostics retained. Results carry the
+      request and source-snapshot ids for the host's currentness check and are stamped
+      with the snapshot turn.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §14.6.1, §14.9"
+      - "docs/SPEC_V3_LIVE_ASSISTANCE.md: DL-6 / INV-37"
+      - "src/xubb_agents/core/engine.py: start_content_request / _run_content_task / ContentTaskHandle"
+      - "src/xubb_agents/library/dynamic.py: clone_for_isolated_run / _content_plan"
+    invariant: INV-37
+    test: "tests/test_isolated_content_c2.py::TestConcurrencyAndClosure::test_live_turns_proceed_while_a_content_task_is_parked_and_never_see_its_state"
+    test_result_only: "tests/test_isolated_content_c2.py::TestIsolatedPath::test_detailed_content_runs_outside_the_live_turn_and_is_result_only"
+    test_fresh_instance: "tests/test_isolated_content_c2.py::TestIsolatedPath::test_fresh_instance_no_shared_state_and_live_agent_unused"
+    test_declaration_refused: "tests/test_isolated_content_c2.py::TestIsolatedPath::test_host_authored_isolated_declaration_is_refused"
+    test_effects: "tests/test_isolated_content_c2.py::TestIsolatedPath::test_domain_effects_on_the_isolated_path_reject_the_result"
+    test_interactive: "tests/test_isolated_content_c2.py::TestIsolatedPath::test_interactive_types_stay_off_the_isolated_path"
+    test_custom_refused: "tests/test_isolated_content_c2.py::TestIsolatedPath::test_custom_agent_is_not_isolatable"
+    test_admission: "tests/test_isolated_content_c2.py::TestConcurrencyAndClosure::test_admission_is_bounded"
+    test_cancel: "tests/test_isolated_content_c2.py::TestConcurrencyAndClosure::test_cancellation_revokes_publication_mid_generation"
+    test_late: "tests/test_isolated_content_c2.py::TestConcurrencyAndClosure::test_late_result_after_revocation_is_not_published_but_keeps_usage"
+    test_closure: "tests/test_isolated_content_c2.py::TestConcurrencyAndClosure::test_session_closure_cancels_every_pending_task"
+    test_incomplete: "tests/test_isolated_content_c2.py::TestConcurrencyAndClosure::test_incomplete_generation_on_the_isolated_path_is_rejected"
+    status: covered   # C2. Host currentness checks and presentation (ITC-28/34 .HOST/.E2E) are not claimed.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       67   (every contract & invariant names a passing, rule-asserting test)
+# covered:       68   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         67
+# total:         68
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

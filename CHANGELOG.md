@@ -13,6 +13,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — C2: isolated active-session extended generation (XUBB-ITC-1 §14.6.1, §14.9; DL-6)
+
+The last contract gate. Extended content during an ACTIVE session now has a real
+execution path instead of a refusal.
+
+- **`AgentEngine.start_content_request(context, agent_id, request) → ContentTaskHandle`**
+  runs one extended generation as its own task: a fresh agent instance cloned from its
+  definition (custom `BaseAgent` instances are refused as shared mutable state), a frozen
+  deep copy of the context (transcript, Blackboard snapshot, capabilities, references),
+  and an **engine-issued** isolated declaration. A host-authored isolated declaration is
+  still refused (`isolated_path_requires_engine_task`): a boolean never substitutes for
+  the runtime.
+- **Isolation by construction.** The task never enters the live turn path, never writes
+  the live Blackboard or private memory, never bumps the live turn counter, never
+  reserves correction targets, and fires no turn callbacks (no trace contamination).
+  Live turns proceed concurrently on the same engine.
+- **Result-only.** `ContentResult` carries the request id, the source snapshot id, the
+  snapshot turn, status (`accepted | silent | rejected | cancelled`), the single insight
+  (stamped with both ids), diagnostics and usage. Proposed domain effects, sidecars or
+  interactive types reject the result; the host checks currentness against the snapshot
+  before presenting it.
+- **Bounded admission.** `content_limits.max_concurrent_content_tasks` (default 1);
+  exhaustion rejects immediately (`provider_admission_exhausted`) rather than queueing
+  behind the live lane.
+- **Closure.** `handle.cancel()` or `AgentEngine.close_session_content(session_id)`
+  revokes publication: a cancelled or late result reports `cancelled` with usage and
+  diagnostics retained and nothing published.
+- Contract: CONTENT-ISOLATED-PATH (roadmap INV-37), with real concurrency tests.
+
 ### Added — C1: the long-form content contract `long_form_v1` (XUBB-ITC-1 §14.4–§14.10)
 
 Under `typed_v1` an agent may opt into extended content. Type describes purpose, never
