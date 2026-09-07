@@ -539,17 +539,67 @@ contracts:
 
   - id: ITC-14.FW-context-extensions-propagate
     statement: >
-      Trusted host inputs on AgentContext (principal_id, insight_capabilities) are
-      frozen before a run and reach every agent unchanged in Phase 1 and Phase 2 via
-      the phase-context copy; an agent mutating its copy cannot alter the host-owned
-      declaration on the live context.
+      Trusted host inputs on AgentContext (principal_id, insight_capabilities,
+      insight_reference_context) are frozen before a run and reach every agent
+      unchanged in Phase 1 and Phase 2 via the phase-context copy; an agent mutating
+      its copy cannot alter the host-owned declaration on the live context.
     source:
       - "docs/SPEC_INSIGHT_TYPES.md: §6.4, §6.5"
       - "src/xubb_agents/core/engine.py: _run_phase (phase_context)"
     invariant: ITC-14.FW
     test: "tests/test_insight_vocabulary_g1.py::TestContextPropagation::test_principal_and_capabilities_reach_phase1_and_phase2_unchanged"
     test_frozen: "tests/test_insight_vocabulary_g1.py::TestContextPropagation::test_phase_copy_cannot_mutate_the_host_declaration"
-    status: covered   # G1 part 1 (principal_id + insight_capabilities; later extensions register as they land).
+    test_reference_context: "tests/test_evidence_catalog_g2.py::TestReferenceContextPropagation::test_reference_context_reaches_phase1_and_phase2_unchanged"
+    status: covered   # G1 part 1 + G2 (reference context); later extensions register as they land.
+
+  # ---- XUBB-ITC-1 — G2 part 1: per-agent snapshot evidence catalog ----
+
+  - id: ITC-15.FW-references-resolve-to-exposed-evidence
+    statement: >
+      Under typed_v1 the framework builds, per agent and per invocation, a snapshot
+      catalog of the material ACTUALLY exposed to the model (the trimmed transcript
+      window and the RAG documents it received), with one reference per occurrence
+      (snap:<id>:segment:<n>, never deduplicated) and copied sources; host-supplied
+      records (documents, facts, prior emitted insights) join it for this session.
+      An evidence reference resolves only to an entry of that catalog at its revision:
+      an id nothing exposed, a stale/mismatched revision, or an entry owned by another
+      session rejects (unknown_reference / cross_session_reference). Snapshot ids differ
+      per invocation and are returned as a retention aid, not a durable identity.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §6.3, §6.4"
+      - "src/xubb_agents/core/insight_validation.py: snapshot_catalog / ReferenceContext"
+      - "src/xubb_agents/library/dynamic.py: _build_reference_context"
+    invariant: ITC-15.FW
+    test: "tests/test_evidence_catalog_g2.py::TestReferencesResolveOnlyToExposedEvidence::test_reference_outside_the_trimmed_window_is_unknown"
+    test_resolves: "tests/test_evidence_catalog_g2.py::TestReferencesResolveOnlyToExposedEvidence::test_citing_the_shown_segment_resolves_and_revision_is_filled"
+    test_invented_stale: "tests/test_evidence_catalog_g2.py::TestReferencesResolveOnlyToExposedEvidence::test_invented_and_stale_revision_ids_reject"
+    test_host_and_cross_session: "tests/test_evidence_catalog_g2.py::TestReferencesResolveOnlyToExposedEvidence::test_host_supplied_document_and_prior_insight_resolve_cross_session_rejects"
+    test_documents: "tests/test_evidence_catalog_g2.py::TestReferencesResolveOnlyToExposedEvidence::test_exposed_rag_document_is_citable_and_listed_in_snapshot"
+    test_occurrences: "tests/test_evidence_catalog_g2.py::TestReferencesResolveOnlyToExposedEvidence::test_identical_occurrences_are_distinct_references"
+    test_not_durable: "tests/test_evidence_catalog_g2.py::TestReferencesResolveOnlyToExposedEvidence::test_snapshot_ids_differ_per_invocation"
+    test_unit_resolution: "tests/test_evidence_catalog_g2.py::TestReferenceContextResolution::test_unknown_and_cross_session"
+    status: covered   # G2 part 1.
+
+  - id: ITC-16.FW-general-evidence-optional-subtype-support-mandatory
+    statement: >
+      A general OBSERVATION needs no evidence reference. A consulting hypothesis
+      requires at least one resolvable evidence reference, a rationale and a
+      validation step; an implication requires evidence and a rationale; subtypes are
+      rejected outside the consulting profile and on non-observation types. Citation
+      markers and the citation contract are shown to the model only for the consulting
+      profile.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §6.3, §12.2, §12.3"
+      - "src/xubb_agents/core/insight_validation.py: validate_typed_candidate"
+    invariant: ITC-16.FW
+    test: "tests/test_evidence_catalog_g2.py::TestEvidenceRequirements::test_general_observation_needs_no_evidence"
+    test_hypothesis_evidence: "tests/test_evidence_catalog_g2.py::TestEvidenceRequirements::test_hypothesis_without_evidence_is_missing_evidence"
+    test_implication: "tests/test_evidence_catalog_g2.py::TestEvidenceRequirements::test_implication_requires_rationale_and_evidence"
+    test_profile: "tests/test_evidence_catalog_g2.py::TestEvidenceRequirements::test_subtypes_stay_out_of_the_general_profile"
+    test_prompt_contract: "tests/test_evidence_catalog_g2.py::TestEvidenceRequirements::test_consulting_prompt_shows_markers_and_citation_contract"
+    test_no_markers_general: "tests/test_evidence_catalog_g2.py::TestEvidenceRequirements::test_general_profile_agent_has_no_citation_markers_in_prompt"
+    test_subtype_rules: "tests/test_typed_acceptance_g1.py::TestAnalyticalFields::test_subtype_requires_consulting_profile_and_observation"
+    status: covered   # G2 part 1.
 
   - id: INSIGHT-CONTRACT-SELECTION
     statement: >
@@ -735,11 +785,11 @@ contracts:
     status: covered   # G1 part 1.
 
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       49   (every contract & invariant names a passing, rule-asserting test)
+# covered:       51   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         49
+# total:         51
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

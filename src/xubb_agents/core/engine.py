@@ -846,6 +846,7 @@ class AgentEngine:
             # run and propagated through EVERY phase-context copy (Phase 1 and 2).
             principal_id=context.principal_id,
             insight_capabilities=context.insight_capabilities.model_copy(deep=True),
+            insight_reference_context=context.insight_reference_context.model_copy(deep=True),
         )
         
         # Run all agents in parallel
@@ -1078,6 +1079,8 @@ class AgentEngine:
             # the migration-era legacy diagnostic channel (§14.3).
             final_response.acceptance_by_agent[agent_id] = resp.acceptance_status
             final_response.diagnostics.extend(resp.diagnostics)
+            if resp.evidence_snapshot is not None:
+                final_response.evidence_snapshots_by_agent[agent_id] = resp.evidence_snapshot
             if resp.acceptance_status == "rejected":
                 final_response.insights.extend(
                     i for i in resp.insights
