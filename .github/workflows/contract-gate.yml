@@ -43,3 +43,32 @@ jobs:
 
       - name: Contract gate (G1/G2/G3)
         run: python tools/check_contracts.py --junit junit.xml
+
+  # Distribution evidence (H2 / audit): the INSTALLED wheel, in a fresh venv, run
+  # from outside the source checkout. This is what a host actually receives.
+  wheel-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip
+          pip wheel . -w dist --no-deps
+
+      - name: Install the wheel into a fresh venv
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-venv"
+          "$RUNNER_TEMP/wheel-venv/bin/pip" install --upgrade pip
+          "$RUNNER_TEMP/wheel-venv/bin/pip" install dist/*.whl
+
+      - name: Smoke the installed package from outside the checkout
+        run: |
+          cp tools/wheel_smoke.py "$RUNNER_TEMP/wheel_smoke.py"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-venv/bin/python" wheel_smoke.py

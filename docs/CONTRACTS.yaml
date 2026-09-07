@@ -1125,7 +1125,8 @@ contracts:
       targets; live turns proceed concurrently. Its output is result-only: proposed
       domain effects or interactive types reject it. Admission is bounded
       (content_limits.max_concurrent_content_tasks, default 1; exhaustion rejects without
-      queueing). Cancelling the handle or closing the session revokes publication — a late
+      queueing; the bound limits content-task concurrency only and reserves no
+      live-provider capacity). Cancelling the handle or closing the session revokes publication — a late
       result reports cancelled with usage and diagnostics retained. Results carry the
       request and source-snapshot ids for the host's currentness check and are stamped
       with the snapshot turn.
@@ -1240,12 +1241,116 @@ contracts:
     test_forged: "tests/test_boundary_hardening_h1.py::TestTypedFailures::test_forged_framework_error_on_an_accepted_typed_result_is_rejected"
     status: covered   # H1. Closes audit XA-07.
 
+  # ---- H2 — audit hardening: content path and assurance (audit of e3dfaf1, XA-04/05/06/08) ----
+
+  - id: CONTENT-ENTRYPOINT-ADMISSION
+    statement: >
+      AgentEngine.start_content_request admits a request BEFORE any allocation — no
+      snapshot copy, no clone, no task, no model call until it passes: the typed contract
+      is active; the agent is isolatable (re-instantiable from its definition and able to
+      report content admission); the content contract is negotiated for THIS request
+      (agent content block, schema support, host content capability incl. expanded
+      reading, requested depth, the engine's own isolated declaration) via the agent's
+      pure admission check on a shallow view; and capacity is available. A refusal is an
+      immediate rejected ContentResult carried by a task-less handle
+      (content_contract_unavailable / content_execution_not_allowed / the plan's codes).
+    source:
+      - "src/xubb_agents/core/engine.py: start_content_request"
+      - "src/xubb_agents/library/dynamic.py: content_admission / _content_plan"
+    invariant: INV-42
+    test: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_agent_without_content_contract_is_refused_before_any_call"
+    test_control: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_control_negotiated_request_is_accepted"
+    test_legacy: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_legacy_engine_refuses_content_requests"
+    test_host: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_host_without_the_contract_or_reading_capability_is_refused"
+    test_depth: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_unsupported_depth_is_refused_before_any_call"
+    test_schema: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_schema_without_content_support_is_refused"
+    test_custom: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_custom_agent_is_refused_at_the_entrypoint"
+    test_no_allocation: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_refusal_allocates_nothing"
+    test_audit: "tests/test_audit_e3dfaf1_regressions.py::test_content_entrypoint_requires_negotiated_content_contract_before_call"
+    status: covered   # H2. Closes audit XA-04.
+
+  - id: CONTENT-TASK-LIFECYCLE
+    statement: >
+      Content-task capacity (content_limits.max_concurrent_content_tasks) is reserved
+      synchronously at the entrypoint before the snapshot copy, the clone and the task
+      exist, and released by the task's done-callback on EVERY exit — completion,
+      rejection, exception, cancellation while running, and cancellation before the
+      coroutine first ran. Completed handles leave the pending registry while their
+      results stay readable through the handle; session closure revokes and cancels
+      pending tasks only. The bound limits content-task concurrency; it does not reserve
+      live-provider capacity.
+    source:
+      - "src/xubb_agents/core/engine.py: start_content_request / _release_content_task / close_session_content"
+    invariant: INV-43
+    test: "tests/test_content_assurance_h2.py::TestTaskLifecycle::test_capacity_released_on_every_exit"
+    test_reserve: "tests/test_content_assurance_h2.py::TestTaskLifecycle::test_capacity_is_reserved_before_allocation_and_released_after_completion"
+    test_registry: "tests/test_content_assurance_h2.py::TestTaskLifecycle::test_completed_handles_leave_the_registry_and_keep_their_results"
+    test_closure: "tests/test_content_assurance_h2.py::TestTaskLifecycle::test_session_closure_still_revokes_pending_tasks_only"
+    test_audit: "tests/test_audit_e3dfaf1_regressions.py::test_content_task_registry_does_not_accumulate_completed_handles"
+    status: covered   # H2. Closes audit XA-05.
+
+  - id: PROMPT-FIELDS-FROM-CONTRACT
+    statement: >
+      The generated typed instruction derives its forbidden-field rule from the same
+      effective descriptor as its requested fields — with long_form_v1 negotiated,
+      preview and content_format are requested and never forbidden; otherwise they are
+      forbidden — and exposes the citation contract, the transcript/document citation
+      markers and the host's citable ids whenever an ENABLED type needs an evidence
+      basis (consulting profile, or a permitted correction in any profile), so the
+      evidence the prompt exposes and the evidence the validator resolves agree.
+    source:
+      - "src/xubb_agents/library/dynamic.py: evaluate (cite) / _typed_instruction / _forbidden_output_fields"
+    invariant: INV-44
+    test: "tests/test_content_assurance_h2.py::TestPromptFields::test_long_form_prompt_requests_and_never_forbids_preview_and_content_format"
+    test_base: "tests/test_content_assurance_h2.py::TestPromptFields::test_base_contract_prompt_forbids_the_extension_fields"
+    test_citation: "tests/test_content_assurance_h2.py::TestPromptFields::test_general_profile_correction_gets_citation_ids_and_instructions"
+    test_control: "tests/test_content_assurance_h2.py::TestPromptFields::test_general_profile_without_evidence_needing_types_stays_uncited"
+    test_end_to_end: "tests/test_content_assurance_h2.py::TestPromptFields::test_general_profile_correction_citing_a_transcript_line_is_accepted_end_to_end"
+    test_audit: "tests/test_audit_e3dfaf1_regressions.py::test_long_form_prompt_does_not_forbid_its_own_requested_fields"
+    status: covered   # H2. Closes audit XA-06.
+
+  - id: CONTENT-CONFIG-STRICT-PRIMITIVES
+    statement: >
+      ContentProfile, AgentContentConfig.max_preview_chars and the host's
+      max_content_chars / max_preview_chars are strict at model construction: numeric
+      strings, booleans and non-finite numbers are rejected through the real
+      configuration path (DynamicAgent insight_config → AgentConfigurationError) before
+      any downstream policy checker could see a coerced value; genuine ints and floats
+      are accepted.
+    source:
+      - "src/xubb_agents/core/models.py: ContentProfile / AgentContentConfig / HostInsightCapabilities"
+    invariant: INV-45
+    test: "tests/test_content_assurance_h2.py::TestStrictPrimitives::test_profile_rejects_coercible_primitives"
+    test_control: "tests/test_content_assurance_h2.py::TestStrictPrimitives::test_profile_accepts_real_numbers"
+    test_limits: "tests/test_content_assurance_h2.py::TestStrictPrimitives::test_preview_and_host_limits_are_strict"
+    test_config_path: "tests/test_content_assurance_h2.py::TestStrictPrimitives::test_real_agent_configuration_path_rejects_coerced_values"
+    test_audit: "tests/test_audit_e3dfaf1_regressions.py::test_content_profile_numeric_fields_are_strict_before_coercion"
+    status: covered   # H2. Closes audit XA-08.
+
+  - id: DISTRIBUTION-CLEAN-WHEEL
+    statement: >
+      The delivery artifact is exercised as a host receives it: CI job `wheel-smoke`
+      builds the wheel, installs it into a fresh venv and runs tools/wheel_smoke.py from
+      outside the checkout (typed live turn with engine-minted identity, custom-agent
+      rejection at the boundary, packaged schemas and contract artifacts, an admitted
+      isolated content task). The script refuses a source-tree import unless explicitly
+      allowed. The in-repo test proves the script and locks the CI job's presence; the
+      clean-wheel evidence is the CI run itself. No provider is called.
+    source:
+      - "tools/wheel_smoke.py"
+      - ".github/workflows/contract-gate.yml: wheel-smoke"
+    invariant: INV-46
+    test: "tests/test_wheel_smoke_script.py::test_smoke_script_passes_outside_the_checkout"
+    test_negative: "tests/test_wheel_smoke_script.py::test_smoke_script_refuses_a_source_tree_import_without_the_flag"
+    test_ci: "tests/test_wheel_smoke_script.py::test_ci_runs_the_clean_wheel_job"
+    status: covered   # H2. Distribution evidence; provider/host acceptance remain unclaimed.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       72   (every contract & invariant names a passing, rule-asserting test)
+# covered:       77   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         72
+# total:         77
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

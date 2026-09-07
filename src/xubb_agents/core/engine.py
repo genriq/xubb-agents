@@ -120,12 +120,19 @@ class ContentTaskHandle:
         self.publishable = True
         self.task: Optional["asyncio.Task"] = None
 
+        # H2 (XA-04): a request refused at the entrypoint carries its result here
+        # and never owns a task.
+        self._result: Optional[ContentResult] = None
+
     def cancel(self) -> None:
         self.publishable = False
         if self.task is not None and not self.task.done():
             self.task.cancel()
 
     async def result(self) -> ContentResult:
+        if self.task is None:
+            assert self._result is not None
+            return self._result
         try:
             return await self.task
         except asyncio.CancelledError:
@@ -203,7 +210,13 @@ class AgentEngine:
         max_tasks = self.content_limits.get("max_concurrent_content_tasks", 1)
         if not isinstance(max_tasks, int) or isinstance(max_tasks, bool) or max_tasks < 1:
             raise ValueError("content_limits.max_concurrent_content_tasks must be a positive int")
-        self._content_slots = asyncio.Semaphore(max_tasks)
+        # H2 (XA-05): capacity is reserved synchronously at the entrypoint, BEFORE
+        # the snapshot copy, the clone and the task exist, and released by the
+        # task's done-callback on every exit (completion, rejection, exception,
+        # cancellation — including cancellation before the coroutine first ran).
+        self._content_max = max_tasks
+        self._content_active = 0
+        # pending handles per session, for closure; completed handles leave it
         self._content_tasks: Dict[str, List["ContentTaskHandle"]] = {}
         # EN-1 / INV-18: only-when-set, so LLMClient defaults keep applying
         # otherwise; update_api_key rebuilds from THIS dict, never bare.
@@ -988,25 +1001,82 @@ class AgentEngine:
         agent = next((a for a in self.agents if a.config.id == agent_id), None)
         if agent is None:
             raise ValueError(f"unknown agent id {agent_id!r}")
-        clone = getattr(agent, "clone_for_isolated_run", None)
         request_id = request.request_id or uuid.uuid4().hex
         snapshot_id = uuid.uuid4().hex
-        frozen = self._scoped_view(context.model_copy(deep=True), agent)
+        handle = ContentTaskHandle(request_id=request_id, source_snapshot_id=snapshot_id,
+                                   session_id=context.session_id, agent_id=agent_id,
+                                   snapshot_turn=context.turn_count)
+
+        def refuse(diagnostics: List[InsightDiagnostic]) -> "ContentTaskHandle":
+            handle.publishable = False
+            handle._result = ContentResult(request_id=request_id, source_snapshot_id=snapshot_id,
+                                           session_id=context.session_id, agent_id=agent_id,
+                                           snapshot_turn=context.turn_count, status="rejected",
+                                           diagnostics=diagnostics)
+            return handle
+
+        def diag(code: str, classification: Optional[str], path: str = "$") -> InsightDiagnostic:
+            return InsightDiagnostic(execution_id=request_id, agent_id=agent_id, code=code,
+                                     field_path=path, classification=classification)
+
+        # ---- H2 (XA-04): ADMISSION at the entrypoint, before any allocation ----
+        # 1. the typed contract; 2. an isolatable agent (re-instantiable from its
+        # definition); 3. a negotiated content contract for THIS request — agent
+        # content block, schema support, host capability, depth, execution
+        # declaration — evaluated on a cheap shallow view under the very
+        # declaration the task would run with; 4. capacity.
+        clone = getattr(agent, "clone_for_isolated_run", None)
+        admission = getattr(agent, "content_admission", None)
+        if self.insight_contract != "typed_v1":
+            return refuse([diag("content_contract_unavailable", "typed_contract_required")])
+        if clone is None or admission is None:
+            return refuse([diag("content_execution_not_allowed", "agent_not_isolatable")])
         declaration = ContentExecutionContext(
             session_mode="active", execution_path="isolated_content",
             request_id=request_id, source_snapshot_id=snapshot_id,
             holds_live_turn_lock=False, writes_live_blackboard=False,
-            pause_declared=None, task_isolation_verified=clone is not None)
+            pause_declared=None, task_isolation_verified=True)
         declaration._engine_issued = True
-        frozen.content_execution_context = declaration
-        frozen.insight_content_requests = {agent_id: InsightContentRequest(depth=request.depth, request_id=request_id)}
-        handle = ContentTaskHandle(request_id=request_id, source_snapshot_id=snapshot_id,
-                                   session_id=context.session_id, agent_id=agent_id,
-                                   snapshot_turn=context.turn_count)
-        runner = clone() if clone is not None else None
-        handle.task = asyncio.get_running_loop().create_task(self._run_content_task(handle, runner, frozen))
-        self._content_tasks.setdefault(context.session_id, []).append(handle)
+        requests = {agent_id: InsightContentRequest(depth=request.depth, request_id=request_id)}
+        view = context.model_copy(update={"content_execution_context": declaration,
+                                          "insight_content_requests": requests})
+        plan = admission(view)
+        if plan is None:
+            return refuse([diag("content_contract_unavailable", "agent_has_no_content_contract")])
+        if not plan["accepted"]:
+            return refuse([diag(code, plan.get("classification")) for code in plan["codes"]])
+        if self._content_active >= self._content_max:
+            return refuse([diag("content_execution_not_allowed", "provider_admission_exhausted")])
+
+        # ---- capacity reserved: now allocate ----
+        self._content_active += 1
+        try:
+            frozen = self._scoped_view(context.model_copy(deep=True), agent)
+            frozen.content_execution_context = declaration
+            frozen.insight_content_requests = requests
+            runner = clone()
+            task = asyncio.get_running_loop().create_task(self._run_content_task(handle, runner, frozen))
+        except BaseException:
+            self._content_active -= 1
+            raise
+        handle.task = task
+        session_id = context.session_id
+        self._content_tasks.setdefault(session_id, []).append(handle)
+        task.add_done_callback(lambda _t: self._release_content_task(session_id, handle))
         return handle
+
+    def _release_content_task(self, session_id: str, handle: "ContentTaskHandle") -> None:
+        """Every exit of a content task: release capacity and leave the pending
+        registry. The handle (and its result) stays valid for its owner."""
+        self._content_active = max(0, self._content_active - 1)
+        pending = self._content_tasks.get(session_id)
+        if pending is not None:
+            try:
+                pending.remove(handle)
+            except ValueError:
+                pass
+            if not pending:
+                self._content_tasks.pop(session_id, None)
 
     def close_session_content(self, session_id: str) -> int:
         """Session closure revokes publication for every pending content task of
@@ -1028,20 +1098,15 @@ class AgentEngine:
                                  snapshot_turn=handle.snapshot_turn, status=status, insight=insight,
                                  diagnostics=list(diagnostics), usage=usage)
 
-        if agent is None:
-            # Only agents that can be re-instantiated from their definition are
-            # isolatable; a custom BaseAgent instance would be shared mutable state.
-            return finish("rejected", diagnostics=[diag("content_execution_not_allowed", "$", "agent_not_isolatable")])
-        if self._content_slots.locked():
-            return finish("rejected", diagnostics=[diag("content_execution_not_allowed", "$", "provider_admission_exhausted")])
-        async with self._content_slots:
-            try:
-                response = await agent.evaluate(frozen)   # no turn callbacks: isolated trace
-            except asyncio.CancelledError:
-                handle.publishable = False
-                return finish("cancelled", diagnostics=[diag("content_execution_not_allowed", "$", "cancelled")])
-            except Exception as e:
-                return finish("rejected", diagnostics=[diag("invalid_envelope", "$", type(e).__name__)])
+        # Admission (contract, isolatable agent, negotiated content, capacity) was
+        # decided at the entrypoint; capacity is released by the done-callback.
+        try:
+            response = await agent.evaluate(frozen)   # no turn callbacks: isolated trace
+        except asyncio.CancelledError:
+            handle.publishable = False
+            return finish("cancelled", diagnostics=[diag("content_execution_not_allowed", "$", "cancelled")])
+        except Exception as e:
+            return finish("rejected", diagnostics=[diag("invalid_envelope", "$", type(e).__name__)])
         if response is None:
             return finish("rejected", diagnostics=[diag("invalid_envelope", "$", "none")])
         response.source_agent_id = handle.agent_id

@@ -477,10 +477,15 @@ class DynamicAgent(BaseAgent):
         # execution and the immutable snapshot the agent's references point into.
         execution_id = uuid.uuid4().hex
         typed = self.insight_contract == "typed_v1"
-        # Citation markers are shown to the model only when it is asked to
-        # ground analysis (consulting profile); the catalog itself is built for
-        # every typed run from the material ACTUALLY exposed (after trimming).
-        cite = typed and self.config.insight_config.analysis_profile == "consulting"
+        # Citation markers are shown to the model whenever an ENABLED type needs
+        # an evidence basis — the consulting profile (hypotheses/implications)
+        # or a permitted correction in any profile (H2 / XA-06: the evidence the
+        # validator accepts and the evidence the prompt exposes must agree). The
+        # catalog itself is built for every typed run from the material ACTUALLY
+        # exposed (after trimming).
+        eff_types = self._effective_types(context) if typed else None
+        cite = typed and (self.config.insight_config.analysis_profile == "consulting"
+                          or "correction" in eff_types)
         exposed_docs = list(context.rag_docs) if (self.include_context and context.rag_docs) else []
         reference = self._build_reference_context(context, execution_id, target_segments, exposed_docs) if typed else None
         # C1 / §14.6.1: negotiate long_form_v1 and run ADMISSION before generation;
@@ -609,7 +614,7 @@ class DynamicAgent(BaseAgent):
                             and self.config.id in context.insight_capabilities.correction_agent_ids}
                            for r in context.insight_reference_context.prior_insights
                            if r.status == "active" and r.turn < context.turn_count]
-            parts.append(self._typed_instruction(self._effective_types(context), reference if cite else None,
+            parts.append(self._typed_instruction(eff_types, reference if cite else None,
                                                  own_records, content_plan))
         elif self.json_instruction:
             parts.append(self.json_instruction)
@@ -868,7 +873,10 @@ class DynamicAgent(BaseAgent):
             "\"has_insight\" must be a JSON boolean (true/false), never a string or number." if adapter != "root_v2" else
             "\"insight\", when present, must be a non-empty object.",
             "Do not invent approvals, prices, deadlines or commitments the conversation does not support. Confidence does not make a claim true.",
-            "Never include fields you were not asked for (no id, turn, preview, content_format, confidence_provided, origin).",
+            # H2 (XA-06): the forbidden list is derived from the SAME effective
+            # descriptor as the requested fields — never a stale blanket rule.
+            "Never include fields you were not asked for (no "
+            + ", ".join(self._forbidden_output_fields(content_plan)) + ").",
         ]
         if "reply" in types:
             rules.append('A "reply" is optional wording for the principal to say or send to the counterpart — a DRAFT they may use, '
@@ -896,6 +904,10 @@ class DynamicAgent(BaseAgent):
         if consulting:
             rules.append("A hypothesis needs evidence_refs, a rationale and a validation_step; an implication needs evidence_refs and a rationale. "
                          "Evidence references must name items you were actually given.")
+        if consulting or "correction" in types:
+            # H2 (XA-06): whenever an enabled type needs an evidence basis, the
+            # citation contract and the citable ids are exposed — not only for
+            # the consulting profile.
             rules.append('An evidence reference is {"kind": "segment" | "document" | "fact" | "insight", "ref_id": "<id>", "revision": null}. '
                          'Cite the ids shown in [brackets] before transcript lines and documents; never invent an id.')
             if reference is not None:
@@ -904,6 +916,26 @@ class DynamicAgent(BaseAgent):
                 if host_ids:
                     rules.append("Additional evidence ids you may cite (kind:ref_id): " + ", ".join(host_ids) + ".")
         return "IMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n" + body + "\n\nRULES:\n" + "\n".join(f"- {r}" for r in rules)
+
+    @staticmethod
+    def _forbidden_output_fields(content_plan: Optional[Dict[str, Any]]) -> List[str]:
+        """Engine-owned and un-negotiated fields the model must not emit, derived
+        from the effective descriptor of THIS run (H2 / XA-06)."""
+        forbidden = ["id", "turn", "contract_version", "confidence_provided", "origin",
+                     "content_contract", "response_depth", "content_request_id", "source_snapshot_id"]
+        if content_plan is None:
+            forbidden[5:5] = ["preview", "content_format"]
+        return forbidden
+
+    def content_admission(self, context: AgentContext) -> Optional[Dict[str, Any]]:
+        """Public, pure admission check for the engine's content entrypoint
+        (H2 / XA-04): the negotiated plan for ``context`` — None when this agent
+        has no content contract, otherwise ``{"accepted", "codes", ...}``. No
+        prompt is rendered, no model is called, no state is touched."""
+        if self.insight_contract != "typed_v1":
+            return {"accepted": False, "codes": ["content_contract_unavailable"],
+                    "classification": "typed_contract_required", "configuration": None}
+        return self._content_plan(context)
 
     def _normalize_typed(self, result: Dict[str, Any]):
         """Adapter normalisation → (gate_mode, gate_value, candidate). Declared

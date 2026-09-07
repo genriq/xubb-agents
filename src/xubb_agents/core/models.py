@@ -147,10 +147,12 @@ _INTERACTIVE_FLAGS = (("reply", "allow_reply"), ("question", "allow_question"),
 
 class ContentProfile(BaseModel):
     """One generation profile of the long-form content contract (§14.6)."""
-    model_config = ConfigDict(extra="forbid")
+    # H2 (XA-08): strict primitives — a numeric string or a boolean is rejected at
+    # construction, BEFORE any downstream policy check could see a coerced value.
+    model_config = ConfigDict(extra="forbid", strict=True)
     max_content_chars: int = Field(..., gt=0)
     max_output_tokens: int = Field(..., gt=0)
-    llm_timeout_seconds: float = Field(..., gt=0)
+    llm_timeout_seconds: float = Field(..., gt=0, allow_inf_nan=False)
 
 
 class AgentContentConfig(BaseModel):
@@ -160,7 +162,7 @@ class AgentContentConfig(BaseModel):
     contract: Literal["long_form_v1"] = "long_form_v1"
     default_depth: Literal["brief", "standard", "detailed"] = "brief"
     formats: List[Literal["plain_text", "markdown"]] = Field(default_factory=lambda: ["plain_text"])
-    max_preview_chars: int = Field(..., gt=0)
+    max_preview_chars: int = Field(..., gt=0, strict=True)   # H2 (XA-08)
     profiles: Dict[Literal["brief", "standard", "detailed"], ContentProfile]
 
     def model_post_init(self, __context: Any) -> None:
@@ -294,8 +296,8 @@ class HostInsightCapabilities(BaseModel):
     expanded_reading: bool = False
     content_contracts: List[str] = Field(default_factory=list)
     content_formats: List[str] = Field(default_factory=lambda: ["plain_text"])
-    max_content_chars: Optional[int] = None
-    max_preview_chars: Optional[int] = None
+    max_content_chars: Optional[int] = Field(default=None, gt=0, strict=True)   # H2 (XA-08)
+    max_preview_chars: Optional[int] = Field(default=None, gt=0, strict=True)
 
     def model_post_init(self, __context: Any) -> None:
         human = {t.value for t in HUMAN_INSIGHT_TYPES}
