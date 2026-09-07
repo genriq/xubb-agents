@@ -1,0 +1,30 @@
+{
+  "spec_version": "1.2.0",
+  "scope": "product labeling review set; no model classification executed",
+  "fixtures": [
+    {
+      "id": "principal_document_conflict",
+      "message": "Your statement and the supplied scope list different company codes.",
+      "context": "Principal misstatement; discrepancy identification is the primary purpose.",
+      "expected_type": "observation"
+    },
+    {
+      "id": "principal_material_commitment_risk",
+      "message": "That commitment includes entities outside the approved scope.",
+      "context": "Principal misstatement creates a material unsupported commitment.",
+      "expected_type": "warning"
+    },
+    {
+      "id": "principal_supported_datum",
+      "message": "The supplied scope includes one company code.",
+      "context": "Provide the supported datum without interpreting or recommending.",
+      "expected_type": "fact"
+    },
+    {
+      "id": "principal_repair_wording",
+      "message": "Let me clarify: the approved scope currently covers one company code.",
+      "context": "Draft wording for the principal to say; not an assistant self-correction.",
+      "expected_type": "reply"
+    }
+  ]
+}

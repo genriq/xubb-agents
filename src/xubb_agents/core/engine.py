@@ -27,9 +27,11 @@ from typing import List, Optional, Dict, Any, Tuple
 from .models import (
     AgentContext, AgentResponse, TriggerType, Event, InsightType, InsightDiagnostic
 )
+import uuid
 from .insight_validation import (
     LEGACY_HUMAN_TYPES, RESERVED_VAR_PREFIX, LEGACY_MEMORY_PREFIX, bounded,
-    INSIGHT_CONTRACTS, DEFAULT_INSIGHT_CONTRACT, EffectiveTypes, effective_insight_types,
+    INSIGHT_CONTRACTS, DEFAULT_INSIGHT_CONTRACT, EffectiveTypes, effective_types_for_run,
+    HUMAN_WIRE_VALUES, MISSING, resolve_urgency,
 )
 from .agent import BaseAgent
 from .llm import LLMClient, FRAMEWORK_OWNED_PARAMS
@@ -131,22 +133,18 @@ class AgentEngine:
                 raises ``AgentConfigurationError``. False: warns instead.
             insight_contract: XUBB-ITC-1 §7.1 contract selection. ``legacy_v2``
                 (default, the current-major compatibility path: G0 legacy
-                safety). ``typed_v1`` selects strict local validation with
-                whole-response atomic rejection — its acceptance path is NOT
-                implemented yet, so selecting it FAILS CLOSED with
-                ``AgentConfigurationError`` rather than silently running the
-                legacy path under a typed label. Any other value is a
-                ``ValueError``.
+                safety, D-LR partial acceptance). ``typed_v1``: strict local
+                validation of the normalized candidate, exact effective-type
+                enforcement, whole-response atomic rejection (§8.4), engine-
+                minted identity, runtime-derived confidence provenance and
+                urgency precedence. Only schemas with a declared typed adapter
+                (``insight_v1``, ``default_v2``, ``v2_raw``) may be registered
+                under it; anything else fails at registration. Any other value
+                is a ``ValueError``.
         """
         if insight_contract not in INSIGHT_CONTRACTS:
             raise ValueError(
                 f"insight_contract must be one of {INSIGHT_CONTRACTS}, got {insight_contract!r}")
-        if insight_contract != DEFAULT_INSIGHT_CONTRACT:
-            # Fail closed (spec §15.2: a capability is unavailable until its
-            # supporting path is implemented and tested). Do not downgrade.
-            raise AgentConfigurationError(
-                f"insight_contract={insight_contract!r} is not available in this release: typed "
-                f"acceptance (gate G1 part 2) is not implemented. Use the default 'legacy_v2'.")
         self.insight_contract = insight_contract
         # EN-1 / INV-18: only-when-set, so LLMClient defaults keep applying
         # otherwise; update_api_key rebuilds from THIS dict, never bare.
@@ -279,39 +277,63 @@ class AgentEngine:
     # XUBB-ITC-1 (G1) — insight configuration validation and effective types
     # -------------------------------------------------------------------------
 
-    @staticmethod
-    def _validate_insight_config(agent: BaseAgent) -> List[str]:
-        """Load-time contradiction check (§7.2): a permission flag and the
-        corresponding ``allowed_types`` membership must agree. Returns HARD
-        violations (registration fails; nothing mutated)."""
+    # Typed candidate fields a schema adapter must be able to carry for a given
+    # configuration (§13.1: "an agent requesting a type whose required fields
+    # cannot be mapped by its schema fails at configuration time").
+    _CONSULTING_FIELDS = ("observation_kind", "evidence_refs", "rationale", "validation_step")
+
+    def _validate_insight_config(self, agent: BaseAgent) -> List[str]:
+        """Load-time checks (§7.2, §13.1). Returns HARD violations (registration
+        fails; nothing mutated):
+
+        * a permission flag and its ``allowed_types`` membership must agree;
+        * under ``typed_v1`` a DynamicAgent's schema must declare a typed adapter
+          (``supported_contracts`` includes ``typed_v1``) and must be able to
+          carry the fields the configuration needs; under ``legacy_v2`` the
+          schema must declare ``legacy_v2`` (``insight_v1`` is typed-only).
+        """
         cfg = getattr(agent.config, "insight_config", None)
-        if cfg is None:
-            return []
         agent_id = getattr(agent.config, "id", "?")
-        return [f"Agent '{agent_id}': insight_config contradiction — {c}" for c in cfg.contradictions()]
+        violations = []
+        if cfg is not None:
+            violations += [f"Agent '{agent_id}': insight_config contradiction — {c}" for c in cfg.contradictions()]
+        descriptor = getattr(agent, "descriptor", None)
+        if descriptor is None:
+            return violations                      # custom BaseAgent: no schema to check
+        schema = getattr(agent.config, "output_format", "?")
+        supported_contracts = descriptor.get("supported_contracts") or ["legacy_v2"]
+        if self.insight_contract not in supported_contracts:
+            violations.append(
+                f"Agent '{agent_id}': schema '{schema}' does not support insight_contract="
+                f"'{self.insight_contract}' (declares {supported_contracts}). Typed adapters: "
+                f"insight_v1, default_v2, v2_raw.")
+            return violations
+        if self.insight_contract == "typed_v1" and cfg is not None:
+            fields = set(descriptor.get("supported_insight_fields") or [])
+            needed = set()
+            if cfg.analysis_profile == "consulting":
+                needed |= set(self._CONSULTING_FIELDS)
+            if "correction" in cfg.allowed_types:
+                needed.add("correction")
+            if "question" in cfg.allowed_types:
+                needed.add("question")
+            missing = sorted(needed - fields)
+            if missing:
+                violations.append(
+                    f"Agent '{agent_id}': schema '{schema}' cannot map required typed field(s) "
+                    f"{missing} for this insight_config; use insight_v1.")
+        return violations
 
     def effective_insight_types(self, agent: BaseAgent,
                                 context: Optional[AgentContext] = None) -> EffectiveTypes:
         """The run's effective human-facing set for ``agent`` (§7.2): framework
-        ∩ agent ∩ schema ∩ host ∩ permission prerequisites, with a reason for
-        every absent value. Under ``legacy_v2`` this is the host-safe five."""
-        cfg = getattr(agent.config, "insight_config", None)
-        descriptor = getattr(agent, "descriptor", None) or {}
-        caps = context.insight_capabilities if context is not None else None
-        return effective_insight_types(
-            contract=self.insight_contract,
-            allowed_types=list(cfg.allowed_types) if cfg else [],
-            allow_reply=bool(cfg and cfg.allow_reply),
-            allow_question=bool(cfg and cfg.allow_question),
-            allow_correction=bool(cfg and cfg.allow_correction),
-            schema_supported=descriptor.get("supported_insight_types"),
-            host_supported=list(caps.supported_types) if caps else
-                ["suggestion", "warning", "opportunity", "fact", "praise"],
-            host_reply_drafts=bool(caps and caps.reply_drafts),
-            host_text_questions=bool(caps and caps.text_questions),
-            host_corrections=bool(caps and caps.corrections),
-            principal_present=bool(context is not None and context.principal_id),
-        )
+        ∩ agent ∩ schema ∩ host ∩ permission prerequisites ∩ this release's
+        implemented set, with a reason for every absent value. Under
+        ``legacy_v2`` this is the host-safe five."""
+        return effective_types_for_run(contract=self.insight_contract,
+                                       insight_config=getattr(agent.config, "insight_config", None),
+                                       descriptor=getattr(agent, "descriptor", None),
+                                       context=context)
 
     def register_agent(self, agent: BaseAgent) -> None:
         """Register an agent with the engine.
@@ -330,8 +352,9 @@ class AgentEngine:
         if violations:
             raise AgentConfigurationError(" | ".join(violations))
 
-        # Inject the LLM client into the agent.
+        # Inject the LLM client and the engine-selected contract into the agent.
         agent.llm = self.llm_client
+        agent.insight_contract = self.insight_contract
 
         with self._agents_lock:
             # Track registration order for deterministic merge ordering. Cache
@@ -384,6 +407,7 @@ class AgentEngine:
             new_meta: Dict[str, Tuple[int, int]] = {}
             for index, agent in enumerate(agents):
                 agent.llm = self.llm_client
+                agent.insight_contract = self.insight_contract
                 new_index[agent.config.id] = index
                 new_meta[agent.config.id] = (agent.config.priority, index)
                 new_agents.append(agent)
@@ -669,7 +693,7 @@ class AgentEngine:
             
             # Run phase 1 and merge results
             phase1_responses = await self._run_phase(phase1_agents, context)
-            self._merge_responses(phase1_responses, context.blackboard, final_response)
+            self._merge_responses(phase1_responses, context.blackboard, final_response, phase=1)
             
             # Collect events emitted in phase 1
             for resp in phase1_responses:
@@ -731,7 +755,7 @@ class AgentEngine:
 
                     # Run phase 2 and merge results
                     phase2_responses = await self._run_phase(phase2_agents, context)
-                    self._merge_responses(phase2_responses, context.blackboard, final_response)
+                    self._merge_responses(phase2_responses, context.blackboard, final_response, phase=2)
 
                     # Events emitted in Phase 2 are recorded but NOT dispatched
                     phase2_events = []
@@ -849,11 +873,11 @@ class AgentEngine:
             return None
         if response is None:
             return None
-        # XUBB-ITC-1 (G0): engine-boundary acceptance. Revalidates EVERY response
+        # XUBB-ITC-1 (G0/G1): engine-boundary acceptance. Revalidates EVERY response
         # (DynamicAgent staging and custom BaseAgent subclasses alike) and is the
         # single emitter of on_insight_validation_error — once per rejected or
         # partial execution result.
-        self._enforce_acceptance(agent, response)
+        self._enforce_acceptance(agent, response, context)
         if response.acceptance_status in ("partial", "rejected") and response.diagnostics:
             primary = next((d for d in response.diagnostics
                             if d.code != "partial_legacy_response"), response.diagnostics[0])
@@ -868,19 +892,26 @@ class AgentEngine:
     # Engine-boundary acceptance (XUBB-ITC-1 §6.1 / §8.6, D-LR) — legacy_v2
     # =========================================================================
 
-    def _enforce_acceptance(self, agent: BaseAgent, response: AgentResponse) -> None:
-        """Revalidate a response at the engine boundary and apply D-LR.
+    def _enforce_acceptance(self, agent: BaseAgent, response: AgentResponse,
+                            context: Optional[AgentContext] = None) -> None:
+        """Revalidate a response at the engine boundary and apply the contract.
 
         A mutable object that passed model construction is not proof that its
         current content is valid, so this runs for every response:
 
-        * insight types must be in the legacy human-facing set; an ERROR is
-          accepted only with runtime-established framework provenance. Any
-          other insight rejects ALL insights from the result (never relabelled)
-          → ``partial`` if independently valid channels remain, else ``rejected``;
         * a proposed write to the reserved ``sys.*`` namespace rejects the
-          whole response (``reserved_state_write``);
-        * on ``partial`` the action-bearing ``data`` sidecar is withheld.
+          whole response (``reserved_state_write``) in both contracts;
+        * ``legacy_v2`` (D-LR): insight types must be in the legacy human-facing
+          set; an ERROR is accepted only with runtime-established framework
+          provenance. Any other insight rejects ALL insights from the result
+          (never relabelled) → ``partial`` if independently valid channels
+          remain, else ``rejected``; on ``partial`` the ``data`` sidecar is withheld;
+        * ``typed_v1`` (§8.4): every insight must be in the run's effective set
+          and must not carry engine-owned identity; any violation rejects the
+          whole response. Accepted insights are then stamped with an engine-
+          minted session-unique ``id``, ``turn`` and ``contract_version``, a
+          runtime-derived ``confidence_provided`` (unknown provenance ⇒ False,
+          never certainty) and a resolved ``urgency``.
         """
         agent_id = agent.config.id
         execution_id = response.execution_id or f"boundary-{id(response):x}"
@@ -901,6 +932,10 @@ class AgentEngine:
                 fatal.append(diag("reserved_state_write", f"state_updates.{key}", bounded(key)))
         if fatal:
             self._reject_whole(response, fatal)
+            return
+
+        if self.insight_contract == "typed_v1":
+            self._enforce_typed(agent, response, context, diag)
             return
 
         # --- insight component: allowed types + ERROR provenance --------------
@@ -934,6 +969,45 @@ class AgentEngine:
         else:
             self._reject_whole(response, [])
 
+    def _enforce_typed(self, agent: BaseAgent, response: AgentResponse,
+                       context: Optional[AgentContext], diag) -> None:
+        """typed_v1 boundary (§6.1, §8.1 steps 5–8, §14.2)."""
+        if response.acceptance_status == "rejected":
+            return   # already decided by staging (or a framework diagnostic)
+        eff = self.effective_insight_types(agent, context)
+        cfg = getattr(agent.config, "insight_config", None)
+        fatal: List[InsightDiagnostic] = []
+        for i, insight in enumerate(response.insights):
+            value = insight.type.value if isinstance(insight.type, InsightType) else str(insight.type)
+            if value == InsightType.ERROR.value and getattr(insight, "_origin", "agent") == "framework":
+                continue
+            if value not in HUMAN_WIRE_VALUES:
+                fatal.append(diag("unknown_type", f"insights[{i}].type", bounded(value)))
+            elif value not in eff:
+                fatal.append(diag(eff.diagnostic_code_for(value), f"insights[{i}].type",
+                                  eff.unavailable.get(value, bounded(value))))
+            # Engine-owned identity cannot be supplied by the producer (§14.2).
+            for owned in ("id", "turn", "contract_version"):
+                if getattr(insight, owned) is not None:
+                    fatal.append(diag("invalid_field", f"insights[{i}].{owned}", "engine_owned"))
+            if insight.urgency is None:
+                try:
+                    insight.urgency = resolve_urgency(value, MISSING, cfg.default_urgency if cfg else None)
+                except ValueError as e:
+                    fatal.append(diag("invalid_urgency", f"insights[{i}].urgency", str(e)))
+        if fatal:
+            self._reject_whole(response, fatal)
+            return
+        turn = context.turn_count if context is not None else None
+        for insight in response.insights:
+            if getattr(insight, "_origin", "agent") == "framework":
+                continue
+            insight.id = uuid.uuid4().hex
+            insight.turn = turn
+            insight.contract_version = "typed_v1"
+            if insight.confidence_provided is None:
+                insight.confidence_provided = False   # unknown provenance is not certainty
+
     @staticmethod
     def _reject_whole(response: AgentResponse, diagnostics: List[InsightDiagnostic]) -> None:
         """D-LR fatal path: nothing from the response may commit or be shown.
@@ -955,7 +1029,8 @@ class AgentEngine:
     
     def _merge_responses(self, responses: List[AgentResponse],
                          blackboard: Blackboard,
-                         final_response: AgentResponse) -> None:
+                         final_response: AgentResponse,
+                         phase: int = 1) -> None:
         """Merge agent responses with deterministic ordering.
         
         Updates are applied in ASCENDING priority order (low → high) so that
@@ -1010,7 +1085,10 @@ class AgentEngine:
                 )
                 continue
 
-            # Merge insights
+            # Merge insights, stamping the D-CR stable merge order
+            # (phase, registered-agent index, candidate ordinal) — never arrival.
+            for ordinal, insight in enumerate(resp.insights):
+                insight._merge_order = (phase, index, ordinal)
             final_response.insights.extend(resp.insights)
             
             # Merge data sidecar

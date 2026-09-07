@@ -57,6 +57,7 @@ ALL_SCHEMA_NAMES = [
     "v2_raw",
     "ui_control",
     "widget_control",
+    "insight_v1",      # XUBB-ITC-1 typed-only normalized envelope (G1 part 2)
 ]
 
 

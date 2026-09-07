@@ -1,0 +1,1220 @@
+{
+  "spec_version": "1.2.0",
+  "scope": "reference policies only",
+  "fixtures": [
+    {
+      "id": "confidence_none",
+      "operation": "confidence_output",
+      "args": {
+        "value": null
+      },
+      "expected": {
+        "confidence": 1.0,
+        "confidence_provided": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "confidence_zero",
+      "operation": "confidence_output",
+      "args": {
+        "value": 0
+      },
+      "expected": {
+        "confidence": 0.0,
+        "confidence_provided": true
+      },
+      "expected_error": null
+    },
+    {
+      "id": "confidence_one",
+      "operation": "confidence_output",
+      "args": {
+        "value": 1
+      },
+      "expected": {
+        "confidence": 1.0,
+        "confidence_provided": true
+      },
+      "expected_error": null
+    },
+    {
+      "id": "confidence_fraction",
+      "operation": "confidence_output",
+      "args": {
+        "value": 0.65
+      },
+      "expected": {
+        "confidence": 0.65,
+        "confidence_provided": true
+      },
+      "expected_error": null
+    },
+    {
+      "id": "confidence_omitted",
+      "operation": "confidence_output",
+      "args": {},
+      "expected": {
+        "confidence": 1.0,
+        "confidence_provided": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "confidence_invalid_boolean",
+      "operation": "confidence_output",
+      "args": {
+        "value": true
+      },
+      "expected": null,
+      "expected_error": "invalid_confidence"
+    },
+    {
+      "id": "confidence_invalid_string",
+      "operation": "confidence_output",
+      "args": {
+        "value": "0.9"
+      },
+      "expected": null,
+      "expected_error": "invalid_confidence"
+    },
+    {
+      "id": "confidence_invalid_negative",
+      "operation": "confidence_output",
+      "args": {
+        "value": -0.1
+      },
+      "expected": null,
+      "expected_error": "invalid_confidence"
+    },
+    {
+      "id": "confidence_invalid_over_one",
+      "operation": "confidence_output",
+      "args": {
+        "value": 1.1
+      },
+      "expected": null,
+      "expected_error": "invalid_confidence"
+    },
+    {
+      "id": "confidence_invalid_object",
+      "operation": "confidence_output",
+      "args": {
+        "value": {}
+      },
+      "expected": null,
+      "expected_error": "invalid_confidence"
+    },
+    {
+      "id": "urgency_default_fact",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "fact"
+      },
+      "expected": "whenever",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_default_observation",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "observation"
+      },
+      "expected": "whenever",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_default_suggestion",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "suggestion"
+      },
+      "expected": "soon",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_default_warning",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "warning"
+      },
+      "expected": "now",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_default_opportunity",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "opportunity"
+      },
+      "expected": "now",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_default_praise",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "praise"
+      },
+      "expected": "soon",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_default_reply",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "reply"
+      },
+      "expected": "now",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_default_correction",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "correction"
+      },
+      "expected": "now",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_default_question",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "question"
+      },
+      "expected": "soon",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_explicit_wins",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "warning",
+        "explicit": "whenever",
+        "override": "soon"
+      },
+      "expected": "whenever",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_agent_override",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "warning",
+        "override": "soon"
+      },
+      "expected": "soon",
+      "expected_error": null
+    },
+    {
+      "id": "urgency_invalid_null",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "warning",
+        "explicit": null
+      },
+      "expected": null,
+      "expected_error": "invalid_urgency"
+    },
+    {
+      "id": "urgency_invalid_bad",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "warning",
+        "explicit": "urgent"
+      },
+      "expected": null,
+      "expected_error": "invalid_urgency"
+    },
+    {
+      "id": "urgency_invalid_number",
+      "operation": "resolve_urgency",
+      "args": {
+        "kind": "warning",
+        "explicit": 1
+      },
+      "expected": null,
+      "expected_error": "invalid_urgency"
+    },
+    {
+      "id": "unknown_type_legacy_v2",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "legacy_v2",
+        "insight_valid": false,
+        "gate": true,
+        "domain_valid": true,
+        "has_domain": true
+      },
+      "expected": {
+        "status": "partial",
+        "emit_insight": false,
+        "commit_domain": true
+      },
+      "expected_error": null
+    },
+    {
+      "id": "malformed_gate_legacy_v2_false",
+      "operation": "acceptance_decision",
+      "args": {
+        "insight_valid": true,
+        "gate": "false",
+        "domain_valid": true,
+        "has_domain": true,
+        "mode": "legacy_v2"
+      },
+      "expected": {
+        "status": "partial",
+        "emit_insight": false,
+        "commit_domain": true
+      },
+      "expected_error": null
+    },
+    {
+      "id": "malformed_gate_legacy_v2_true",
+      "operation": "acceptance_decision",
+      "args": {
+        "insight_valid": true,
+        "gate": "true",
+        "domain_valid": true,
+        "has_domain": true,
+        "mode": "legacy_v2"
+      },
+      "expected": {
+        "status": "partial",
+        "emit_insight": false,
+        "commit_domain": true
+      },
+      "expected_error": null
+    },
+    {
+      "id": "malformed_gate_legacy_v2_1",
+      "operation": "acceptance_decision",
+      "args": {
+        "insight_valid": true,
+        "gate": 1,
+        "domain_valid": true,
+        "has_domain": true,
+        "mode": "legacy_v2"
+      },
+      "expected": {
+        "status": "partial",
+        "emit_insight": false,
+        "commit_domain": true
+      },
+      "expected_error": null
+    },
+    {
+      "id": "malformed_gate_legacy_v2_None",
+      "operation": "acceptance_decision",
+      "args": {
+        "insight_valid": true,
+        "gate": null,
+        "domain_valid": true,
+        "has_domain": true,
+        "mode": "legacy_v2"
+      },
+      "expected": {
+        "status": "partial",
+        "emit_insight": false,
+        "commit_domain": true
+      },
+      "expected_error": null
+    },
+    {
+      "id": "fatal_legacy_v2_domain_valid",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "legacy_v2",
+        "insight_valid": false,
+        "gate": true,
+        "domain_valid": false,
+        "has_domain": true
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "fatal_legacy_v2_envelope_complete",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "legacy_v2",
+        "insight_valid": false,
+        "gate": true,
+        "domain_valid": true,
+        "has_domain": true,
+        "envelope_complete": false
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "fatal_legacy_v2_authorized",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "legacy_v2",
+        "insight_valid": false,
+        "gate": true,
+        "domain_valid": true,
+        "has_domain": true,
+        "authorized": false
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "silent_legacy_v2",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "legacy_v2",
+        "insight_valid": false,
+        "gate": false,
+        "domain_valid": true,
+        "has_domain": true
+      },
+      "expected": {
+        "status": "accepted_silent",
+        "emit_insight": false,
+        "commit_domain": true
+      },
+      "expected_error": null
+    },
+    {
+      "id": "unknown_type_typed_v1",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "typed_v1",
+        "insight_valid": false,
+        "gate": true,
+        "domain_valid": true,
+        "has_domain": true
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "malformed_gate_typed_v1_false",
+      "operation": "acceptance_decision",
+      "args": {
+        "insight_valid": true,
+        "gate": "false",
+        "domain_valid": true,
+        "has_domain": true,
+        "mode": "typed_v1"
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "malformed_gate_typed_v1_true",
+      "operation": "acceptance_decision",
+      "args": {
+        "insight_valid": true,
+        "gate": "true",
+        "domain_valid": true,
+        "has_domain": true,
+        "mode": "typed_v1"
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "malformed_gate_typed_v1_1",
+      "operation": "acceptance_decision",
+      "args": {
+        "insight_valid": true,
+        "gate": 1,
+        "domain_valid": true,
+        "has_domain": true,
+        "mode": "typed_v1"
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "malformed_gate_typed_v1_None",
+      "operation": "acceptance_decision",
+      "args": {
+        "insight_valid": true,
+        "gate": null,
+        "domain_valid": true,
+        "has_domain": true,
+        "mode": "typed_v1"
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "fatal_typed_v1_domain_valid",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "typed_v1",
+        "insight_valid": false,
+        "gate": true,
+        "domain_valid": false,
+        "has_domain": true
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "fatal_typed_v1_envelope_complete",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "typed_v1",
+        "insight_valid": false,
+        "gate": true,
+        "domain_valid": true,
+        "has_domain": true,
+        "envelope_complete": false
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "fatal_typed_v1_authorized",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "typed_v1",
+        "insight_valid": false,
+        "gate": true,
+        "domain_valid": true,
+        "has_domain": true,
+        "authorized": false
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "silent_typed_v1",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "typed_v1",
+        "insight_valid": false,
+        "gate": false,
+        "domain_valid": true,
+        "has_domain": true
+      },
+      "expected": {
+        "status": "accepted_silent",
+        "emit_insight": false,
+        "commit_domain": true
+      },
+      "expected_error": null
+    },
+    {
+      "id": "legacy_no_domain",
+      "operation": "acceptance_decision",
+      "args": {
+        "mode": "legacy_v2",
+        "insight_valid": false,
+        "gate": true,
+        "domain_valid": true,
+        "has_domain": false
+      },
+      "expected": {
+        "status": "rejected",
+        "emit_insight": false,
+        "commit_domain": false
+      },
+      "expected_error": null
+    },
+    {
+      "id": "fallback_empty_production_registry",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 400,
+          "code": "feature_not_supported",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "spec_version": "1.2.0",
+          "enabled_signatures": [],
+          "disabled_synthetic_example": {
+            "adapter_id": "synthetic-test-adapter",
+            "adapter_version": "1",
+            "endpoint_family": "synthetic-chat",
+            "http_status": 400,
+            "code": "feature_not_supported",
+            "param": "response_format.type",
+            "feature": "response_format.json_schema",
+            "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+          },
+          "rationale": "No captured production provider unsupported-capability signature was supplied or verified. Default is no automatic downgrade; use explicit operator configuration or add an evidence-backed adapter signature."
+        },
+        "mode": "auto",
+        "schema_lint_passed": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_synthetic_exact",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 400,
+          "code": "feature_not_supported",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": true
+      },
+      "expected": true,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_invalid_schema",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 400,
+          "code": "invalid_json_schema",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_auth",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 401,
+          "code": "feature_not_supported",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_rate_limit",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 429,
+          "code": "feature_not_supported",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_unknown_model",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 400,
+          "code": "model_not_found",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_wrong_param",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 400,
+          "code": "feature_not_supported",
+          "param": "model",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_message_only",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 400,
+          "code": "feature_not_supported",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "misconfig"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_model_spoof",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 400,
+          "code": "feature_not_supported",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "model",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_wrong_endpoint",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "other",
+          "http_status": 400,
+          "code": "feature_not_supported",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_strict",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 400,
+          "code": "feature_not_supported",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "strict",
+        "schema_lint_passed": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_lint_failed",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 400,
+          "code": "feature_not_supported",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": false
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "fallback_reject_second_attempt",
+      "operation": "allow_schema_fallback",
+      "args": {
+        "failure": {
+          "adapter_id": "synthetic-test-adapter",
+          "adapter_version": "1",
+          "endpoint_family": "synthetic-chat",
+          "http_status": 400,
+          "code": "feature_not_supported",
+          "param": "response_format.type",
+          "feature": "response_format.json_schema",
+          "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE",
+          "origin": "trusted_adapter",
+          "category": "unsupported_capability"
+        },
+        "registry": {
+          "enabled_signatures": [
+            {
+              "adapter_id": "synthetic-test-adapter",
+              "adapter_version": "1",
+              "endpoint_family": "synthetic-chat",
+              "http_status": 400,
+              "code": "feature_not_supported",
+              "param": "response_format.type",
+              "feature": "response_format.json_schema",
+              "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+            }
+          ]
+        },
+        "mode": "auto",
+        "schema_lint_passed": true,
+        "fallback_attempted": true
+      },
+      "expected": false,
+      "expected_error": null
+    },
+    {
+      "id": "corrections_hold_whole",
+      "operation": "arbitrate_corrections",
+      "args": {
+        "records": [
+          {
+            "id": "ordinary",
+            "targets": [],
+            "priority": 1,
+            "registration_index": 0,
+            "complete": true
+          },
+          {
+            "id": "multi",
+            "targets": [
+              "a",
+              "b"
+            ],
+            "priority": 3,
+            "registration_index": 1,
+            "complete": true
+          },
+          {
+            "id": "a_only",
+            "targets": [
+              "a"
+            ],
+            "priority": 4,
+            "registration_index": 2,
+            "complete": true
+          },
+          {
+            "id": "b_only",
+            "targets": [
+              "b"
+            ],
+            "priority": 2,
+            "registration_index": 3,
+            "complete": true
+          }
+        ],
+        "phase_closed": false
+      },
+      "expected": {
+        "ordinary_eligible": [
+          "ordinary"
+        ],
+        "accepted": [],
+        "held_whole": [
+          "a_only",
+          "multi",
+          "b_only"
+        ],
+        "rejected_whole": [],
+        "reserved": []
+      },
+      "expected_error": null
+    },
+    {
+      "id": "corrections_multi_target_atomic",
+      "operation": "arbitrate_corrections",
+      "args": {
+        "records": [
+          {
+            "id": "ordinary",
+            "targets": [],
+            "priority": 1,
+            "registration_index": 0,
+            "complete": true
+          },
+          {
+            "id": "multi",
+            "targets": [
+              "a",
+              "b"
+            ],
+            "priority": 3,
+            "registration_index": 1,
+            "complete": true
+          },
+          {
+            "id": "a_only",
+            "targets": [
+              "a"
+            ],
+            "priority": 4,
+            "registration_index": 2,
+            "complete": true
+          },
+          {
+            "id": "b_only",
+            "targets": [
+              "b"
+            ],
+            "priority": 2,
+            "registration_index": 3,
+            "complete": true
+          }
+        ],
+        "phase_closed": true
+      },
+      "expected": {
+        "ordinary_eligible": [
+          "ordinary"
+        ],
+        "accepted": [
+          "a_only",
+          "b_only"
+        ],
+        "held_whole": [],
+        "rejected_whole": [
+          "multi"
+        ],
+        "reserved": [
+          "a",
+          "b"
+        ]
+      },
+      "expected_error": null
+    },
+    {
+      "id": "corrections_deadline_closes_set",
+      "operation": "arbitrate_corrections",
+      "args": {
+        "records": [
+          {
+            "id": "ordinary",
+            "targets": [],
+            "priority": 1,
+            "registration_index": 0,
+            "complete": true
+          },
+          {
+            "id": "multi",
+            "targets": [
+              "a",
+              "b"
+            ],
+            "priority": 3,
+            "registration_index": 1,
+            "complete": true
+          },
+          {
+            "id": "a_only",
+            "targets": [
+              "a"
+            ],
+            "priority": 4,
+            "registration_index": 2,
+            "complete": false
+          },
+          {
+            "id": "b_only",
+            "targets": [
+              "b"
+            ],
+            "priority": 2,
+            "registration_index": 3,
+            "complete": true
+          }
+        ],
+        "phase_closed": true
+      },
+      "expected": {
+        "ordinary_eligible": [
+          "ordinary"
+        ],
+        "accepted": [
+          "multi"
+        ],
+        "held_whole": [],
+        "rejected_whole": [
+          "a_only",
+          "b_only"
+        ],
+        "reserved": [
+          "a",
+          "b"
+        ]
+      },
+      "expected_error": null
+    }
+  ]
+}

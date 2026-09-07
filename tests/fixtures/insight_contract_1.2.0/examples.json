@@ -1,0 +1,1788 @@
+{
+  "specification": "XUBB-ITC-1",
+  "spec_version": "1.2.0",
+  "fixtures": [
+    {
+      "id": "information",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "fact",
+          "content": "The supplied scope includes one company code.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "document",
+              "ref_id": "scope-01",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "observation",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "observation",
+          "content": "The discussion has shifted from feasibility to process ownership.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "suggestion",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "warning",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "warning",
+          "content": "The date depends on an approval that has not been scheduled.",
+          "confidence": null,
+          "urgency": "now",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "opportunity",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "opportunity",
+          "content": "A shared interface could reduce duplicated development.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "praise",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "praise",
+          "content": "You clarified the requirement before committing to an approach.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "reply",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "Runtime additionally requires explicit principal identity, allow_reply, and host draft capability.",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "reply",
+          "content": "Before we commit, could we confirm who owns the approval?",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "correction_replace",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "Runtime must resolve the active prior insight and evidence in the same principal/session.",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "correction",
+          "content": "Correction: the date was proposed, not approved.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": {
+            "target_insight_id": "i-previous-01",
+            "operation": "replace",
+            "reason": "The source describes a proposal rather than a confirmed commitment."
+          },
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "correction_withdraw",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "correction",
+          "content": "Please do not rely on my earlier schedule estimate; it lacked an approved baseline.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": {
+            "target_insight_id": "i-previous-02",
+            "operation": "withdraw",
+            "reason": "The earlier estimate was not supported by the available planning evidence."
+          },
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "question",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "Runtime additionally requires input support, explicit principal, allow_question, and later correlated answers.",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "question",
+          "content": "Are you authorized to agree to a scope change here?",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": {
+            "reason": "Recommendations must respect your declared decision authority.",
+            "response_format": "text"
+          },
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "hypothesis",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "observation",
+          "content": "Approval ownership may explain the delay more than system capacity.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": "hypothesis",
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": "The supplied incidents cluster between approval stages.",
+          "validation_step": "Compare approval wait time with actual processing time.",
+          "assumptions": [
+            "The supplied incidents are representative."
+          ],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "implication",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "observation",
+          "content": "If reconciliation is transaction-level, the daily aggregate file may be insufficient.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": "implication",
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": "Aggregate records do not identify the transactions required by the stated reconciliation approach.",
+          "validation_step": null,
+          "assumptions": [
+            "No alternate transaction-detail feed is available."
+          ],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "silent",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "The outer agent response may independently carry valid state-only updates.",
+      "envelope": {
+        "has_insight": false,
+        "insight": null
+      }
+    },
+    {
+      "id": "later_reply",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "reply",
+          "content": "For the closing recap: we will validate the data before confirming the plan.",
+          "confidence": null,
+          "urgency": "whenever",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "urgent_observation",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "observation",
+          "content": "The two participants are discussing annual cost and total cost as if they were the same amount.",
+          "confidence": null,
+          "urgency": "now",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "explicit_confidence",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "fact",
+          "content": "The supplied scope includes one company code.",
+          "confidence": 0.8,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "gate_string_false",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": "false",
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "gate_string_true",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": "true",
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "gate_number_one",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": 1,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "gate_null",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": null,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "gate_missing",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "gate_false_with_candidate",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": false,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "gate_true_without_candidate",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": null
+      }
+    },
+    {
+      "id": "unknown_type",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "briefing",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "display_name_as_wire",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "INFORMATION",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "future_wire_not_enabled",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "information",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "model_error",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "error",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "uppercase_wire",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "WARNING",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "string_confidence",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": "0.8",
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "bool_confidence",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": true,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "overconfident",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": 1.5,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "negative_confidence",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": -0.2,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "invalid_urgency",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "urgent",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "nonobject_metadata",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": []
+        }
+      }
+    },
+    {
+      "id": "model_minted_id",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "id": "model-forged"
+        }
+      }
+    },
+    {
+      "id": "empty_content",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": " ",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "subtype_on_suggestion",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": "hypothesis",
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "hypothesis_missing_validation_step",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "observation",
+          "content": "The approval process may be the bottleneck.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": "hypothesis",
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": "Requests wait between stages.",
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "implication_missing_rationale",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "observation",
+          "content": "Transaction detail may be required.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": "implication",
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "observation_without_evidence",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "A2-3 intentional expectation change: general observations do not require evidence references; grounding remains semantic.",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "observation",
+          "content": "The discussion has shifted to ownership.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "correction_without_target",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "correction",
+          "content": "My earlier date was incorrect.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "segment",
+              "ref_id": "seg-04",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "question_without_contract",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "question",
+          "content": "Which participant should I assist?",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "question_payload_on_suggestion",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": {
+            "reason": "Needs input",
+            "response_format": "text"
+          },
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "unsupported_input_format",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "question",
+          "content": "Which participant should I assist?",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": {
+            "reason": "Need principal identity.",
+            "response_format": "yes_no"
+          },
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "invalid_evidence_kind",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "observation",
+          "content": "The roles are unclear.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "guess",
+              "ref_id": "x",
+              "revision": null
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "missing_normalized_field",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "Raw adapters may supply defaults; the normalized envelope must include the field.",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate the source data before confirming the design.",
+          "confidence": null,
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "detailed_consulting_recommendation",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "# Recommendation: validate the additional entities before confirming scope and date\n\nThis is an illustrative consulting response, not advice based on a real client assessment.\n\n## Recommended next step\n\nAssess the two additional entities against the approved baseline before confirming either their inclusion or an unchanged go-live date. Treat the request as a scope assessment, not automatically as a product defect or an approved change. A shared interface may be reusable, but that alone does not establish that configuration, data, roles, testing, and operating procedures are identical.\n\n## What is known and what is not\n\nFor this example, the supplied baseline includes one entity, and the client has requested two more. The client has also asked to retain the original target date. No validated entity-by-entity comparison, delivery estimate, or approval of the expanded scope has been supplied. Therefore, neither a promise of no impact nor a claim of a specific delay is justified by the information in this example.\n\n## Working hypothesis\n\nThe entities may share a technical integration pattern while differing in source data, payment methods, authorization, reconciliation, or deployment readiness. This is a hypothesis to test, not a finding to record as established knowledge. Validate it with representative data and named business and technical owners from each entity.\n\n## Assessment approach\n\n1. Confirm the current approved scope, expected outcomes, acceptance criteria, and decision authority. Separate the target date from an approved delivery commitment.\n2. Compare each additional entity against that baseline, including configuration, source-data availability, integration mappings, security roles, and operational ownership.\n3. Identify what is genuinely reusable and what needs entity-specific work. Keep unverified assumptions explicit and assign a person to validate each one.\n4. Estimate implementation, regression testing, business testing, and deployment effort from the validated differences. Record prerequisites rather than embedding them silently in an estimate.\n5. Present the sponsor with options and their evidence, then obtain an explicit scope and schedule decision before treating it as a delivery commitment.\n\n## Options and tradeoffs\n\n**Retain the original launch scope.** This preserves the existing baseline for assessment purposes, while the additional entities move through a separate discovery and approval path. It does not prove the original date is achievable; the existing plan must still be valid.\n\n**Phase the additional entities.** Reuse confirmed common capabilities while scheduling entity-specific readiness and testing separately. This may avoid making the first launch depend on every new prerequisite, but introduces phased operational and support considerations.\n\n**Expand the initial launch.** Include the new entities only after approving the resulting scope, prerequisites, estimate, and date. This can support a coordinated rollout but should not be presented as effort-neutral without evidence.\n\n## Decisions and validation still needed\n\nThe sponsor needs to confirm which objective takes precedence if the assessment reveals a conflict: the existing date, the expanded coverage, or a specified balance between them. Entity owners must validate the assumed commonality. The delivery team must assess actual effort. None of those approvals should be inferred from a request to explore the option.\n\n## Suggested wording for discussion\n\n“We can assess including both entities. Before we confirm the same date, let us verify where the process and configuration are genuinely shared and where additional work is required. We can then present the impact and the available options for your decision.”\n\nThis quoted wording supports the recommendation; it is not a message already sent, an authorization to commit, or a separate insight. The final choice remains with the consultant and the authorized client decision-makers.\n",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "preview": "Assess the two additional entities before confirming expanded scope or the unchanged date.",
+          "content_format": "markdown"
+        }
+      }
+    },
+    {
+      "id": "long_information",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "fact",
+          "content": "The supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\nThe supplied record is evidence of a stated requirement, not independent approval.\n\n",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "document",
+              "ref_id": "scope-01",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "content_format": "plain_text"
+        }
+      }
+    },
+    {
+      "id": "full_reply_draft",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "reply",
+          "content": "Thank you for clarifying the additional entities.\n\nBefore confirming the date, we should compare their requirements, data, and readiness. We will use that assessment to identify reusable work and any additional effort.\n\nWe can then discuss the options with the authorized decision-makers.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "preview": "Proposed wording: assess the additional entities before confirming the date.",
+          "content_format": "plain_text"
+        }
+      }
+    },
+    {
+      "id": "markdown_information_without_preview",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "fact",
+          "content": "# Supplied baseline\n\nThe supplied scope includes **one** company code.\n\nThis reports the scope document, not independent confirmation of approval.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "document",
+              "ref_id": "scope-01",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "content_format": "markdown"
+        }
+      }
+    },
+    {
+      "id": "explicit_null_preview",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "fact",
+          "content": "The supplied scope includes one company code.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "document",
+              "ref_id": "scope-01",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "preview": null,
+          "content_format": "plain_text"
+        }
+      }
+    },
+    {
+      "id": "unicode_content",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "fact",
+          "content": "Información: aprobación pendiente. 日本語の確認。 العربية. 👩🏽‍💻",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "document",
+              "ref_id": "scope-01",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "preview": "Approval remains pending.",
+          "content_format": "plain_text"
+        }
+      }
+    },
+    {
+      "id": "5000_word_synthetic_body",
+      "expected_valid": true,
+      "scope": "local_shape_only",
+      "note": "Exactly 5000 whitespace-separated words. Tests string capacity only, not generation or quality.",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope scope",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "preview": "Synthetic size fixture, not consulting advice.",
+          "content_format": "plain_text"
+        }
+      }
+    },
+    {
+      "id": "invalid_format_html",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "content_format": "html"
+        }
+      }
+    },
+    {
+      "id": "invalid_format_uppercase",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "content_format": "MARKDOWN"
+        }
+      }
+    },
+    {
+      "id": "invalid_format_null",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "content_format": null
+        }
+      }
+    },
+    {
+      "id": "invalid_preview_number",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "preview": 42
+        }
+      }
+    },
+    {
+      "id": "invalid_preview_object",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "preview": {
+            "text": "not a string"
+          }
+        }
+      }
+    },
+    {
+      "id": "invalid_preview_empty",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "preview": ""
+        }
+      }
+    },
+    {
+      "id": "invalid_preview_whitespace",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "preview": " \n\t"
+        }
+      }
+    },
+    {
+      "id": "invalid_content_array",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": [
+            "Part one",
+            "Part two"
+          ],
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "invalid_long_response_type",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "long_response",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "model_owned_content_contract",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "content_contract": "long_form_v1"
+        }
+      }
+    },
+    {
+      "id": "model_owned_response_depth",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "response_depth": "detailed"
+        }
+      }
+    },
+    {
+      "id": "model_owned_content_request_id",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "content_request_id": "request-model"
+        }
+      }
+    },
+    {
+      "id": "model_owned_completion_status",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "suggestion",
+          "content": "Validate source-data availability before confirming the design.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "completion_status": "complete"
+        }
+      }
+    },
+    {
+      "id": "hypothesis_without_evidence",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "observation",
+          "content": "Approval ownership may explain the delay more than system capacity.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": "hypothesis",
+          "evidence_refs": [],
+          "rationale": "The supplied incidents cluster between approval stages.",
+          "validation_step": "Compare approval wait time with actual processing time.",
+          "assumptions": [
+            "The supplied incidents are representative."
+          ],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "implication_without_evidence",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "observation",
+          "content": "If reconciliation is transaction-level, the daily aggregate file may be insufficient.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": "implication",
+          "evidence_refs": [],
+          "rationale": "Aggregate records do not identify the transactions required by the stated reconciliation approach.",
+          "validation_step": null,
+          "assumptions": [
+            "No alternate transaction-detail feed is available."
+          ],
+          "correction": null,
+          "question": null,
+          "metadata": {}
+        }
+      }
+    },
+    {
+      "id": "model_minted_confidence_provided",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "fact",
+          "content": "The supplied scope includes one company code.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "document",
+              "ref_id": "scope-01",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "confidence_provided": false
+        }
+      }
+    },
+    {
+      "id": "model_minted_source_snapshot_id",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "fact",
+          "content": "The supplied scope includes one company code.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "document",
+              "ref_id": "scope-01",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "source_snapshot_id": "forged"
+        }
+      }
+    },
+    {
+      "id": "model_minted_acceptance_status",
+      "expected_valid": false,
+      "scope": "local_shape_only",
+      "note": "",
+      "envelope": {
+        "has_insight": true,
+        "insight": {
+          "type": "fact",
+          "content": "The supplied scope includes one company code.",
+          "confidence": null,
+          "urgency": "soon",
+          "observation_kind": null,
+          "evidence_refs": [
+            {
+              "kind": "document",
+              "ref_id": "scope-01",
+              "revision": "1"
+            }
+          ],
+          "rationale": null,
+          "validation_step": null,
+          "assumptions": [],
+          "correction": null,
+          "question": null,
+          "metadata": {},
+          "acceptance_status": "forged"
+        }
+      }
+    }
+  ]
+}

@@ -17,6 +17,7 @@
   "descriptor": {
     "schema_version": "legacy_v2",
     "gate_mode": "boolean",
+    "typed_adapter": "flat_v2",
     "supported_insight_types": [
       "suggestion",
       "warning",
@@ -24,8 +25,17 @@
       "fact",
       "praise"
     ],
+    "typed_supported_insight_types": [
+      "fact", "observation", "suggestion", "warning", "opportunity", "praise",
+      "reply", "correction", "question"
+    ],
+    "supported_insight_fields": [
+      "type", "content", "confidence", "urgency", "observation_kind", "evidence_refs",
+      "rationale", "validation_step", "assumptions", "correction", "question", "metadata"
+    ],
     "supported_contracts": [
-      "legacy_v2"
+      "legacy_v2",
+      "typed_v1"
     ],
     "supported_content_contracts": []
   }

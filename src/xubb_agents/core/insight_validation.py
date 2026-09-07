@@ -96,6 +96,20 @@ HUMAN_WIRE_VALUES: Tuple[str, ...] = (
 )
 
 
+# Types whose full lifecycle is implemented on the typed path in THIS release.
+# The interactive purposes exist in the enum but stay unavailable (§15.2:
+# "a type existing in the enum does not make it available before its supporting
+# capability is implemented") until gate G3 lands their permission, reference
+# and host-correlation paths.
+IMPLEMENTED_TYPED_TYPES: Tuple[str, ...] = (
+    "fact", "observation", "suggestion", "warning", "opportunity", "praise",
+)
+
+# Reasons that are RUN-SPECIFIC (a capability the run lacks) map to the
+# ``capability_unavailable`` diagnostic; static reasons map to ``type_not_allowed``.
+RUN_SPECIFIC_UNAVAILABLE_REASONS = frozenset({"missing_principal"})
+
+
 @dataclass(frozen=True)
 class EffectiveTypes:
     """The run's effective human-facing set plus why each other value is absent."""
@@ -105,19 +119,26 @@ class EffectiveTypes:
     def __contains__(self, value: str) -> bool:
         return value in self.types
 
+    def diagnostic_code_for(self, value: str) -> str:
+        reason = self.unavailable.get(value, "")
+        return "capability_unavailable" if reason in RUN_SPECIFIC_UNAVAILABLE_REASONS else "type_not_allowed"
+
 
 def effective_insight_types(*, contract: str, allowed_types: List[str],
                             allow_reply: bool, allow_question: bool, allow_correction: bool,
                             schema_supported: Optional[List[str]],
                             host_supported: List[str], host_reply_drafts: bool,
                             host_text_questions: bool, host_corrections: bool,
-                            principal_present: bool) -> EffectiveTypes:
+                            principal_present: bool,
+                            implemented: Tuple[str, ...] = IMPLEMENTED_TYPED_TYPES) -> EffectiveTypes:
     """Spec §7.2: framework ∩ agent ∩ schema ∩ host ∩ permission prerequisites.
 
     Pure and order-preserving (canonical order). On the legacy path the set is
     the host-safe five (§7.2 "safe host type set"); everything else is enforced
     only under ``typed_v1``. Flags never expand ``allowed_types``. Reasons use
     the diagnostic vocabulary so a caller can emit ``capability_unavailable``.
+    ``implemented`` is the release's implementation gate (checked LAST so the
+    permission reasons above stay observable).
     """
     if contract == DEFAULT_INSIGHT_CONTRACT:
         legacy = tuple(v for v in HUMAN_WIRE_VALUES if v in LEGACY_HUMAN_TYPES)
@@ -142,9 +163,372 @@ def effective_insight_types(*, contract: str, allowed_types: List[str],
                                   else "question_not_permitted")
         elif value == "correction" and not (allow_correction and host_corrections):
             unavailable[value] = "correction_not_permitted"
+        elif value not in implemented:
+            unavailable[value] = "not_implemented_in_this_release"
         else:
             kept.append(value)
     return EffectiveTypes(tuple(kept), unavailable)
+
+
+def effective_types_for_run(*, contract: str, insight_config: Any, descriptor: Optional[Dict[str, Any]],
+                            context: Any) -> EffectiveTypes:
+    """Engine/agent-shared adapter over :func:`effective_insight_types` (duck-typed
+    on ``InsightConfig`` / ``AgentContext`` so this module stays import-free).
+    ``context`` may be None (no host declaration ⇒ safe defaults)."""
+    caps = getattr(context, "insight_capabilities", None)
+    desc = descriptor or {}
+    # Typed adapters advertise the structurally supported set separately from
+    # the legacy instruction's literal offering.
+    schema_supported = desc.get("typed_supported_insight_types", desc.get("supported_insight_types")) \
+        if contract != DEFAULT_INSIGHT_CONTRACT else desc.get("supported_insight_types")
+    return effective_insight_types(
+        contract=contract,
+        allowed_types=list(getattr(insight_config, "allowed_types", []) or []),
+        allow_reply=bool(getattr(insight_config, "allow_reply", False)),
+        allow_question=bool(getattr(insight_config, "allow_question", False)),
+        allow_correction=bool(getattr(insight_config, "allow_correction", False)),
+        schema_supported=list(schema_supported) if schema_supported is not None else None,
+        host_supported=list(caps.supported_types) if caps is not None else list(LEGACY_HUMAN_TYPES),
+        host_reply_drafts=bool(caps and caps.reply_drafts),
+        host_text_questions=bool(caps and caps.text_questions),
+        host_corrections=bool(caps and caps.corrections),
+        principal_present=bool(getattr(context, "principal_id", None)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Urgency, confidence and ranking policy (spec §6.6, D-CR) — reference-compatible
+# ---------------------------------------------------------------------------
+
+MISSING = object()   # "field absent" sentinel, distinct from an explicit null
+
+URGENCY_ORDER = {"now": 0, "soon": 1, "whenever": 2}
+
+# Versioned per-type fallback priors (§6.6). Product priors, not type semantics.
+TYPE_URGENCY_FALLBACK = {
+    "fact": "whenever", "observation": "whenever",
+    "suggestion": "soon", "praise": "soon", "question": "soon",
+    "warning": "now", "opportunity": "now", "reply": "now", "correction": "now",
+}
+
+
+def resolve_urgency(kind: str, explicit: Any = MISSING, override: Optional[str] = None) -> str:
+    """Valid explicit value → configured agent override → per-type fallback.
+
+    An explicit value that is present but invalid (including null) raises
+    ``ValueError("invalid_urgency")`` — it is never defaulted (§6.6).
+    """
+    if kind not in TYPE_URGENCY_FALLBACK:
+        raise ValueError("unknown_type")
+    if explicit is not MISSING:
+        if not isinstance(explicit, str) or explicit not in URGENCY_ORDER:
+            raise ValueError("invalid_urgency")
+        return explicit
+    if override is not None:
+        if not isinstance(override, str) or override not in URGENCY_ORDER:
+            raise ValueError("invalid_default_urgency")
+        return override
+    return TYPE_URGENCY_FALLBACK[kind]
+
+
+def confidence_output(value: Any = MISSING) -> Dict[str, Any]:
+    """D-CR public representation. Missing/null → placeholder 1.0 + provided False
+    (NOT an estimate). A finite number in [0,1] → itself + True. Booleans,
+    numeric strings, NaN, infinities and out-of-range values raise
+    ``ValueError("invalid_confidence")``."""
+    if value is MISSING or value is None:
+        return {"confidence": 1.0, "confidence_provided": False}
+    if isinstance(value, bool) or not isinstance(value, (int, float)) \
+            or value != value or value in (float("inf"), float("-inf")) or not 0 <= value <= 1:
+        raise ValueError("invalid_confidence")
+    return {"confidence": float(value), "confidence_provided": True}
+
+
+def rank_key(urgency: str, agent_priority: int, merge_order: Tuple[int, ...]) -> Tuple:
+    """D-CR fixed total key: ``(urgency_order, -agent_priority, stable_merge_order)``.
+    Confidence is deliberately absent for every candidate (a conditional pairwise
+    comparator is non-transitive)."""
+    return (URGENCY_ORDER[urgency], -agent_priority, tuple(merge_order))
+
+
+def rank_candidates(records: List[Dict[str, Any]]) -> List[str]:
+    """Reference-compatible: sort ``{id, urgency, priority, merge_order}`` records
+    by the D-CR key. Duplicate stable orders are a programming error."""
+    if len({tuple(r["merge_order"]) for r in records}) != len(records):
+        raise ValueError("duplicate_stable_merge_order")
+    return [r["id"] for r in sorted(records, key=lambda r: rank_key(r["urgency"], r["priority"], r["merge_order"]))]
+
+
+def acceptance_decision(mode: str, *, insight_valid: bool, gate: Any, domain_valid: bool,
+                        has_domain: bool, envelope_complete: bool = True,
+                        authorized: bool = True) -> Dict[str, Any]:
+    """Reference-compatible scope decision (D-LR for legacy, §8.4 for typed).
+
+    ``domain_valid`` / ``authorized`` are prior validator results; this is the
+    disposition only. ``typed_v1``: any insight error or malformed gate rejects
+    the whole response. ``legacy_v2``: see :func:`decide_legacy`.
+    """
+    if mode not in INSIGHT_CONTRACTS:
+        raise ValueError("unknown_mode")
+    fatal = not envelope_complete or not domain_valid or not authorized
+    valid_gate = type(gate) is bool
+    insight_error = not valid_gate or (gate is True and not insight_valid)
+    if fatal or (mode == "typed_v1" and insight_error):
+        return {"status": "rejected", "emit_insight": False, "commit_domain": False}
+    if insight_error:
+        return {"status": "partial" if has_domain else "rejected",
+                "emit_insight": False, "commit_domain": has_domain}
+    return {"status": "accepted" if gate else "accepted_silent",
+            "emit_insight": gate is True, "commit_domain": has_domain}
+
+
+# ---------------------------------------------------------------------------
+# Typed candidate validation (typed_v1, spec §6.2, §8.2–§8.4)
+# ---------------------------------------------------------------------------
+
+# The normalized candidate vocabulary (docs/reference/insight_types_1.2.0/
+# normalized_insight.schema.json). Anything else at the candidate root is
+# ``invalid_field`` — a strict local check, whatever the provider enforced.
+TYPED_CANDIDATE_FIELDS: Tuple[str, ...] = (
+    "type", "content", "confidence", "urgency", "observation_kind", "evidence_refs",
+    "rationale", "validation_step", "assumptions", "correction", "question", "metadata",
+    "preview", "content_format",
+)
+CONTENT_EXTENSION_FIELDS: Tuple[str, ...] = ("preview", "content_format")
+ENGINE_OWNED_CANDIDATE_KEYS: Tuple[str, ...] = (
+    "id", "turn", "contract_version", "confidence_provided", "content_contract",
+    "response_depth", "content_request_id", "source_snapshot_id", "acceptance_status",
+    "origin", "agent_id", "agent_name",
+)
+# Legacy pass-through extras a declared typed adapter may carry (S-1); they are
+# normalised OFF the candidate before strict validation.
+ADAPTER_PASSTHROUGH_FIELDS: Tuple[str, ...] = ("expiry", "action_label")
+
+
+@dataclass
+class TypedCandidate:
+    type_value: str
+    content: str
+    confidence: float
+    confidence_provided: bool
+    urgency: str
+    observation_kind: Optional[str] = None
+    evidence_refs: List[Dict[str, Any]] = field(default_factory=list)
+    rationale: Optional[str] = None
+    validation_step: Optional[str] = None
+    assumptions: List[str] = field(default_factory=list)
+    correction: Optional[Dict[str, Any]] = None
+    question: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+def _nonblank(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _optional_nonblank(value: Any) -> bool:
+    return value is None or _nonblank(value)
+
+
+def evaluate_typed_gate(gate_mode: str, gate_value: Any, candidate: Any
+                        ) -> Tuple[bool, Optional[Issue]]:
+    """Typed gates (§8.2). Boolean: only ``True`` speaks; ``False`` with a null
+    candidate is silence; ``False`` + non-null candidate is ``inconsistent_gate``;
+    ``True`` + null candidate is ``inconsistent_gate``; anything else is
+    ``invalid_gate``. Root presence: null/absent/{} silence, dict speaks, other
+    ``invalid_gate``. In typed mode every gate issue rejects the response."""
+    if gate_mode == "boolean":
+        if gate_value is True:
+            if candidate is None:
+                return False, Issue("inconsistent_gate", "insight", "null_candidate_with_true_gate")
+            return True, None
+        if gate_value is False:
+            if candidate is not None:
+                return False, Issue("inconsistent_gate", "insight", "candidate_with_false_gate")
+            return False, None
+        return False, Issue("invalid_gate", "has_insight",
+                            "missing" if gate_value is MISSING else bounded(gate_value))
+    if gate_mode == "root_presence":
+        if candidate is MISSING or candidate is None or candidate == {}:
+            return False, None
+        if isinstance(candidate, dict):
+            return True, None
+        return False, Issue("invalid_gate", "insight", bounded(candidate))
+    return False, None
+
+
+def validate_typed_candidate(candidate: Any, *, effective: EffectiveTypes,
+                             analysis_profile: str = "general",
+                             default_urgency: Optional[str] = None,
+                             reference_context_available: bool = False,
+                             content_extension_enabled: bool = False
+                             ) -> Tuple[Optional[TypedCandidate], List[Issue]]:
+    """Strict local validation of a normalized candidate (§8.3).
+
+    Returns ``(candidate, [])`` or ``(None, issues)``; every issue is fatal
+    under typed atomicity. No coercion: unknown keys, engine-owned keys,
+    display-name types, non-finite confidence, invalid urgency, subtype
+    conflicts, unresolvable evidence and un-negotiated content-extension
+    fields all reject.
+    """
+    issues: List[Issue] = []
+    if not isinstance(candidate, dict):
+        return None, [Issue("invalid_field", "insight", bounded(candidate))]
+
+    # 1. Key discipline
+    for key in candidate:
+        if key in ENGINE_OWNED_CANDIDATE_KEYS:
+            issues.append(Issue("invalid_field", f"insight.{key}", "engine_owned"))
+        elif key in CONTENT_EXTENSION_FIELDS and not content_extension_enabled:
+            issues.append(Issue("content_extension_not_enabled", f"insight.{key}"))
+        elif key not in TYPED_CANDIDATE_FIELDS:
+            issues.append(Issue("invalid_field", f"insight.{key}", "unexpected_key"))
+
+    # 2. Type — exact wire value, in the effective set
+    raw_type = candidate.get("type")
+    type_value: Optional[str] = None
+    if not isinstance(raw_type, str):
+        issues.append(Issue("invalid_field", "insight.type", "missing" if raw_type is None else bounded(raw_type)))
+    elif raw_type not in HUMAN_WIRE_VALUES:
+        issues.append(Issue("unknown_type", "insight.type", bounded(raw_type)))
+    elif raw_type not in effective:
+        issues.append(Issue(effective.diagnostic_code_for(raw_type), "insight.type",
+                            effective.unavailable.get(raw_type, bounded(raw_type))))
+    else:
+        type_value = raw_type
+
+    # 3. Content
+    content = candidate.get("content")
+    if not (isinstance(content, str) and len(content) >= 2 and content.strip()):
+        issues.append(Issue("invalid_field", "insight.content", "missing" if content is None else bounded(content)))
+
+    # 4. Confidence (strict; missing/null = not provided)
+    try:
+        conf = confidence_output(candidate.get("confidence", MISSING))
+    except ValueError:
+        conf = None
+        issues.append(Issue("invalid_confidence", "insight.confidence", bounded(candidate.get("confidence"))))
+
+    # 5. Urgency (explicit valid → agent override → type fallback; invalid rejects)
+    urgency: Optional[str] = None
+    if type_value is not None:
+        explicit = candidate["urgency"] if "urgency" in candidate else MISSING
+        try:
+            urgency = resolve_urgency(type_value, explicit, default_urgency)
+        except ValueError as e:
+            issues.append(Issue("invalid_urgency", "insight.urgency", bounded(candidate.get("urgency")) if str(e) == "invalid_urgency" else str(e)))
+
+    # 6. Metadata (dict; no engine-owned keys smuggled in)
+    metadata = candidate.get("metadata", {})
+    if metadata is None:
+        metadata = {}
+    if not isinstance(metadata, dict):
+        issues.append(Issue("invalid_metadata", "insight.metadata", bounded(metadata)))
+        metadata = {}
+    else:
+        for key in metadata:
+            if key in ENGINE_OWNED_CANDIDATE_KEYS:
+                issues.append(Issue("invalid_metadata", f"insight.metadata.{key}", "engine_owned"))
+
+    # 7. Analytical fields
+    kind = candidate.get("observation_kind")
+    rationale = candidate.get("rationale")
+    validation_step = candidate.get("validation_step")
+    assumptions = candidate.get("assumptions", [])
+    refs = candidate.get("evidence_refs", [])
+    if kind not in (None, "hypothesis", "implication"):
+        issues.append(Issue("invalid_field", "insight.observation_kind", bounded(kind)))
+        kind = None
+    if kind is not None and type_value is not None and type_value != "observation":
+        issues.append(Issue("invalid_field", "insight.observation_kind", "subtype_on_non_observation"))
+    if kind is not None and analysis_profile != "consulting":
+        issues.append(Issue("capability_unavailable", "insight.observation_kind", "consulting_profile_required"))
+    if not _optional_nonblank(rationale):
+        issues.append(Issue("invalid_field", "insight.rationale", bounded(rationale)))
+    if not _optional_nonblank(validation_step):
+        issues.append(Issue("invalid_field", "insight.validation_step", bounded(validation_step)))
+    if validation_step is not None and kind != "hypothesis":
+        issues.append(Issue("invalid_field", "insight.validation_step", "only_for_hypothesis"))
+    if not isinstance(assumptions, list) or not all(_nonblank(a) for a in assumptions):
+        issues.append(Issue("invalid_field", "insight.assumptions", bounded(assumptions)))
+        assumptions = []
+    if not isinstance(refs, list):
+        issues.append(Issue("invalid_field", "insight.evidence_refs", bounded(refs)))
+        refs = []
+    else:
+        for i, ref in enumerate(refs):
+            ok = (isinstance(ref, dict) and set(ref) <= {"kind", "ref_id", "revision"}
+                  and ref.get("kind") in ("segment", "document", "fact", "insight")
+                  and _nonblank(ref.get("ref_id")) and _optional_nonblank(ref.get("revision")))
+            if not ok:
+                issues.append(Issue("invalid_field", f"insight.evidence_refs[{i}]", bounded(ref)))
+            elif not reference_context_available:
+                # No catalog can vouch for this reference in this run (G2 lands
+                # the per-agent snapshot catalog). Never accept a reference
+                # nothing exposed.
+                issues.append(Issue("unknown_reference", f"insight.evidence_refs[{i}]", "no_reference_context"))
+    if kind == "hypothesis":
+        if not refs:
+            issues.append(Issue("missing_evidence", "insight.evidence_refs", "hypothesis_requires_evidence"))
+        if rationale is None:
+            issues.append(Issue("invalid_field", "insight.rationale", "hypothesis_requires_rationale"))
+        if validation_step is None:
+            issues.append(Issue("invalid_field", "insight.validation_step", "hypothesis_requires_validation_step"))
+    if kind == "implication":
+        if not refs:
+            issues.append(Issue("missing_evidence", "insight.evidence_refs", "implication_requires_evidence"))
+        if rationale is None:
+            issues.append(Issue("invalid_field", "insight.rationale", "implication_requires_rationale"))
+
+    # 8. Interactive payloads: present only for their own type, required there,
+    #    and shape-checked (§6.3 normative shapes; unexpected keys rejected)
+    correction = candidate.get("correction")
+    question = candidate.get("question")
+    if correction is not None and type_value != "correction":
+        issues.append(Issue("invalid_field", "insight.correction", "payload_on_non_correction"))
+    if question is not None and type_value != "question":
+        issues.append(Issue("invalid_question_contract", "insight.question", "payload_on_non_question"))
+    if type_value == "correction":
+        ok = (isinstance(correction, dict) and set(correction) == {"target_insight_id", "operation", "reason"}
+              and _nonblank(correction.get("target_insight_id"))
+              and correction.get("operation") in ("replace", "withdraw") and _nonblank(correction.get("reason")))
+        if not ok:
+            issues.append(Issue("invalid_correction_target", "insight.correction",
+                                "missing" if correction is None else bounded(correction)))
+    if type_value == "question":
+        ok = (isinstance(question, dict) and set(question) == {"reason", "response_format"}
+              and _nonblank(question.get("reason")) and question.get("response_format") == "text")
+        if not ok:
+            issues.append(Issue("invalid_question_contract", "insight.question",
+                                "missing" if question is None else bounded(question)))
+
+    # 9. Content-extension fields: shape only (limits/negotiation are the C1
+    #    content contract); reachable only when the extension is enabled.
+    if content_extension_enabled:
+        if "preview" in candidate and not _optional_nonblank(candidate.get("preview")):
+            issues.append(Issue("invalid_field", "insight.preview", bounded(candidate.get("preview"))))
+        if "content_format" in candidate and candidate.get("content_format") not in ("plain_text", "markdown"):
+            issues.append(Issue("unsupported_content_format", "insight.content_format",
+                                bounded(candidate.get("content_format"))))
+
+    if issues:
+        return None, issues
+    assert type_value and conf is not None and urgency is not None and isinstance(content, str)
+    return TypedCandidate(
+        type_value=type_value, content=content,
+        confidence=conf["confidence"], confidence_provided=conf["confidence_provided"],
+        urgency=urgency, observation_kind=kind, evidence_refs=list(refs),
+        rationale=rationale, validation_step=validation_step, assumptions=list(assumptions),
+        correction=correction, question=question, metadata=dict(metadata),
+    ), []
+
+
+def decide_typed(speak: bool, insight_issues: List[Issue], domain_issues: List[Issue]) -> Decision:
+    """§8.4 typed atomicity: any insight or domain issue makes the whole
+    response non-committable. Valid silence still commits its channels."""
+    if insight_issues or domain_issues:
+        return Decision("rejected", False, False)
+    return Decision("accepted" if speak else "accepted_silent", speak, True)
 
 
 # ---------------------------------------------------------------------------
