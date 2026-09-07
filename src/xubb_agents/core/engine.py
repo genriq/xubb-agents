@@ -26,13 +26,15 @@ from typing import List, Optional, Dict, Any, Tuple
 
 from .models import (
     AgentContext, AgentResponse, TriggerType, Event, InsightType, InsightDiagnostic,
-    ContentExecutionContext, ContentResult, InsightContentRequest,
+    ContentExecutionContext, ContentResult, InsightContentRequest, AgentInsight,
+    EvidenceRef, CorrectionPayload, QuestionPayload,
 )
 import uuid
 from .insight_validation import (
     LEGACY_HUMAN_TYPES, RESERVED_VAR_PREFIX, LEGACY_MEMORY_PREFIX, bounded,
     INSIGHT_CONTRACTS, DEFAULT_INSIGHT_CONTRACT, EffectiveTypes, effective_types_for_run,
     HUMAN_WIRE_VALUES, MISSING, resolve_urgency, validate_answers, validate_correction_target,
+    validate_typed_candidate, validate_response_channels, ReferenceContext,
 )
 from .provider_schema import STRUCTURED_OUTPUT_MODES, DEFAULT_STRUCTURED_OUTPUTS
 from .agent import BaseAgent
@@ -952,10 +954,12 @@ class AgentEngine:
                                        if context.content_execution_context is not None else None),
         )
         
-        # Run all agents in parallel
+        # Run all agents in parallel — each on ITS OWN invocation view (H1 / XA-02:
+        # answer visibility is decided here, from the frozen context, for every
+        # access path an agent has).
         tasks = []
         for agent in agents:
-            tasks.append(self._run_agent_safe(agent, phase_context))
+            tasks.append(self._run_agent_safe(agent, self._scoped_view(phase_context, agent)))
         
         results = await asyncio.gather(*tasks)
         
@@ -987,7 +991,7 @@ class AgentEngine:
         clone = getattr(agent, "clone_for_isolated_run", None)
         request_id = request.request_id or uuid.uuid4().hex
         snapshot_id = uuid.uuid4().hex
-        frozen = context.model_copy(deep=True)
+        frozen = self._scoped_view(context.model_copy(deep=True), agent)
         declaration = ContentExecutionContext(
             session_mode="active", execution_path="isolated_content",
             request_id=request_id, source_snapshot_id=snapshot_id,
@@ -1071,6 +1075,72 @@ class AgentEngine:
         insight.content_request_id = handle.request_id
         return finish("accepted", insight=insight, diagnostics=diagnostics, usage=usage)
 
+    def _scoped_view(self, context: AgentContext, agent: BaseAgent) -> AgentContext:
+        """H1 (XA-02): the per-agent invocation view. A validated answer is visible
+        to the agent that asked the question (correlated through the retained
+        question record) or to everyone only when the host authorised sharing.
+        The filter is applied to the CONTEXT OBJECT the agent receives, so it
+        holds through direct attribute access, template aliases, custom agents
+        and isolated content tasks alike — not merely a prompt shortcut."""
+        shared = bool(context.insight_capabilities.answers_shared)
+        questions = {r.id: r for r in context.insight_reference_context.prior_insights if r.type == "question"}
+        visible = []
+        for a in context.insight_answers:
+            rec = questions.get(a.question_insight_id)
+            if shared or (rec is not None and rec.agent_id == agent.config.id):
+                visible.append(a.model_copy(deep=True))
+        return context.model_copy(update={"insight_answers": visible})
+
+    def _boundary_reference_context(self, agent: BaseAgent, response: AgentResponse,
+                                    context: AgentContext) -> ReferenceContext:
+        """What an insight's references may resolve against at the boundary: the
+        host's trusted records for this session plus the framework's own
+        snapshot of what THIS run exposed — taken from the agent instance and
+        only when it belongs to this execution, never from the mutable response."""
+        snap = getattr(agent, "_last_snapshot", None)
+        if snap is not None and snap.snapshot_id != response.execution_id:
+            snap = None
+        response.evidence_snapshot = snap        # authority from the invocation, not the producer
+        ref = ReferenceContext(session_id=context.session_id, snapshot_id=snap.snapshot_id if snap else "")
+        if snap is not None:
+            for e in snap.entries:
+                ref.add(e.kind, e.ref_id, e.revision)
+        host = context.insight_reference_context
+        for e in host.evidence:
+            ref.add(e.kind, e.ref_id, e.revision, e.session_id)
+        for r in host.prior_insights:
+            ref.add("insight", r.id, None, r.session_id)
+        return ref
+
+    @staticmethod
+    def _candidate_projection(insight: AgentInsight) -> Dict[str, Any]:
+        """The producer-controlled fields of an insight, as a wire-shaped
+        candidate for the strict validator. Engine-owned fields are checked
+        separately and never enter the projection."""
+        def dump(v):
+            return v.model_dump() if hasattr(v, "model_dump") else v
+        t = insight.type
+        cand: Dict[str, Any] = {
+            "type": t.value if isinstance(t, InsightType) else t,
+            "content": insight.content,
+            "confidence": insight.confidence,
+            "observation_kind": insight.observation_kind,
+            "evidence_refs": [dump(r) for r in insight.evidence_refs] if isinstance(insight.evidence_refs, list) else insight.evidence_refs,
+            "rationale": insight.rationale,
+            "validation_step": insight.validation_step,
+            "assumptions": insight.assumptions,
+            "correction": dump(insight.correction),
+            "question": dump(insight.question),
+            "metadata": insight.metadata,
+        }
+        if insight.urgency is not None:
+            cand["urgency"] = insight.urgency
+        if insight.preview is not None:
+            cand["preview"] = insight.preview
+        if insight.content_format is not None:
+            cand["content_format"] = insight.content_format
+        return cand
+
     async def _run_agent_safe(self, agent: BaseAgent,
                               context: AgentContext) -> Optional[AgentResponse]:
         """Run an agent with atomic failure handling.
@@ -1134,18 +1204,15 @@ class AgentEngine:
             return InsightDiagnostic(execution_id=execution_id, agent_id=agent_id, code=code,
                                      field_path=path, classification=classification, **extra)
 
-        # --- fatal: reserved-state writes proposed by the agent ---------------
-        fatal: List[InsightDiagnostic] = []
-        for key in response.variable_updates:
-            if isinstance(key, str) and key.startswith(RESERVED_VAR_PREFIX):
-                fatal.append(diag("reserved_state_write", f"variable_updates.{key}", bounded(key)))
-        for key in response.state_updates:
-            if isinstance(key, str) and key.startswith(RESERVED_VAR_PREFIX) \
-                    and not key.startswith(LEGACY_MEMORY_PREFIX):
-                fatal.append(diag("reserved_state_write", f"state_updates.{key}", bounded(key)))
-        if fatal:
-            self._reject_whole(response, fatal)
-            return
+        # --- fatal: domain channels revalidated on the OBJECT that would commit
+        # (H1 / XA-01): shape, reserved ``sys.*`` writes, fact confidence. Applies
+        # to every producer and to callback-modified responses; a fatal domain
+        # error rejects the whole response in both contracts (D-LR).
+        if response.acceptance_status != "rejected":
+            fatal = [diag(i.code, i.field_path, i.classification) for i in validate_response_channels(response)]
+            if fatal:
+                self._reject_whole(response, fatal)
+                return
 
         if self.insight_contract == "typed_v1":
             self._enforce_typed(agent, response, context, diag)
@@ -1182,65 +1249,120 @@ class AgentEngine:
         else:
             self._reject_whole(response, [])
 
+    # Public fields only the engine may set (§14.2). A producer — or a callback
+    # touching the response after staging — leaves them None; trusted staging
+    # hands its runtime-derived values over privately (AgentInsight._staged).
+    ENGINE_OWNED_PUBLIC_FIELDS = ("id", "turn", "contract_version", "confidence_provided", "content_contract",
+                                  "response_depth", "content_request_id", "source_snapshot_id")
+
     def _enforce_typed(self, agent: BaseAgent, response: AgentResponse,
                        context: Optional[AgentContext], diag) -> None:
-        """typed_v1 boundary (§6.1, §8.1 steps 5–8, §14.2)."""
+        """typed_v1 boundary (§6.1, §8.1 steps 5–8, §14.2) — H1: ONE authoritative
+        acceptance pipeline for every producer (DynamicAgent staging, custom
+        BaseAgent subclasses, callback-modified responses):
+
+        1. a rejected result stays rejected; a framework ERROR card it carries
+           becomes a diagnostic — typed failures never enter the human-facing
+           insight channel (XA-07; the ERROR card remains legacy-only);
+        2. every insight must be an AgentInsight with every engine-owned public
+           field unset;
+        3. the producer-controlled projection of every insight is re-run through
+           the strict candidate validator against the run's effective set,
+           profile, urgency default, reference context (host records + this
+           run's own snapshot) and negotiated content extension — so a QUESTION
+           without its payload, a hypothesis without evidence, an empty body, a
+           non-finite confidence or an un-negotiated content field rejects here,
+           whichever class produced it;
+        4. correction targets are validated against the trusted history under the
+           frozen principal;
+        5. any violation rejects the WHOLE response (§8.4). Otherwise the
+           validated candidate is written back and the engine stamps identity,
+           provenance and the content-contract fields.
+        """
         if response.acceptance_status == "rejected":
-            return   # already decided by staging (or a framework diagnostic)
+            errors = [i for i in response.insights if isinstance(i, AgentInsight) and i.type is InsightType.ERROR
+                      and getattr(i, "_origin", "agent") == "framework"]
+            for err in errors:
+                category = (err.metadata or {}).get("exception_type", "unknown") if isinstance(err.metadata, dict) else "unknown"
+                response.diagnostics.append(diag("invalid_envelope", "$", f"agent_error:{bounded(category)}"))
+            response.insights = []
+            return
         eff = self.effective_insight_types(agent, context)
         cfg = getattr(agent.config, "insight_config", None)
+        profile = cfg.analysis_profile if cfg is not None else "general"
+        default_urgency = cfg.default_urgency if cfg is not None else None
+        reference = self._boundary_reference_context(agent, response, context) if context is not None else None
         fatal: List[InsightDiagnostic] = []
+        validated = []
         for i, insight in enumerate(response.insights):
-            value = insight.type.value if isinstance(insight.type, InsightType) else str(insight.type)
-            if value == InsightType.ERROR.value and getattr(insight, "_origin", "agent") == "framework":
+            path = f"insights[{i}]"
+            if not isinstance(insight, AgentInsight):
+                fatal.append(diag("invalid_field", path, bounded(insight)))
                 continue
-            if value not in HUMAN_WIRE_VALUES:
-                fatal.append(diag("unknown_type", f"insights[{i}].type", bounded(value)))
-            elif value not in eff:
-                fatal.append(diag(eff.diagnostic_code_for(value), f"insights[{i}].type",
-                                  eff.unavailable.get(value, bounded(value))))
-            # Engine-owned identity cannot be supplied by the producer (§14.2).
-            for owned in ("id", "turn", "contract_version"):
+            for owned in self.ENGINE_OWNED_PUBLIC_FIELDS:
                 if getattr(insight, owned) is not None:
-                    fatal.append(diag("invalid_field", f"insights[{i}].{owned}", "engine_owned"))
-            if insight.urgency is None:
-                try:
-                    insight.urgency = resolve_urgency(value, MISSING, cfg.default_urgency if cfg else None)
-                except ValueError as e:
-                    fatal.append(diag("invalid_urgency", f"insights[{i}].urgency", str(e)))
+                    fatal.append(diag("invalid_field", f"{path}.{owned}", "engine_owned"))
+            staged = getattr(insight, "_staged", None)
+            extension = bool(staged and staged.get("content_extension"))
+            typed, issues = validate_typed_candidate(
+                self._candidate_projection(insight), effective=eff, analysis_profile=profile,
+                default_urgency=default_urgency, reference_context=reference,
+                reference_context_available=reference is not None,
+                content_extension_enabled=extension)
+            for issue in issues:
+                field = issue.field_path[len("insight."):] if issue.field_path.startswith("insight.") else issue.field_path
+                fatal.append(diag(issue.code, f"{path}.{field}" if field != "insight" else path, issue.classification))
+            if typed is not None:
+                validated.append((insight, typed, staged))
         # §10.1 (G3 part 2): correction targets — validated here, at the ONE
-        # boundary both DynamicAgent and custom agents pass through.
+        # boundary both DynamicAgent and custom agents pass through, under the
+        # FROZEN principal (H1 / XA-03: a missing identity rejects).
         if context is not None:
             caps = context.insight_capabilities
-            for i, insight in enumerate(response.insights):
-                if insight.type is not InsightType.CORRECTION:
+            for i, (insight, typed, _staged) in enumerate(validated):
+                if typed.type_value != "correction":
                     continue
-                payload = insight.correction.model_dump() if insight.correction is not None else None
-                if payload is None:
-                    fatal.append(diag("invalid_correction_target", f"insights[{i}].correction", "missing"))
-                    continue
-                if not insight.evidence_refs:
-                    fatal.append(diag("missing_evidence", f"insights[{i}].evidence_refs", "correction_requires_basis"))
                 issue = validate_correction_target(
-                    payload, prior_insights=list(context.insight_reference_context.prior_insights),
+                    typed.correction, prior_insights=list(context.insight_reference_context.prior_insights),
                     session_id=context.session_id, principal_id=context.principal_id,
                     turn_count=context.turn_count, agent_id=agent.config.id,
                     policy=caps.correction_agent_policy, allowlist=tuple(caps.correction_agent_ids),
-                    field_path=f"insights[{i}].correction")
+                    field_path=f"insights[{response.insights.index(insight)}].correction")
                 if issue is not None:
                     fatal.append(diag(issue.code, issue.field_path, issue.classification))
         if fatal:
             self._reject_whole(response, fatal)
             return
         turn = context.turn_count if context is not None else None
-        for insight in response.insights:
-            if getattr(insight, "_origin", "agent") == "framework":
-                continue
+        for insight, typed, staged in validated:
+            # write back the VALIDATED candidate (normalised urgency, resolved
+            # evidence revisions, normative payload models)
+            insight.type = InsightType(typed.type_value)
+            insight.content = typed.content
+            insight.confidence = typed.confidence
+            insight.urgency = typed.urgency
+            insight.observation_kind = typed.observation_kind
+            insight.evidence_refs = [EvidenceRef(**r) for r in typed.evidence_refs]
+            insight.rationale = typed.rationale
+            insight.validation_step = typed.validation_step
+            insight.assumptions = list(typed.assumptions)
+            insight.correction = CorrectionPayload(**typed.correction) if typed.correction else None
+            insight.question = QuestionPayload(**typed.question) if typed.question else None
+            insight.metadata = dict(typed.metadata)
+            # engine-owned stamps (§8.1 step 8)
             insight.id = uuid.uuid4().hex
             insight.turn = turn
             insight.contract_version = "typed_v1"
-            if insight.confidence_provided is None:
-                insight.confidence_provided = False   # unknown provenance is not certainty
+            # provenance is runtime-derived by trusted staging; a producer that
+            # bypassed staging has unknown provenance — never certainty
+            insight.confidence_provided = bool(staged["confidence_provided"]) if staged else False
+            content = staged.get("content") if staged else None
+            if content:
+                insight.content_contract = content["content_contract"]
+                insight.response_depth = content["response_depth"]
+                insight.content_request_id = content["content_request_id"]
+                insight.source_snapshot_id = content["source_snapshot_id"]
+            insight._staged = None
 
     async def _arbitrate_corrections(self, responses: List[AgentResponse]) -> None:
         """§10.3 (G3 part 2): deterministic, response-level correction arbitration
@@ -1359,10 +1481,11 @@ class AgentEngine:
             if resp.evidence_snapshot is not None:
                 final_response.evidence_snapshots_by_agent[agent_id] = resp.evidence_snapshot
             if resp.acceptance_status == "rejected":
-                final_response.insights.extend(
-                    i for i in resp.insights
-                    if i.type == InsightType.ERROR and getattr(i, "_origin", "agent") == "framework"
-                )
+                if self.insight_contract != "typed_v1":     # H1 / XA-07: legacy surface only
+                    final_response.insights.extend(
+                        i for i in resp.insights
+                        if i.type == InsightType.ERROR and getattr(i, "_origin", "agent") == "framework"
+                    )
                 continue
 
             # Merge insights, stamping the D-CR stable merge order

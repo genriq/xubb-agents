@@ -521,6 +521,12 @@ class AgentInsight(BaseModel):
     # D-CR stable merge order (phase, registered-agent index, candidate ordinal),
     # stamped by the engine at merge; never completion order.
     _merge_order: Optional[tuple] = PrivateAttr(default=None)
+    # H1: trusted staging (DynamicAgent) hands the runtime-derived values it
+    # established — confidence provenance, the negotiated content extension —
+    # to the engine HERE, never through public fields. Producers must leave
+    # every engine-owned public field None; the engine stamps them at the
+    # boundary after revalidating the candidate. Private, never serialized.
+    _staged: Optional[Dict[str, Any]] = PrivateAttr(default=None)
 
     @property
     def merge_order(self) -> Optional[tuple]:

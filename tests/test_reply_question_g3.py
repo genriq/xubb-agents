@@ -245,7 +245,10 @@ class TestQuestions:
         e = AgentEngine(api_key="k", insight_contract="typed_v1")
         p1 = Capture("p1", emit=True); p2 = Capture("p2", subscribed=["ping"])
         e.register_agent(p1); e.register_agent(p2)
-        c = ctx(prior=[q_record()], answers=[answer(), answer(eid="bad", qid="nope")])
+        # H1: visibility is per agent — p1/p2 did not ask q-1, so they see the
+        # validated answer only because the host authorised sharing.
+        c = ctx(prior=[q_record()], answers=[answer(), answer(eid="bad", qid="nope")],
+                capabilities=caps(answers_shared=True))
         asyncio.run(e.process_turn(c))
         assert [a.event_id for a in c.insight_answers] == ["e-1", "bad"]      # host list untouched
         seen = {phase: ids for cap in (p1, p2) for phase, ids in cap.seen}
