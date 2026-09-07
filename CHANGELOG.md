@@ -13,6 +13,44 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.7.0] - 2026-09-07
+
+The insight contract (XUBB-ITC-1 1.2.0, gates G0–G3, C1, C2) and the three hardening
+increments (H1–H3) driven by the independent audits of `e3dfaf1` and `0f3cc32`.
+Cut from a green main: 884 tests, contract gate 79/79 strict, clean-wheel smoke.
+
+**Verification reported per layer.** *Framework:* every framework-scope leaf is
+implemented, registered and tested; the audited defects are closed and the audit's
+regression suite runs verbatim in the suite. *Distribution:* the installed wheel is
+exercised outside the checkout by CI. *Provider:* live acceptance of the generated
+structured-output schema is **not** claimed. *Host / end-to-end:* every `.HOST` /
+`.E2E` leaf still needs a version-identified conformance run; **none is claimed**.
+
+### Migration notes (2.6 → 2.7)
+
+The public API is additive and the legacy wire shape is preserved
+(`AgentInsight.model_dump_legacy()`), but four behaviours tightened for existing
+consumers on the default `legacy_v2` contract:
+
+1. **Unknown insight types are rejected, never relabelled** (G0, D-LR). An agent whose
+   schema emits a type outside the legacy five now produces a `partial` result
+   (valid channels commit, insights dropped, diagnostics attached) instead of a
+   coerced insight.
+2. **Retained interactive records need a principal** (H1). A `PriorInsightRecord`
+   without `principal_id` no longer matches any current principal for answers or
+   corrections; hosts must record the principal on question/correction records.
+3. **Content-policy numerics are strict** (H2). `"1000"` or `true` in a content profile
+   or host limit fails at load time (`AgentConfigurationError`) instead of coercing.
+4. **Framework ERROR cards** keep their legacy surface but are sanitized categories
+   (never exception text); under `typed_v1` they are diagnostics only.
+
+Everything under `typed_v1`, evidence, replies/questions/corrections, provider
+structured outputs and long-form content is new in this release. Increment-by-increment
+detail follows.
+
+
 ### Fixed — H3: two residual boundary cases (reassessment of `0f3cc32`)
 
 - **Isolated content views carry validated answers only.** `start_content_request`
@@ -928,7 +966,8 @@ See [SPEC_V2.md](docs/archive/SPEC_V2.md) for full details.
 
 Initial release: parallel agent execution with flat shared state.
 
-[Unreleased]: https://github.com/genriq/xubb-agents/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/genriq/xubb-agents/compare/v2.7.0...HEAD
+[2.7.0]: https://github.com/genriq/xubb-agents/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/genriq/xubb-agents/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/genriq/xubb-agents/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/genriq/xubb-agents/compare/v2.3.0...v2.4.0

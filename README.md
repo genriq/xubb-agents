@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-**Version:** 2.6.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+**Version:** 2.7.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
 
 📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
 
@@ -147,6 +147,8 @@ response = await engine.process_turn(context, trigger_type=TriggerType.TURN_BASE
 ```
 
 ## What's New
+
+**v2.7 — the insight contract (XUBB-ITC-1 1.2.0) and the hardening audit.** Nine human-facing insight purposes (`fact`/information, `observation`, `suggestion`, `warning`, `opportunity`, `praise`, `reply`, `correction`, `question`) behind an opt-in typed contract — `AgentEngine(insight_contract="typed_v1")` — with strict local validation, whole-response atomic rejection, engine-minted identity, evidence catalogs, permissioned replies and questions with a correlated answer channel, a correction lifecycle with arbitration, provider structured outputs derived from the shipped contract, the negotiated `long_form_v1` content contract, and isolated active-session content tasks. The legacy contract stays the default and keeps its wire shape, but is safer: unknown types are rejected rather than relabelled, recoverable insight errors commit valid channels with an explicit `partial` status, and framework ERROR cards are sanitized. An independent audit then drove three hardening increments: one acceptance boundary for every producer (custom agents and callback-modified responses included), per-agent answer scoping, present-and-matching principal identity for interactive operations, typed failures as diagnostics, entrypoint admission and explicit lifecycle for content tasks, contract-derived prompts, strict content-policy primitives, and a clean-wheel CI job. The audit's own regression suite is adopted verbatim and passes. See the changelog for the migration notes.
 
 **v2.6 / v2.5 — modern-model compatibility.** Any OpenAI Chat Completions model is a valid per-agent choice — gpt-4.x, gpt-5.x, o-series — with cheap-by-default economics: whisper agents stay fast and near-free, reasoning is an explicit per-agent opt-in (`reasoning_effort`, per-agent `timeout`/`max_tokens`, a validated `model_params` passthrough, and per-call token-usage telemetry). One deliberate edge: registering a reasoning-capable model *without* an explicit `reasoning_effort` fails at load time with a copy-pasteable fix (`strict_reasoning_config=False` downgrades it to a warning).
 
