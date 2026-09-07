@@ -48,6 +48,7 @@ dev = [
     "black>=23.0.0",
     "mypy>=1.0.0",
     "pyyaml>=6.0",          # tools/check_contracts.py parses docs/CONTRACTS.yaml
+    "jsonschema>=4.18,<5",  # tests only: typed-candidate validation is derived from the packaged JSON Schema
 ]
 
 [project.urls]

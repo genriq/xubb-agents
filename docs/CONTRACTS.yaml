@@ -553,17 +553,167 @@ contracts:
 
   - id: INSIGHT-CONTRACT-SELECTION
     statement: >
-      AgentEngine(insight_contract=...) accepts exactly {"legacy_v2", "typed_v1"};
-      the default is legacy_v2 in the current major. typed_v1 FAILS CLOSED with
-      AgentConfigurationError until typed acceptance is implemented — the engine never
-      runs the legacy path under a typed label. Any other value is a ValueError.
+      AgentEngine(insight_contract=...) accepts exactly {"legacy_v2", "typed_v1"}; the
+      default is legacy_v2 in the current major; any other value is a ValueError. The
+      engine injects the selected contract into every registered agent. Under typed_v1 a
+      DynamicAgent may register only with a schema declaring a typed adapter
+      (insight_v1, default_v2, v2_raw) and able to carry the fields its insight_config
+      needs; insight_v1 is typed-only. Mismatches fail at registration, never at runtime.
     source:
-      - "docs/SPEC_INSIGHT_TYPES.md: §7.1, §15.2 (capabilities unavailable until implemented)"
-      - "src/xubb_agents/core/engine.py: AgentEngine.__init__"
-    test: "tests/test_insight_vocabulary_g1.py::TestContractSelection::test_typed_v1_fails_closed_until_implemented"
+      - "docs/SPEC_INSIGHT_TYPES.md: §7.1, §13.1"
+      - "src/xubb_agents/core/engine.py: AgentEngine.__init__, _validate_insight_config"
+    test: "tests/test_insight_vocabulary_g1.py::TestContractSelection::test_typed_v1_is_selectable_and_injected"
     test_default: "tests/test_insight_vocabulary_g1.py::TestContractSelection::test_default_is_legacy_v2"
     test_unknown: "tests/test_insight_vocabulary_g1.py::TestContractSelection::test_unknown_contract_is_a_value_error"
-    status: covered   # G1 part 1; the typed_v1 gate flips when G1 part 2 lands.
+    test_adapter_gate: "tests/test_typed_acceptance_g1.py::TestTypedRegistration::test_schema_without_typed_adapter_fails_at_registration"
+    test_typed_only_schema: "tests/test_typed_acceptance_g1.py::TestTypedRegistration::test_insight_v1_is_typed_only"
+    status: covered   # G1 part 2: typed_v1 selectable; adapter gating at registration.
+
+  # ---- XUBB-ITC-1 — G1 part 2: typed acceptance (typed_v1) ----
+
+  - id: ITC-03.FW-prompt-schema-vocabulary-agree
+    statement: >
+      Under typed_v1 the instruction sent to the model is GENERATED per run and lists
+      exactly the effective type set (framework ∩ agent ∩ schema ∩ host ∩ prerequisites
+      ∩ implemented); the schema's static instruction with its legacy literal enum is not
+      sent; no unoffered value appears; an empty effective set yields a silence-only
+      envelope, never an empty enum.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §7.3, §13.1, §13.4"
+      - "src/xubb_agents/library/dynamic.py: _typed_instruction"
+    invariant: ITC-03.FW
+    test: "tests/test_typed_acceptance_g1.py::TestGeneratedInstruction::test_instruction_lists_exactly_the_effective_types"
+    test_host_narrows: "tests/test_typed_acceptance_g1.py::TestGeneratedInstruction::test_host_restriction_narrows_the_instruction"
+    test_no_static_enum: "tests/test_typed_acceptance_g1.py::TestGeneratedInstruction::test_static_legacy_enum_is_not_sent_in_typed_mode"
+    test_descriptors: "tests/test_insight_vocabulary_g1.py::TestDescriptorInstructionAgreement::test_shipped_descriptors_declare_their_contracts_honestly"
+    status: covered   # G1 part 2.
+
+  - id: ITC-07.FW-capability-intersection-enforced
+    statement: >
+      Typed acceptance enforces the §7.2 intersection for DynamicAgent and custom
+      BaseAgent output alike: a type outside the agent's allowed_types, the schema's or
+      the host's declared set is type_not_allowed; a run-specific loss (missing
+      principal) is reported as capability_unavailable while permitted types still
+      land; interactive types stay unavailable until their lifecycle is implemented.
+      FORCE, priority, confidence and urgency never bypass these checks.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §7.2, §15.2"
+      - "src/xubb_agents/core/insight_validation.py: effective_insight_types"
+      - "src/xubb_agents/core/engine.py: _enforce_typed"
+    invariant: ITC-07.FW
+    test: "tests/test_typed_acceptance_g1.py::TestCapabilityIntersection::test_force_does_not_bypass"
+    test_agent_set: "tests/test_typed_acceptance_g1.py::TestCapabilityIntersection::test_agent_allowed_types_restrict"
+    test_host_set: "tests/test_typed_acceptance_g1.py::TestCapabilityIntersection::test_host_without_observation_declaration_restricts"
+    test_run_specific: "tests/test_typed_acceptance_g1.py::TestCapabilityIntersection::test_missing_principal_is_a_run_specific_capability_diagnostic"
+    test_implementation_gate: "tests/test_typed_acceptance_g1.py::TestCapabilityIntersection::test_unimplemented_interactive_type_stays_unavailable_even_when_permitted"
+    test_custom_agent: "tests/test_typed_acceptance_g1.py::TestCapabilityIntersection::test_custom_agent_is_held_to_the_same_set"
+    status: covered   # G1 part 2.
+
+  - id: ITC-08.FW-empty-set-is-state-only
+    statement: >
+      An empty effective set (e.g. allowed_types=[]) is state-only: the generated
+      instruction is a silence-only envelope with no type enum, a valid false gate still
+      commits state (accepted_silent), and any candidate is rejected — never relabelled,
+      never treated as "all types".
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §7.1, §7.3"
+      - "src/xubb_agents/library/dynamic.py: _typed_instruction / _stage_typed"
+    invariant: ITC-08.FW
+    test: "tests/test_typed_acceptance_g1.py::TestEmptySet::test_state_only_agent_gets_silence_only_instruction_and_commits_state"
+    test_candidate_rejected: "tests/test_typed_acceptance_g1.py::TestEmptySet::test_candidate_from_state_only_agent_is_rejected_not_relabelled"
+    test_config: "tests/test_insight_vocabulary_g1.py::TestInsightConfig::test_empty_allowed_types_is_state_only_not_all"
+    status: covered   # G1 part 2.
+
+  - id: ITC-09.FW-engine-minted-identity
+    statement: >
+      Under typed_v1 every accepted human-facing insight receives an engine-minted
+      session-unique id, the host's turn_count as turn, and contract_version "typed_v1",
+      preserved through merge and serialization. A candidate or custom agent supplying
+      any engine-owned field (id, turn, contract_version, confidence_provided,
+      acceptance_status, source_snapshot_id, …), at the root or in metadata, rejects the
+      response.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §6.2, §8.1 step 8, §14.2"
+      - "src/xubb_agents/core/engine.py: _enforce_typed"
+    invariant: ITC-09.FW
+    test: "tests/test_typed_acceptance_g1.py::TestIdentity::test_ids_unique_across_agents_and_turns_and_preserved"
+    test_model_supplied: "tests/test_typed_acceptance_g1.py::TestIdentity::test_model_supplied_identity_rejects"
+    test_metadata: "tests/test_typed_acceptance_g1.py::TestIdentity::test_metadata_cannot_carry_engine_owned_provenance"
+    test_custom_mint: "tests/test_typed_acceptance_g1.py::TestIdentity::test_custom_agent_cannot_mint_its_own_id"
+    test_custom_stamped: "tests/test_typed_acceptance_g1.py::TestIdentity::test_custom_agent_insight_is_stamped_and_provenance_unknown_is_false"
+    status: covered   # G1 part 2.
+
+  - id: ITC-10.FW-confidence-strict-provenance-neutral-ranking
+    statement: >
+      Typed confidence input accepts only a finite number in [0,1] (booleans, numeric
+      strings, NaN, infinities and out-of-range values reject); omitted/null is "not
+      provided": public confidence is the numeric placeholder 1.0 with runtime-derived
+      confidence_provided=false (never an estimate; unknown provenance is false). The
+      public shape stays numeric plus the flag; model_dump_legacy() projects the v2.6
+      wire shape. The D-CR default rank key (urgency_order, -agent_priority,
+      stable_merge_order) ignores confidence for every candidate; the engine stamps the
+      stable merge order as (phase, registered-agent index, ordinal), never arrival.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §6.2, §6.6"
+      - "docs/INSIGHT_TYPES_FINAL_DECISIONS.md: D-CR"
+      - "src/xubb_agents/core/insight_validation.py: confidence_output / rank_key"
+    invariant: ITC-10.FW
+    test: "tests/test_typed_acceptance_g1.py::TestConfidence::test_invalid_confidence_rejects"
+    test_placeholder: "tests/test_typed_acceptance_g1.py::TestConfidence::test_omitted_or_null_is_placeholder_not_estimate"
+    test_declared: "tests/test_typed_acceptance_g1.py::TestConfidence::test_declared_estimate_is_kept_with_provenance"
+    test_public_shape: "tests/test_typed_acceptance_g1.py::TestConfidence::test_public_serialization_numeric_plus_flag_and_legacy_projection"
+    test_ranking: "tests/test_typed_acceptance_g1.py::TestConfidence::test_default_ranking_ignores_confidence"
+    test_merge_order: "tests/test_typed_acceptance_g1.py::TestConfidence::test_engine_stamps_stable_merge_order_not_arrival"
+    test_reference_fixtures: "tests/test_typed_acceptance_g1.py::TestAmendmentFixtures::test_reference_policy_fixtures_reproduce"
+    status: covered   # G1 part 2 (D-CR).
+
+  - id: ITC-11.FW-urgency-precedence
+    statement: >
+      Urgency resolves as: valid explicit value → configured agent default_urgency →
+      versioned per-type fallback (warning/opportunity/reply/correction now;
+      suggestion/praise/question soon; fact/observation whenever). A present-but-invalid
+      explicit value (including null) rejects the response and is never defaulted.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §6.6"
+      - "src/xubb_agents/core/insight_validation.py: resolve_urgency / TYPE_URGENCY_FALLBACK"
+    invariant: ITC-11.FW
+    test: "tests/test_typed_acceptance_g1.py::TestUrgency::test_invalid_explicit_rejects_never_defaults"
+    test_explicit: "tests/test_typed_acceptance_g1.py::TestUrgency::test_explicit_wins"
+    test_precedence: "tests/test_typed_acceptance_g1.py::TestUrgency::test_agent_override_then_type_fallback"
+    test_table: "tests/test_typed_acceptance_g1.py::TestUrgency::test_fallback_table_is_versioned"
+    status: covered   # G1 part 2.
+
+  - id: ITC-12.FW-typed-atomic-rejection
+    statement: >
+      Under typed_v1 any invalid candidate, malformed or inconsistent gate, unknown or
+      disallowed type, or invalid domain payload makes the entire agent response
+      non-committable: no insights, facts, variables, events, queues, sidecars or memory
+      from it are applied and private state is untouched; usage and sanitized
+      diagnostics survive; one validation callback fires. Valid silence still commits.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §8.2, §8.4"
+      - "src/xubb_agents/core/insight_validation.py: decide_typed / evaluate_typed_gate"
+    invariant: ITC-12.FW
+    test: "tests/test_typed_acceptance_g1.py::TestTypedAtomicity::test_rejection_has_no_domain_or_private_effects_but_keeps_telemetry"
+    test_domain_fatal: "tests/test_typed_acceptance_g1.py::TestTypedAtomicity::test_invalid_domain_payload_rejects_typed_too"
+    test_valid_commits: "tests/test_typed_acceptance_g1.py::TestTypedAtomicity::test_valid_response_commits_everything"
+    test_gates: "tests/test_typed_acceptance_g1.py::TestTypedGates::test_non_boolean_gate_rejects_whole_response"
+    test_inconsistent_gate: "tests/test_typed_acceptance_g1.py::TestTypedGates::test_false_gate_with_candidate_is_inconsistent"
+    test_exact_types: "tests/test_typed_acceptance_g1.py::TestTypedTypeValues::test_label_rejects_whole_response"
+    status: covered   # G1 part 2.
+
+  - id: TYPED-SCHEMA-DERIVATION
+    statement: >
+      Local typed-candidate validation agrees with the packaged authoritative JSON
+      Schema (docs/reference/insight_types_1.2.0/normalized_insight.schema.json) on every
+      packaged shape fixture, with exactly one documented divergence: the provider-shaped
+      envelope requires every candidate key to be present, while the local contract
+      tolerates omission and applies the documented defaults.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §8.3, §13.3"
+      - "tests/fixtures/insight_contract_1.2.0/ (manifest-verified package fixtures)"
+    test: "tests/test_typed_acceptance_g1.py::TestSchemaDerivation::test_local_validator_agrees_with_normalized_schema_on_every_fixture"
+    status: covered   # G1 part 2.
 
   - id: INSIGHT-CONFIG-LOAD-TIME
     statement: >
@@ -585,11 +735,11 @@ contracts:
     status: covered   # G1 part 1.
 
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       41   (every contract & invariant names a passing, rule-asserting test)
+# covered:       49   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         41
+# total:         49
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

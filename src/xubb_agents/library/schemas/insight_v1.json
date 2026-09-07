@@ -1,0 +1,43 @@
+{
+  "id": "insight_v1",
+  "description": "XUBB-ITC-1 normalized typed envelope (spec §13.2): a strict Boolean gate, a nested candidate with the full typed field set, and the v2 domain channels. Typed-only: requires AgentEngine(insight_contract=\"typed_v1\"); the instruction sent to the model is GENERATED per run from the effective type set, so the static instruction below is documentation only.",
+  "instruction": "\nIMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n{\n  \"has_insight\": true | false,\n  \"insight\": null | {\n    \"type\": \"<one of the values listed for this run>\",\n    \"content\": \"the complete message text\",\n    \"confidence\": 0.0-1.0 or null,\n    \"urgency\": \"now\" | \"soon\" | \"whenever\",\n    \"observation_kind\": null,\n    \"evidence_refs\": [], \"rationale\": null, \"validation_step\": null, \"assumptions\": [],\n    \"correction\": null, \"question\": null,\n    \"metadata\": {}\n  },\n  \"events\": [], \"variable_updates\": {}, \"queue_pushes\": {}, \"facts\": [], \"memory_updates\": {}\n}\n",
+  "mapping": {
+    "root_key": "insight",
+    "check_field": "has_insight",
+    "content_field": "content",
+    "type_field": "type",
+    "confidence_field": "confidence",
+    "metadata_field": "metadata",
+    "urgency_field": "urgency",
+    "observation_kind_field": "observation_kind",
+    "evidence_refs_field": "evidence_refs",
+    "rationale_field": "rationale",
+    "validation_step_field": "validation_step",
+    "assumptions_field": "assumptions",
+    "correction_field": "correction",
+    "question_field": "question",
+    "events_field": "events",
+    "variable_updates_field": "variable_updates",
+    "queue_field": "queue_pushes",
+    "facts_field": "facts",
+    "memory_field": "memory_updates",
+    "state_field": null
+  },
+  "descriptor": {
+    "schema_version": "insight_v1",
+    "gate_mode": "boolean",
+    "typed_adapter": "insight_v1",
+    "supported_insight_types": [],
+    "typed_supported_insight_types": [
+      "fact", "observation", "suggestion", "warning", "opportunity", "praise",
+      "reply", "correction", "question"
+    ],
+    "supported_insight_fields": [
+      "type", "content", "confidence", "urgency", "observation_kind", "evidence_refs",
+      "rationale", "validation_step", "assumptions", "correction", "question", "metadata"
+    ],
+    "supported_contracts": ["typed_v1"],
+    "supported_content_contracts": []
+  }
+}

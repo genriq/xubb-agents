@@ -13,6 +13,50 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — G1 part 2: typed acceptance, `insight_contract="typed_v1"` (XUBB-ITC-1 §6, §8, §13; D-CR)
+
+`typed_v1` is now selectable. The default `legacy_v2` path is unchanged.
+
+- **Strict local validation of the normalized candidate** (`core/insight_validation.py`,
+  `validate_typed_candidate`): exact wire-value types in the run's effective set;
+  unknown keys and every engine-owned key (`id`, `turn`, `contract_version`,
+  `confidence_provided`, `acceptance_status`, `source_snapshot_id`, …) rejected at the
+  root and in `metadata`; strict confidence input; urgency precedence (explicit →
+  `default_urgency` → per-type fallback, invalid explicit rejects); consulting subtype
+  rules; interactive payload shapes; content-extension fields rejected until negotiated.
+  Agreement with the packaged JSON Schema is pinned on all 71 shape fixtures.
+- **Typed atomicity (§8.4).** A malformed or inconsistent gate, any invalid candidate,
+  or an invalid domain payload rejects the whole agent response; usage and diagnostics
+  survive; valid silence still commits. One `on_insight_validation_error` per result.
+- **Engine-minted identity.** Accepted typed insights get a session-unique `id`, the
+  host's `turn`, `contract_version="typed_v1"`, a resolved `urgency`, and runtime-derived
+  `confidence_provided` (omitted/null → placeholder `1.0` + `false`; a custom agent that
+  did not declare provenance → `false`). Producers cannot supply identity.
+- **D-CR ranking helpers.** `rank_key` / `rank_candidates` use
+  `(urgency_order, -agent_priority, stable_merge_order)` and ignore confidence for every
+  candidate; the engine stamps `merge_order = (phase, agent index, ordinal)` on merged
+  insights. No ranking stage is applied yet (LC-3 roadmap).
+- **Generated typed instruction (§13.1).** Under `typed_v1` the model is sent an exact
+  allowed-value instruction built from the effective set; the schema's static legacy
+  enum is not sent; an empty set yields a silence-only envelope.
+- **Typed adapters and schema.** New `insight_v1` schema (typed-only normalized
+  envelope). `default_v2` (`flat_v2` adapter) and `v2_raw` (`root_v2` adapter) declare
+  `typed_v1`; other schemas fail registration under `typed_v1`, and `insight_v1` fails
+  under `legacy_v2`. Descriptors gain `typed_adapter`, `typed_supported_insight_types`,
+  `supported_insight_fields`.
+- **Availability in this release.** Typed acceptance implements the six ordinary
+  purposes. `reply`, `correction` and `question` remain unavailable
+  (`not_implemented_in_this_release`) until G3; evidence references are unresolvable
+  (`unknown_reference`) until the per-agent catalog lands at G2, so consulting
+  subtypes cannot yet be emitted; `preview`/`content_format` reject until C1.
+- **`AgentInsight` typed fields** (all default/None on legacy emissions): `id`, `turn`,
+  `contract_version`, `urgency`, `confidence_provided`, `observation_kind`,
+  `evidence_refs`, `rationale`, `validation_step`, `assumptions`, `correction`,
+  `question`; `model_dump_legacy()` projects the v2.6 wire shape; `merge_order` property.
+- Eight contracts registered: ITC-03/07/08/09/10/11/12 `.FW`, TYPED-SCHEMA-DERIVATION;
+  INSIGHT-CONTRACT-SELECTION amended. Package fixtures (manifest-verified) under
+  `tests/fixtures/insight_contract_1.2.0/`; `jsonschema` added to the dev extras.
+
 ### Added — G1 part 1: vocabulary, alias, contract selection (XUBB-ITC-1 §3–§4, §7)
 
 Inert on the wire: no behaviour of the default `legacy_v2` path changes.

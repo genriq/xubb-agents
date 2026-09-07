@@ -105,10 +105,14 @@ class TestContractSelection:
         assert AgentEngine(api_key="k").insight_contract == "legacy_v2"
         assert INSIGHT_CONTRACTS == ("legacy_v2", "typed_v1")
 
-    def test_typed_v1_fails_closed_until_implemented(self):
-        """NEGATIVE CONTROL for silently running legacy under a typed label."""
-        with pytest.raises(AgentConfigurationError, match="typed_v1.*not available"):
-            AgentEngine(api_key="k", insight_contract="typed_v1")
+    def test_typed_v1_is_selectable_and_injected(self):
+        """G1 part 2: typed acceptance exists, so typed_v1 constructs; the engine
+        injects the contract into every registered agent (never silently legacy)."""
+        engine = AgentEngine(api_key="k", insight_contract="typed_v1")
+        assert engine.insight_contract == "typed_v1"
+        agent = dyn()
+        engine.register_agent(agent)
+        assert agent.insight_contract == "typed_v1"
 
     @pytest.mark.parametrize("value", ["legacy", "typed", "", None, 2])
     def test_unknown_contract_is_a_value_error(self, value):
@@ -199,13 +203,16 @@ class TestInsightConfig:
 # ---------------------------------------------------------------------------
 
 def eff(**overrides):
+    """Pure §7.2 intersection with the release's implementation gate LIFTED
+    (implemented=all nine) so the permission semantics are tested on their own;
+    the gate itself is pinned in test_release_implementation_gate."""
     base = dict(contract="typed_v1",
                 allowed_types=list(HUMAN_WIRE_VALUES),
                 allow_reply=True, allow_question=True, allow_correction=True,
                 schema_supported=None,
                 host_supported=list(HUMAN_WIRE_VALUES),
                 host_reply_drafts=True, host_text_questions=True, host_corrections=True,
-                principal_present=True)
+                principal_present=True, implemented=HUMAN_WIRE_VALUES)
     base.update(overrides)
     return effective_insight_types(**base)
 
@@ -218,6 +225,19 @@ class TestEffectiveTypes:
 
     def test_full_permissions_yield_all_nine_in_canonical_order(self):
         assert eff().types == HUMAN_WIRE_VALUES
+
+    def test_release_implementation_gate_keeps_interactive_types_unavailable(self):
+        """§15.2: a type existing in the enum does not make it available before its
+        supporting path exists. The default gate (G1 part 2) implements the six
+        ordinary purposes; reply/correction/question wait for G3."""
+        from xubb_agents.core.insight_validation import IMPLEMENTED_TYPED_TYPES
+        base = dict(contract="typed_v1", allowed_types=list(HUMAN_WIRE_VALUES),
+                    allow_reply=True, allow_question=True, allow_correction=True, schema_supported=None,
+                    host_supported=list(HUMAN_WIRE_VALUES), host_reply_drafts=True, host_text_questions=True,
+                    host_corrections=True, principal_present=True)
+        e = effective_insight_types(**base)
+        assert e.types == IMPLEMENTED_TYPED_TYPES == ("fact", "observation", "suggestion", "warning", "opportunity", "praise")
+        assert {e.unavailable[v] for v in ("reply", "correction", "question")} == {"not_implemented_in_this_release"}
 
     def test_intersection_with_schema_and_host(self):
         e = eff(schema_supported=["fact", "warning", "reply"], host_supported=["fact", "reply"])
@@ -347,8 +367,15 @@ class TestDescriptorInstructionAgreement:
         assert offered == set(data["descriptor"]["supported_insight_types"]), name
         assert "error" not in data["descriptor"]["supported_insight_types"]
 
-    def test_every_shipped_descriptor_is_legacy_only_for_now(self):
+    def test_shipped_descriptors_declare_their_contracts_honestly(self):
+        """Typed adapters exist for exactly insight_v1 (typed-only), default_v2 and
+        v2_raw; every other shipped schema is legacy-only. Legacy offerings never
+        exceed the five legacy values; typed offerings are the nine purposes."""
+        typed = {"insight_v1": ["typed_v1"], "default_v2": ["legacy_v2", "typed_v1"], "v2_raw": ["legacy_v2", "typed_v1"]}
         for path in self.SCHEMAS.glob("*.json"):
             d = json.loads(path.read_text(encoding="utf-8"))["descriptor"]
-            assert d["supported_contracts"] == ["legacy_v2"], path.name
+            assert d["supported_contracts"] == typed.get(path.stem, ["legacy_v2"]), path.name
             assert set(d["supported_insight_types"]) <= set(LEGACY_HUMAN_TYPES), path.name
+            if path.stem in typed:
+                assert tuple(d["typed_supported_insight_types"]) == HUMAN_WIRE_VALUES, path.name
+                assert d["typed_adapter"] in ("insight_v1", "flat_v2", "root_v2"), path.name

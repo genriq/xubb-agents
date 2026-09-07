@@ -12,6 +12,11 @@ from ..core.models import (
 from ..core.insight_validation import (
     DomainChannels, resolve_gate_mode, evaluate_gate, validate_legacy_candidate,
     validate_domain_channels, decide_legacy,
+    # typed_v1 (G1 part 2)
+    DEFAULT_INSIGHT_CONTRACT, MISSING, EffectiveTypes, effective_types_for_run,
+    evaluate_typed_gate, validate_typed_candidate, decide_typed,
+    ADAPTER_PASSTHROUGH_FIELDS, RUN_SPECIFIC_UNAVAILABLE_REASONS, TYPED_CANDIDATE_FIELDS,
+    CONTENT_EXTENSION_FIELDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -229,6 +234,10 @@ class DynamicAgent(BaseAgent):
         # XUBB-ITC-1 §13.1: versioned descriptor (gate_mode, supported types,
         # contracts). Absent on user-authored schemas → inferred from the mapping.
         self.descriptor = self.schema_def.get("descriptor", {}) or {}
+        # XUBB-ITC-1 §7.1: the contract is ENGINE-selected and injected at
+        # registration (like the LLM client). Evaluated outside an engine, an
+        # agent runs the legacy path.
+        self.insight_contract = DEFAULT_INSIGHT_CONTRACT
 
         # A-1 / INV-11: warn at load time if the schema is misconfigured in a way
         # that silently loses the "stay silent" contract.
@@ -501,7 +510,13 @@ class DynamicAgent(BaseAgent):
             parts.append(rag_section)
         if trigger_context:
             parts.append(trigger_context)
-        if self.json_instruction:
+        if self.insight_contract == "typed_v1":
+            # §13.1: typed mode generates the EXACT allowed-value instruction from
+            # the run's effective set; the schema's static instruction (which
+            # carries the legacy literal enum) is not sent, so no conflicting
+            # enum reaches the model.
+            parts.append(self._typed_instruction(self._effective_types(context)))
+        elif self.json_instruction:
             parts.append(self.json_instruction)
 
         full_system_prompt = "\n\n".join(parts)
@@ -577,8 +592,172 @@ class DynamicAgent(BaseAgent):
             ))
             return response
 
-        self._stage_legacy(result, context, working_memory, execution_id, response)
+        if self.insight_contract == "typed_v1":
+            self._stage_typed(result, context, working_memory, execution_id, response)
+        else:
+            self._stage_legacy(result, context, working_memory, execution_id, response)
         return response
+
+    # ------------------------------------------------------------------
+    # typed_v1 (G1 part 2): effective set, generated instruction, staging.
+    # ------------------------------------------------------------------
+
+    def _effective_types(self, context: AgentContext) -> EffectiveTypes:
+        return effective_types_for_run(contract=self.insight_contract,
+                                       insight_config=self.config.insight_config,
+                                       descriptor=self.descriptor, context=context)
+
+    _DOMAIN_MAPPING_KEYS = ("events_field", "variable_updates_field", "queue_field",
+                            "facts_field", "memory_field", "state_field", "data_field",
+                            "check_field")
+
+    def _domain_keys(self) -> set:
+        keys = {"has_insight"}
+        for mk in self._DOMAIN_MAPPING_KEYS:
+            if self.mapping.get(mk):
+                keys.add(self.mapping[mk])
+        return keys
+
+    def _typed_instruction(self, eff: EffectiveTypes) -> str:
+        """The exact allowed-value instruction for this run (§13.1, §13.4)."""
+        adapter = self.descriptor.get("typed_adapter", "insight_v1")
+        cfg = self.config.insight_config
+        types = list(eff.types)
+        if not types:
+            # §7.3: never an empty enum — a silence-only envelope.
+            if adapter == "root_v2":
+                body = '{\n  "state_snapshot": { "key": "value" }\n}'
+                rule = 'Do NOT include an "insight" object: no human-facing message is permitted for this agent in this run.'
+            else:
+                body = '{\n  "has_insight": false,\n  "insight": null' + (
+                    ',\n  "events": [], "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}\n}'
+                    if adapter == "insight_v1" else ',\n  "events": [], "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}\n}')
+                rule = '"has_insight" MUST be the JSON boolean false: no human-facing message is permitted for this agent in this run. You may still return state updates.'
+            return f"IMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n{body}\n\nRULES:\n- {rule}"
+
+        enum = " | ".join(f'"{t}"' for t in types)
+        consulting = cfg.analysis_profile == "consulting" and "observation" in types
+        fields = [
+            f'"type": {enum},',
+            '"content": "the complete message text (never empty)",',
+            '"confidence": a number from 0.0 to 1.0, or null if you have no estimate,',
+            '"urgency": "now" | "soon" | "whenever",',
+            '"observation_kind": ' + ('"hypothesis" | "implication" | null,' if consulting else 'null,'),
+            '"evidence_refs": [], "rationale": null, "validation_step": null, "assumptions": [],',
+            '"correction": null, "question": null,',
+            '"metadata": {}',
+        ]
+        candidate = "\n".join("    " + f for f in fields)
+        channels = ('  "events": [ {"name": "event_name", "payload": {}} ],\n'
+                    '  "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}')
+        if adapter == "insight_v1":
+            body = f'{{\n  "has_insight": true | false,\n  "insight": null | {{\n{candidate}\n  }},\n{channels}\n}}'
+        elif adapter == "flat_v2":
+            body = f'{{\n  "has_insight": true | false,\n{candidate}\n{channels}\n}}'
+        else:  # root_v2
+            body = f'{{\n  "insight": {{\n{candidate}\n  }},\n  "state_snapshot": {{ "key": "value" }}\n}}'
+        rules = [
+            f"\"type\" must be EXACTLY one of: {', '.join(types)} — lowercase, no other value.",
+            "Choose the type by PRIMARY PURPOSE: repairing your own earlier message → correction; asking the principal for input → question; "
+            "wording for the principal to say to a counterpart → reply; a material adverse consequence → warning; a favourable opening → opportunity; "
+            "a recommended action → suggestion; reinforcing effective behaviour → praise; an interpretation or synthesis of evidence → observation; "
+            "relevant information without any of the above → fact (\"fact\" is the wire spelling of information).",
+            ("Speak only when you have something worth the principal's attention; otherwise set \"has_insight\" to the JSON boolean false"
+             + (" and \"insight\" to null." if adapter != "flat_v2" else ".")) if adapter != "root_v2"
+            else "Omit the \"insight\" object entirely when you have nothing worth the principal's attention.",
+            "\"has_insight\" must be a JSON boolean (true/false), never a string or number." if adapter != "root_v2" else
+            "\"insight\", when present, must be a non-empty object.",
+            "Do not invent approvals, prices, deadlines or commitments the conversation does not support. Confidence does not make a claim true.",
+            "Never include fields you were not asked for (no id, turn, preview, content_format, confidence_provided, origin).",
+        ]
+        if consulting:
+            rules.append("A hypothesis needs evidence_refs, a rationale and a validation_step; an implication needs evidence_refs and a rationale. "
+                         "Evidence references must name items you were actually given.")
+        return "IMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n" + body + "\n\nRULES:\n" + "\n".join(f"- {r}" for r in rules)
+
+    def _normalize_typed(self, result: Dict[str, Any]):
+        """Adapter normalisation → (gate_mode, gate_value, candidate). Declared
+        per schema (§13.1); never inferred from truthiness."""
+        adapter = self.descriptor.get("typed_adapter", "insight_v1")
+        if adapter == "insight_v1":
+            return "boolean", result.get("has_insight", MISSING), result.get("insight", None)
+        if adapter == "flat_v2":
+            gate = result.get("has_insight", MISSING)
+            domain = self._domain_keys()
+            candidate = {k: v for k, v in result.items() if k not in domain}
+            if gate is False:
+                candidate = None          # placeholder fields under a false gate are discarded
+            elif gate is True and not candidate:
+                candidate = None          # → inconsistent_gate
+            return "boolean", gate, candidate
+        # root_v2 (v2_raw): presence-gated nested candidate
+        root_key = self.mapping.get("root_key") or "insight"
+        return "root_presence", MISSING, result.get(root_key, MISSING)
+
+    def _stage_typed(self, result: Dict[str, Any], context: AgentContext,
+                     working_memory: Dict[str, Any], execution_id: str,
+                     response: AgentResponse) -> None:
+        cfg = self.config.insight_config
+        eff = self._effective_types(context)
+
+        # Run-specific capability loss is observable even on accepted results (§7.2).
+        for value, reason in eff.unavailable.items():
+            if reason in RUN_SPECIFIC_UNAVAILABLE_REASONS and value in cfg.allowed_types:
+                response.diagnostics.append(self._diagnostic(
+                    execution_id, "capability_unavailable", "insight.type", f"{value}:{reason}"))
+
+        gate_mode, gate_value, candidate = self._normalize_typed(result)
+        speak, gate_issue = evaluate_typed_gate(gate_mode, gate_value, candidate)
+        insight_issues = [gate_issue] if gate_issue else []
+
+        typed = None
+        extras: Dict[str, Any] = {}
+        if speak:
+            cand = dict(candidate)
+            for key in ADAPTER_PASSTHROUGH_FIELDS:   # S-1 extras a declared adapter may carry
+                if key in cand:
+                    extras[key] = cand.pop(key)
+            typed, cand_issues = validate_typed_candidate(
+                cand, effective=eff, analysis_profile=cfg.analysis_profile,
+                default_urgency=cfg.default_urgency,
+                reference_context_available=False,     # per-agent catalog lands at G2
+                content_extension_enabled=False,       # long_form_v1 lands at C1
+            )
+            insight_issues.extend(cand_issues)
+
+        channels, domain_issues = validate_domain_channels(result, self.mapping)
+        decision = decide_typed(speak, insight_issues, domain_issues)
+        response.acceptance_status = decision.status
+        for issue in insight_issues + domain_issues:
+            response.diagnostics.append(self._diagnostic(
+                execution_id, issue.code, issue.field_path, issue.classification))
+        if decision.status == "rejected":
+            return   # §8.4 atomic: nothing staged; usage + diagnostics survive
+
+        if decision.emit_insight and typed is not None:
+            insight = self.create_insight(
+                content=typed.content, type=InsightType(typed.type_value),
+                confidence=typed.confidence,
+                expiry=self._coerce_expiry(extras.get("expiry")),
+                action_label=self._coerce_action_label(extras.get("action_label")),
+            )
+            insight.metadata = typed.metadata
+            insight.urgency = typed.urgency
+            insight.confidence_provided = typed.confidence_provided
+            insight.observation_kind = typed.observation_kind
+            insight.evidence_refs = typed.evidence_refs
+            insight.rationale = typed.rationale
+            insight.validation_step = typed.validation_step
+            insight.assumptions = typed.assumptions
+            insight.correction = typed.correction
+            insight.question = typed.question
+            # id / turn / contract_version are ENGINE-minted at acceptance (§8.1 step 8)
+            response.insights.append(insight)
+
+        self._stage_channels(channels, context, working_memory, response)
+        if channels.data is not None:
+            data_key = self.mapping.get("data_key", self.mapping.get("data_field"))
+            response.data[data_key] = channels.data
 
     # ------------------------------------------------------------------
     # G0 staging (XUBB-ITC-1 §8 / FINAL_DECISIONS D-LR).

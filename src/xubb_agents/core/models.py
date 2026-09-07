@@ -272,6 +272,53 @@ class AgentContext(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+# ---- XUBB-ITC-1 §6.3 typed payloads (normative shapes; unknown keys rejected) ----
+
+class EvidenceRef(BaseModel):
+    """A reference to evidence actually exposed in the invocation (§6.3/§6.4)."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["segment", "document", "fact", "insight"]
+    ref_id: str = Field(..., min_length=1)
+    revision: Optional[str] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.ref_id.strip():
+            raise ValueError("evidence_refs.ref_id must be non-blank")
+        if self.revision is not None and not self.revision.strip():
+            raise ValueError("evidence_refs.revision must be non-blank or null")
+
+
+class CorrectionPayload(BaseModel):
+    """Required only for CORRECTION (§10)."""
+    model_config = ConfigDict(extra="forbid")
+    target_insight_id: str = Field(..., min_length=1)
+    operation: Literal["replace", "withdraw"]
+    reason: str = Field(..., min_length=1)
+
+
+class QuestionPayload(BaseModel):
+    """Required only for QUESTION (§11)."""
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(..., min_length=1)
+    response_format: Literal["text"] = "text"
+
+
+Urgency = Literal["now", "soon", "whenever"]
+
+# Keys of AgentInsight that only the ENGINE may set (§6.2 "engine-owned fields").
+# A candidate carrying any of these — at its root or inside metadata — is rejected.
+ENGINE_OWNED_INSIGHT_FIELDS = (
+    "id", "turn", "contract_version", "confidence_provided", "content_contract",
+    "response_depth", "content_request_id", "source_snapshot_id", "acceptance_status",
+    "origin", "agent_id", "agent_name",
+)
+
+# The public wire shape before the insight contract (v2.6). ``model_dump_legacy``
+# projects onto it so old strict consumers never see new keys (§14.10).
+_LEGACY_INSIGHT_KEYS = ("agent_id", "agent_name", "type", "content", "confidence",
+                        "expiry", "action_label", "metadata")
+
+
 class AgentInsight(BaseModel):
     """A single piece of advice/feedback."""
     agent_id: str
@@ -285,10 +332,41 @@ class AgentInsight(BaseModel):
     # Generic extension point for UI-specific rendering options (zone, color, voice style, etc.)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
+    # ---- XUBB-ITC-1 typed contract fields (G1). Engine-owned ones are stamped at
+    # acceptance and are None on legacy emissions; model-authored ones are
+    # validated candidates. None/empty means "not on the typed path". ----
+    id: Optional[str] = Field(default=None, description="Engine-minted, session-unique (typed_v1)")
+    turn: Optional[int] = Field(default=None, description="Engine copy of context.turn_count (typed_v1)")
+    contract_version: Optional[str] = Field(default=None, description='"typed_v1" on typed emissions')
+    urgency: Optional[Urgency] = Field(default=None, description="Resolved at acceptance (typed_v1)")
+    confidence_provided: Optional[bool] = Field(
+        default=None,
+        description="Runtime-derived: True = model estimate; False = numeric placeholder (not certainty); None = unknown provenance (legacy)",
+    )
+    observation_kind: Optional[Literal["hypothesis", "implication"]] = None
+    evidence_refs: List[EvidenceRef] = Field(default_factory=list)
+    rationale: Optional[str] = None
+    validation_step: Optional[str] = None
+    assumptions: List[str] = Field(default_factory=list)
+    correction: Optional[CorrectionPayload] = None
+    question: Optional[QuestionPayload] = None
+
     # XUBB-ITC-1 §14.3 (G0): runtime-established provenance. Only BaseAgent.process
     # sets "framework" on the ERROR insight it manufactures; a model (or a custom
     # agent) cannot forge it through metadata. Private attrs never serialize.
     _origin: str = PrivateAttr(default="agent")
+    # D-CR stable merge order (phase, registered-agent index, candidate ordinal),
+    # stamped by the engine at merge; never completion order.
+    _merge_order: Optional[tuple] = PrivateAttr(default=None)
+
+    @property
+    def merge_order(self) -> Optional[tuple]:
+        return self._merge_order
+
+    def model_dump_legacy(self) -> Dict[str, Any]:
+        """The pre-contract (v2.6) wire shape — no typed keys, no null additions.
+        Use for consumers that reject unknown keys (§14.10)."""
+        return self.model_dump(include=set(_LEGACY_INSIGHT_KEYS))
 
 
 # ============================================================================
