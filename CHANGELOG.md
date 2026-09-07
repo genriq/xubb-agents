@@ -13,6 +13,33 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — G2 part 1: per-agent snapshot evidence catalog (XUBB-ITC-1 §6.3–§6.4)
+
+Under `typed_v1` evidence references now resolve, which unlocks consulting hypotheses
+and implications. The `legacy_v2` path is unchanged.
+
+- **Framework-built snapshot catalog.** For every typed invocation, after context
+  trimming, the agent's exposed transcript window and RAG documents become catalog
+  entries `snap:<id>:segment:<n>` / `snap:<id>:document:<n>` (one per occurrence,
+  never deduplicated; sources copied). The snapshot id is the invocation's execution
+  id; it is not a durable identity across windows.
+- **Host reference context.** `AgentContext.insight_reference_context`
+  (`InsightReferenceContext`: `evidence` catalog entries, `prior_insights` records)
+  joins the catalog for the session; frozen per run and propagated through both
+  phases. Entries owned by another session resolve to `cross_session_reference`.
+- **Resolution rules.** A reference resolves only to a catalog entry at its revision:
+  a null revision resolves to the current one and is filled on the emitted insight;
+  a stated revision must match exactly; anything nothing exposed is
+  `unknown_reference`. Hypotheses need evidence + rationale + validation step;
+  implications need evidence + rationale; general observations need nothing.
+- **Citation contract in the prompt** (consulting profile only): transcript lines and
+  documents carry their reference ids in brackets, the instruction states the
+  reference shape and lists host-supplied ids, and asks the model never to invent one.
+- **Retention aid.** `AgentResponse.evidence_snapshot` (per agent) and
+  `evidence_snapshots_by_agent` (aggregate) return the immutable invocation view so a
+  host that wants durable cross-turn references can retain it.
+- Contracts: ITC-15.FW, ITC-16.FW registered; ITC-14.FW amended.
+
 ### Added — G1 part 2: typed acceptance, `insight_contract="typed_v1"` (XUBB-ITC-1 §6, §8, §13; D-CR)
 
 `typed_v1` is now selectable. The default `legacy_v2` path is unchanged.

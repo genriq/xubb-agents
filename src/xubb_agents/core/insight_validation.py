@@ -283,6 +283,63 @@ def acceptance_decision(mode: str, *, insight_valid: bool, gate: Any, domain_val
 
 
 # ---------------------------------------------------------------------------
+# Evidence catalog and reference resolution (spec §6.3–§6.4, G2)
+# ---------------------------------------------------------------------------
+
+def snapshot_ref(snapshot_id: str, kind: str, ordinal: int) -> str:
+    """``snap:<opaque-snapshot-id>:<kind>:<ordinal>`` — a position inside ONE
+    retained invocation snapshot, never a durable identity across windows."""
+    return f"snap:{snapshot_id}:{kind}:{ordinal}"
+
+
+def snapshot_catalog(exposed_segments: List[Dict[str, Any]], snapshot_id: str) -> List[Dict[str, Any]]:
+    """Reference-compatible: catalog entries for the segments ACTUALLY exposed to
+    the agent (build it after context trimming). Each occurrence gets its own
+    ordinal — two identical segments are two references. Sources are copied so
+    later mutation of the live transcript cannot change the snapshot."""
+    if not isinstance(snapshot_id, str) or not snapshot_id.strip():
+        raise ValueError("invalid_snapshot_id")
+    from copy import deepcopy
+    return [{"kind": "segment", "ref_id": snapshot_ref(snapshot_id, "segment", i),
+             "revision": snapshot_id, "source": deepcopy(segment)}
+            for i, segment in enumerate(exposed_segments)]
+
+
+@dataclass
+class ReferenceContext:
+    """Everything a reference may resolve against in ONE run: the framework's
+    snapshot entries plus the host's supplied records for THIS session.
+    Entries owned by another session are tracked so a reference to them is a
+    ``cross_session_reference`` rather than merely unknown."""
+    session_id: str
+    snapshot_id: str
+    entries: Dict[Tuple[str, str], Optional[str]] = field(default_factory=dict)   # (kind, ref_id) → revision
+    foreign: Dict[Tuple[str, str], str] = field(default_factory=dict)             # (kind, ref_id) → other session
+
+    def add(self, kind: str, ref_id: str, revision: Optional[str], session_id: Optional[str] = None) -> None:
+        key = (kind, ref_id)
+        if session_id is not None and session_id != self.session_id:
+            self.foreign[key] = session_id
+        else:
+            self.entries[key] = revision
+
+    def resolve(self, ref: Dict[str, Any], field_path: str) -> Tuple[Optional[Issue], Optional[str]]:
+        """→ (issue, resolved revision). A null revision resolves to the catalog's
+        current revision; a stated revision must match exactly (§6.4: pruned or
+        revised evidence is unavailable, never a guess)."""
+        key = (ref.get("kind"), ref.get("ref_id"))
+        if key in self.entries:
+            expected = self.entries[key]
+            stated = ref.get("revision")
+            if stated is not None and expected is not None and stated != expected:
+                return Issue("unknown_reference", field_path, "revision_mismatch"), None
+            return None, stated if stated is not None else expected
+        if key in self.foreign:
+            return Issue("cross_session_reference", field_path, bounded(self.foreign[key])), None
+        return Issue("unknown_reference", field_path, bounded(ref.get("ref_id"))), None
+
+
+# ---------------------------------------------------------------------------
 # Typed candidate validation (typed_v1, spec §6.2, §8.2–§8.4)
 # ---------------------------------------------------------------------------
 
@@ -361,7 +418,8 @@ def validate_typed_candidate(candidate: Any, *, effective: EffectiveTypes,
                              analysis_profile: str = "general",
                              default_urgency: Optional[str] = None,
                              reference_context_available: bool = False,
-                             content_extension_enabled: bool = False
+                             content_extension_enabled: bool = False,
+                             reference_context: Optional[ReferenceContext] = None
                              ) -> Tuple[Optional[TypedCandidate], List[Issue]]:
     """Strict local validation of a normalized candidate (§8.3).
 
@@ -369,8 +427,12 @@ def validate_typed_candidate(candidate: Any, *, effective: EffectiveTypes,
     under typed atomicity. No coercion: unknown keys, engine-owned keys,
     display-name types, non-finite confidence, invalid urgency, subtype
     conflicts, unresolvable evidence and un-negotiated content-extension
-    fields all reject.
+    fields all reject. Evidence resolves against ``reference_context`` when
+    given (G2); ``reference_context_available=True`` without a context accepts
+    any well-formed reference (shape-level comparison only).
     """
+    if reference_context is not None:
+        reference_context_available = True
     issues: List[Issue] = []
     if not isinstance(candidate, dict):
         return None, [Issue("invalid_field", "insight", bounded(candidate))]
@@ -452,21 +514,31 @@ def validate_typed_candidate(candidate: Any, *, effective: EffectiveTypes,
     if not isinstance(assumptions, list) or not all(_nonblank(a) for a in assumptions):
         issues.append(Issue("invalid_field", "insight.assumptions", bounded(assumptions)))
         assumptions = []
+    resolved_refs: List[Dict[str, Any]] = []
     if not isinstance(refs, list):
         issues.append(Issue("invalid_field", "insight.evidence_refs", bounded(refs)))
         refs = []
     else:
         for i, ref in enumerate(refs):
+            path = f"insight.evidence_refs[{i}]"
             ok = (isinstance(ref, dict) and set(ref) <= {"kind", "ref_id", "revision"}
                   and ref.get("kind") in ("segment", "document", "fact", "insight")
                   and _nonblank(ref.get("ref_id")) and _optional_nonblank(ref.get("revision")))
             if not ok:
-                issues.append(Issue("invalid_field", f"insight.evidence_refs[{i}]", bounded(ref)))
+                issues.append(Issue("invalid_field", path, bounded(ref)))
+            elif reference_context is not None:
+                issue, revision = reference_context.resolve(ref, path)
+                if issue:
+                    issues.append(issue)
+                else:
+                    resolved_refs.append({"kind": ref["kind"], "ref_id": ref["ref_id"], "revision": revision})
             elif not reference_context_available:
-                # No catalog can vouch for this reference in this run (G2 lands
-                # the per-agent snapshot catalog). Never accept a reference
-                # nothing exposed.
-                issues.append(Issue("unknown_reference", f"insight.evidence_refs[{i}]", "no_reference_context"))
+                # No catalog can vouch for this reference in this run. Never
+                # accept a reference nothing exposed.
+                issues.append(Issue("unknown_reference", path, "no_reference_context"))
+            else:
+                resolved_refs.append({"kind": ref["kind"], "ref_id": ref["ref_id"], "revision": ref.get("revision")})
+    refs = resolved_refs if not issues else refs
     if kind == "hypothesis":
         if not refs:
             issues.append(Issue("missing_evidence", "insight.evidence_refs", "hypothesis_requires_evidence"))

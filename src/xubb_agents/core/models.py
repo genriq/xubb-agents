@@ -230,6 +230,54 @@ class HostInsightCapabilities(BaseModel):
                     raise ValueError(f"insight_capabilities.{name} must be a positive int when content contracts are enabled")
 
 
+# ---- XUBB-ITC-1 §6.4 trusted reference context (G2) ----
+
+class EvidenceCatalogEntry(BaseModel):
+    """One resolvable reference: framework-built snapshot entries (segments,
+    documents actually exposed to the agent) or host-supplied entries (documents,
+    facts, retained revisions). Identity is trusted because the framework or the
+    host supplied it; the excerpt stays untrusted source text."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["segment", "document", "fact", "insight"]
+    ref_id: str = Field(..., min_length=1)
+    revision: Optional[str] = None
+    session_id: Optional[str] = Field(default=None, description="Owning session; None = current")
+    excerpt: Optional[str] = Field(default=None, max_length=4000, description="Bounded source excerpt (untrusted)")
+
+
+class PriorInsightRecord(BaseModel):
+    """A previously EMITTED human-facing insight the host retained (§6.4). Used to
+    resolve ``kind: insight`` references now and correction targets at G3."""
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(..., min_length=1)
+    session_id: str
+    principal_id: Optional[str] = None
+    agent_id: str
+    type: str
+    content: str
+    turn: int
+    status: Literal["active", "superseded", "withdrawn"] = "active"
+
+
+class InsightReferenceContext(BaseModel):
+    """Host-supplied, read-only reference records (§6.4/§6.5). Empty by default;
+    ordinary observations need none of it — the framework builds the segment
+    catalog itself. Frozen per run and propagated through both phases."""
+    model_config = ConfigDict(extra="forbid")
+    evidence: List[EvidenceCatalogEntry] = Field(default_factory=list)
+    prior_insights: List[PriorInsightRecord] = Field(default_factory=list)
+
+
+class EvidenceSnapshot(BaseModel):
+    """The immutable invocation view an agent's references point into. Returned
+    on the per-agent response so a host that wants durable cross-turn references
+    can RETAIN it (§6.4: snapshot refs are not durable identities by themselves)."""
+    model_config = ConfigDict(extra="forbid")
+    snapshot_id: str
+    agent_id: str
+    entries: List[EvidenceCatalogEntry] = Field(default_factory=list)
+
+
 class AgentContext(BaseModel):
     """The full context required for an Agent to think."""
     session_id: str
@@ -269,6 +317,10 @@ class AgentContext(BaseModel):
     # Host capability declaration (safe defaults). Frozen per run and propagated
     # through every phase-context copy (§6.4, ITC-14).
     insight_capabilities: HostInsightCapabilities = Field(default_factory=HostInsightCapabilities)
+    # Host-supplied reference records (§6.4). The framework adds its own per-agent
+    # snapshot catalog on top at run time; hosts need not populate this for
+    # ordinary observations.
+    insight_reference_context: InsightReferenceContext = Field(default_factory=InsightReferenceContext)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -428,6 +480,11 @@ class AgentResponse(BaseModel):
         default_factory=dict,
         description="Aggregated responses only: agent_id → acceptance_status",
     )
+    # ---- XUBB-ITC-1 (G2) evidence snapshot retention aid ----
+    evidence_snapshot: Optional[EvidenceSnapshot] = Field(
+        default=None, description="typed_v1: the immutable invocation view this agent's references point into")
+    evidence_snapshots_by_agent: Dict[str, EvidenceSnapshot] = Field(
+        default_factory=dict, description="Aggregated responses only: agent_id → evidence snapshot")
     # Updates to the shared memory (v1 compatibility)
     state_updates: Dict[str, Any] = Field(default_factory=dict)
     

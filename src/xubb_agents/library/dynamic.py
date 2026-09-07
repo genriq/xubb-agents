@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from jinja2.sandbox import SandboxedEnvironment
 from ..core.agent import BaseAgent, AgentConfig, DEFAULT_MODEL
 from ..core.models import (
@@ -17,6 +17,11 @@ from ..core.insight_validation import (
     evaluate_typed_gate, validate_typed_candidate, decide_typed,
     ADAPTER_PASSTHROUGH_FIELDS, RUN_SPECIFIC_UNAVAILABLE_REASONS, TYPED_CANDIDATE_FIELDS,
     CONTENT_EXTENSION_FIELDS,
+    # evidence catalog (G2)
+    ReferenceContext, snapshot_catalog, snapshot_ref,
+)
+from ..core.models import (
+    EvidenceCatalogEntry, EvidenceSnapshot, EvidenceRef, CorrectionPayload, QuestionPayload,
 )
 
 logger = logging.getLogger(__name__)
@@ -444,10 +449,22 @@ class DynamicAgent(BaseAgent):
         else:
             slice_start = -effective_turns if len(context.recent_segments) >= effective_turns else 0
             target_segments = context.recent_segments[slice_start:]
-        
-        for seg in target_segments:
-            turns.append(f"{seg.speaker}: {seg.text}")
-        
+
+        # XUBB-ITC-1 §6.4 (G2): one opaque id per invocation names both the
+        # execution and the immutable snapshot the agent's references point into.
+        execution_id = uuid.uuid4().hex
+        typed = self.insight_contract == "typed_v1"
+        # Citation markers are shown to the model only when it is asked to
+        # ground analysis (consulting profile); the catalog itself is built for
+        # every typed run from the material ACTUALLY exposed (after trimming).
+        cite = typed and self.config.insight_config.analysis_profile == "consulting"
+        exposed_docs = list(context.rag_docs) if (self.include_context and context.rag_docs) else []
+        reference = self._build_reference_context(context, execution_id, target_segments, exposed_docs) if typed else None
+
+        for i, seg in enumerate(target_segments):
+            prefix = f"[{snapshot_ref(execution_id, 'segment', i)}] " if cite else ""
+            turns.append(f"{prefix}{seg.speaker}: {seg.text}")
+
         transcript_slice = "\n".join(turns)
         
         # 2. Build Prompt with Memory Injection
@@ -476,8 +493,12 @@ class DynamicAgent(BaseAgent):
         
         # 3. Inject RAG (if available and include_context is enabled)
         rag_section = ""
-        if self.include_context and context.rag_docs:
-            rag_text = "\n---\n".join(context.rag_docs)
+        if exposed_docs:
+            if cite:
+                rag_text = "\n---\n".join(f"[{snapshot_ref(execution_id, 'document', i)}]\n{doc}"
+                                          for i, doc in enumerate(exposed_docs))
+            else:
+                rag_text = "\n---\n".join(exposed_docs)
             rag_section = f"\n[RELEVANT KNOWLEDGE/DOCS]\n{rag_text}\n"
 
         # 4. Inject trigger context
@@ -515,7 +536,7 @@ class DynamicAgent(BaseAgent):
             # the run's effective set; the schema's static instruction (which
             # carries the legacy literal enum) is not sent, so no conflicting
             # enum reaches the model.
-            parts.append(self._typed_instruction(self._effective_types(context)))
+            parts.append(self._typed_instruction(self._effective_types(context), reference if cite else None))
         elif self.json_instruction:
             parts.append(self.json_instruction)
 
@@ -564,7 +585,6 @@ class DynamicAgent(BaseAgent):
             self.logger.error(f"LLM call failed for {self.config.name}: {e}", exc_info=True)
             return None
 
-        execution_id = uuid.uuid4().hex
         response = AgentResponse(execution_id=execution_id)
 
         # SoC Principle: The Agent knows what it sent. We attach it for observability.
@@ -592,11 +612,41 @@ class DynamicAgent(BaseAgent):
             ))
             return response
 
-        if self.insight_contract == "typed_v1":
-            self._stage_typed(result, context, working_memory, execution_id, response)
+        if typed:
+            self._stage_typed(result, context, working_memory, execution_id, response, reference)
         else:
             self._stage_legacy(result, context, working_memory, execution_id, response)
         return response
+
+    # ------------------------------------------------------------------
+    # G2: per-agent snapshot evidence catalog (§6.3–§6.4)
+    # ------------------------------------------------------------------
+
+    def _build_reference_context(self, context: AgentContext, snapshot_id: str,
+                                 exposed_segments, exposed_docs) -> "ReferenceContext":
+        """Everything this run's references may resolve against: the framework's
+        snapshot of what was ACTUALLY exposed (built after trimming; one ordinal
+        per occurrence, never deduplicated) plus the host's records. Also records
+        the snapshot on the agent for the response's retention aid."""
+        ref = ReferenceContext(session_id=context.session_id, snapshot_id=snapshot_id)
+        entries: List[EvidenceCatalogEntry] = []
+        for row in snapshot_catalog([{"speaker": s.speaker, "text": s.text, "timestamp": s.timestamp}
+                                     for s in exposed_segments], snapshot_id):
+            ref.add("segment", row["ref_id"], row["revision"])
+            src = row["source"]
+            entries.append(EvidenceCatalogEntry(kind="segment", ref_id=row["ref_id"], revision=row["revision"],
+                                                excerpt=f"{src['speaker']}: {src['text']}"[:4000]))
+        for i, doc in enumerate(exposed_docs):
+            rid = snapshot_ref(snapshot_id, "document", i)
+            ref.add("document", rid, snapshot_id)
+            entries.append(EvidenceCatalogEntry(kind="document", ref_id=rid, revision=snapshot_id, excerpt=str(doc)[:4000]))
+        host = context.insight_reference_context
+        for e in host.evidence:
+            ref.add(e.kind, e.ref_id, e.revision, e.session_id)
+        for p in host.prior_insights:
+            ref.add("insight", p.id, None, p.session_id)
+        self._last_snapshot = EvidenceSnapshot(snapshot_id=snapshot_id, agent_id=self.config.id, entries=entries)
+        return ref
 
     # ------------------------------------------------------------------
     # typed_v1 (G1 part 2): effective set, generated instruction, staging.
@@ -618,8 +668,10 @@ class DynamicAgent(BaseAgent):
                 keys.add(self.mapping[mk])
         return keys
 
-    def _typed_instruction(self, eff: EffectiveTypes) -> str:
-        """The exact allowed-value instruction for this run (§13.1, §13.4)."""
+    def _typed_instruction(self, eff: EffectiveTypes, reference: Optional["ReferenceContext"] = None) -> str:
+        """The exact allowed-value instruction for this run (§13.1, §13.4).
+        ``reference`` (consulting profile) adds the citation contract and the
+        host-supplied evidence ids the model may cite."""
         adapter = self.descriptor.get("typed_adapter", "insight_v1")
         cfg = self.config.insight_config
         types = list(eff.types)
@@ -673,6 +725,13 @@ class DynamicAgent(BaseAgent):
         if consulting:
             rules.append("A hypothesis needs evidence_refs, a rationale and a validation_step; an implication needs evidence_refs and a rationale. "
                          "Evidence references must name items you were actually given.")
+            rules.append('An evidence reference is {"kind": "segment" | "document" | "fact" | "insight", "ref_id": "<id>", "revision": null}. '
+                         'Cite the ids shown in [brackets] before transcript lines and documents; never invent an id.')
+            if reference is not None:
+                host_ids = [f"{kind}:{rid}" for (kind, rid) in reference.entries
+                            if not rid.startswith(f"snap:{reference.snapshot_id}:")][:50]
+                if host_ids:
+                    rules.append("Additional evidence ids you may cite (kind:ref_id): " + ", ".join(host_ids) + ".")
         return "IMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n" + body + "\n\nRULES:\n" + "\n".join(f"- {r}" for r in rules)
 
     def _normalize_typed(self, result: Dict[str, Any]):
@@ -696,9 +755,12 @@ class DynamicAgent(BaseAgent):
 
     def _stage_typed(self, result: Dict[str, Any], context: AgentContext,
                      working_memory: Dict[str, Any], execution_id: str,
-                     response: AgentResponse) -> None:
+                     response: AgentResponse, reference: Optional["ReferenceContext"] = None) -> None:
         cfg = self.config.insight_config
         eff = self._effective_types(context)
+        if reference is not None and getattr(self, "_last_snapshot", None) is not None \
+                and self._last_snapshot.snapshot_id == reference.snapshot_id:
+            response.evidence_snapshot = self._last_snapshot
 
         # Run-specific capability loss is observable even on accepted results (§7.2).
         for value, reason in eff.unavailable.items():
@@ -720,7 +782,7 @@ class DynamicAgent(BaseAgent):
             typed, cand_issues = validate_typed_candidate(
                 cand, effective=eff, analysis_profile=cfg.analysis_profile,
                 default_urgency=cfg.default_urgency,
-                reference_context_available=False,     # per-agent catalog lands at G2
+                reference_context=reference,           # G2: per-agent snapshot + host records
                 content_extension_enabled=False,       # long_form_v1 lands at C1
             )
             insight_issues.extend(cand_issues)
@@ -745,12 +807,14 @@ class DynamicAgent(BaseAgent):
             insight.urgency = typed.urgency
             insight.confidence_provided = typed.confidence_provided
             insight.observation_kind = typed.observation_kind
-            insight.evidence_refs = typed.evidence_refs
+            # Typed payloads are validated dicts; store them as the normative models
+            # (pydantic does not validate on attribute assignment).
+            insight.evidence_refs = [EvidenceRef(**r) for r in typed.evidence_refs]
             insight.rationale = typed.rationale
             insight.validation_step = typed.validation_step
             insight.assumptions = typed.assumptions
-            insight.correction = typed.correction
-            insight.question = typed.question
+            insight.correction = CorrectionPayload(**typed.correction) if typed.correction else None
+            insight.question = QuestionPayload(**typed.question) if typed.question else None
             # id / turn / contract_version are ENGINE-minted at acceptance (§8.1 step 8)
             response.insights.append(insight)
 
