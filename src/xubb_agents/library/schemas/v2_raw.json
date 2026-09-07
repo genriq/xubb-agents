@@ -11,5 +11,19 @@
     "state_field": null,
     "variable_updates_field": "state_snapshot",
     "metadata_field": "metadata"
+  },
+  "descriptor": {
+    "schema_version": "legacy_v2",
+    "gate_mode": "root_presence",
+    "supported_insight_types": [
+      "warning",
+      "opportunity",
+      "suggestion",
+      "fact"
+    ],
+    "supported_contracts": [
+      "legacy_v2"
+    ],
+    "supported_content_contracts": []
   }
 }

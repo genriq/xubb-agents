@@ -12,5 +12,18 @@
     "variable_updates_field": "state_snapshot",
     "data_field": "ui_actions",
     "data_key": "ui_actions"
+  },
+  "descriptor": {
+    "schema_version": "legacy_v2",
+    "gate_mode": "root_presence",
+    "supported_insight_types": [
+      "suggestion",
+      "warning",
+      "fact"
+    ],
+    "supported_contracts": [
+      "legacy_v2"
+    ],
+    "supported_content_contracts": []
   }
 }

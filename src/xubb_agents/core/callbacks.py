@@ -1,5 +1,5 @@
 from typing import List, Optional
-from .models import AgentContext, AgentResponse
+from .models import AgentContext, AgentResponse, InsightDiagnostic
 
 
 class AgentCallbackHandler:
@@ -43,4 +43,11 @@ class AgentCallbackHandler:
 
     async def on_agent_skipped(self, agent_name: str, reason: str) -> None:
         """Called when an agent is skipped during eligibility checks."""
+        pass
+
+    async def on_insight_validation_error(self, issue: InsightDiagnostic) -> None:
+        """Called ONCE per agent execution result whose insight component was
+        rejected (XUBB-ITC-1 §8.5 / §14). ``issue`` is the primary sanitized
+        diagnostic; the full detail list rides on ``AgentResponse.diagnostics``.
+        The engine is the single emitter — parsers never fire this."""
         pass

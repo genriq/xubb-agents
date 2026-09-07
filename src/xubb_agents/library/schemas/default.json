@@ -10,5 +10,18 @@
     "confidence_field": "confidence",
     "state_field": "memory_updates",
     "metadata_field": "metadata"
+  },
+  "descriptor": {
+    "schema_version": "legacy_v2",
+    "gate_mode": "boolean",
+    "supported_insight_types": [
+      "suggestion",
+      "warning",
+      "fact"
+    ],
+    "supported_contracts": [
+      "legacy_v2"
+    ],
+    "supported_content_contracts": []
   }
 }

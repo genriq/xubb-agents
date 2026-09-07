@@ -1583,7 +1583,7 @@ A schema is `{ "instruction": "...", "mapping": {...} }`. `instruction` is appen
 | Mapping key | Default | Role in `evaluate()` |
 |---|---|---|
 | `root_key` | `null` | If set, the insight is read from `result[root_key]` instead of the top level. Non-dict → treated as `{}`. |
-| `check_field` | — | **The silence gate.** Boolean field whose truthiness decides whether to speak. |
+| `check_field` | — | **The silence gate.** Must be an actual JSON Boolean (G0): `true` speaks, `false` is silence, anything else (`"false"`, `1`, `null`, missing) is `invalid_gate` and never speaks. |
 | `content_field` | `"content"` | The insight text. **If empty/falsy, no insight is emitted even when the gate is open.** |
 | `type_field` | `"type"` | Mapped to `InsightType`; unknown values default to `SUGGESTION`. |
 | `confidence_field` | `"confidence"` | Coerced + clamped to `[0,1]` (A-3). |
@@ -1613,7 +1613,7 @@ Note the dual read path: **insight fields are read from `root_data`** (the objec
 
 > **Verified-against-code correction.** The prose in `docs/prompt_engineering_guide.md` lists the `default` schema's key field as `content`. The actual `default.json` maps `content_field: "message"`. If you target `default`, your model must emit `"message"`, not `"content"` — or switch to `default_v2`, which does use `content`. **Prefer `default_v2` for new agents**; treat `default` as legacy.
 
-> **`custom1` is a sharp lesson:** its `check_field` and `content_field` are the *same* key (`sales_tip`). The gate is truthiness of the content string itself — emit a non-empty tip and you speak; emit `""`/omit it and you're silent. Elegant, but it means there is no separate "I considered it and decided to stay quiet" signal.
+> **`custom1` is a sharp lesson:** its `check_field` and `content_field` are the *same* key (`sales_tip`). Since G0 its descriptor declares `gate_mode: content_presence` — a non-empty string speaks, `""`/`null`/omitted is silence, and any other value (a number, a list) is `invalid_gate`. It is a declared gate, not raw truthiness. Elegant, but it means there is no separate "I considered it and decided to stay quiet" signal.
 
 ---
 

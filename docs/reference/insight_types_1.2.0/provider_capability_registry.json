@@ -1,0 +1,15 @@
+{
+  "spec_version": "1.2.0",
+  "enabled_signatures": [],
+  "disabled_synthetic_example": {
+    "adapter_id": "synthetic-test-adapter",
+    "adapter_version": "1",
+    "endpoint_family": "synthetic-chat",
+    "http_status": 400,
+    "code": "feature_not_supported",
+    "param": "response_format.type",
+    "feature": "response_format.json_schema",
+    "evidence_id": "SYNTHETIC-NOT-A-PROVIDER-RESPONSE"
+  },
+  "rationale": "No captured production provider unsupported-capability signature was supplied or verified. Default is no automatic downgrade; use explicit operator configuration or add an evidence-backed adapter signature."
+}

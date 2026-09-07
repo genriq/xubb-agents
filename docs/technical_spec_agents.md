@@ -275,9 +275,17 @@ class AgentResponse(BaseModel):
     # Sidecar data
     data: Dict[str, Any] = Field(default_factory=dict)
     debug_info: Dict[str, Any] = Field(default_factory=dict)
+
+    # Acceptance (XUBB-ITC-1 G0 — engine-derived, never model-authored)
+    execution_id: Optional[str] = None
+    acceptance_status: Literal["accepted", "accepted_silent", "partial", "rejected"] = "accepted"
+    diagnostics: List[InsightDiagnostic] = Field(default_factory=list)
+    acceptance_by_agent: Dict[str, str] = Field(default_factory=dict)   # aggregated response only
 ```
 
 **Note:** `source_agent_id` is stamped automatically by `BaseAgent.process()`. It is used by the engine for merge ordering and memory attribution. Agents should not set it manually.
+
+**Acceptance (G0, `docs/SPEC_INSIGHT_TYPES.md` §8.6 / D-LR):** every agent response is validated at the engine boundary. On the default `legacy_v2` path a *recoverable insight error* (malformed gate, unknown or disallowed type, invalid insight field) rejects all insights from that result — never relabels them — while independently validated, authorized domain channels still commit with status `partial` (action-bearing `data` sidecars are withheld). *Fatal* rows (invalid domain payload, an agent-proposed `sys.*` write, an unparseable envelope) reject the whole response. A valid `false` gate is `accepted_silent`. `diagnostics` rows are sanitized (`InsightDiagnostic`: execution id, agent, code, field path, bounded classification, retained/withheld channels) and the engine fires `on_insight_validation_error` once per partial/rejected result. Parsing never mutates `private_state` or the Blackboard; memory commits only through the engine merge.
 
 **Note:** `memory_updates_by_agent` is only populated on the aggregated `AgentResponse` returned by `process_turn()`. Individual agent responses use `memory_updates` (flat dict). The engine collects per-agent memory writes and keys them by `agent_id` on the final response, so consumers can inspect which agent wrote which memory keys without parsing the flat merge.
 
@@ -301,7 +309,9 @@ class AgentInsight(BaseModel):
 - `OPPORTUNITY`: Urgent positive alert (Zone A)
 - `FACT`: Contextual information (Zone C)
 - `PRAISE`: Positive reinforcement
-- `ERROR`: System issues
+- `ERROR`: Framework-manufactured diagnostic only (G0): content is the sanitized category `agent_error`, metadata carries the exception class name, the exception text lives only in the non-serializing `debug_info`. Never offered to a model; a model-authored `"error"` is rejected (`type_not_allowed`), and an agent-authored ERROR insight is dropped at the engine boundary (runtime provenance).
+
+> **Type labels on the legacy path (G0):** an absent type defaults to `suggestion` (declared adapter default); labels are case-folded; any other unrecognised label is `unknown_type` and `observation` / `reply` / `correction` / `question` are `type_not_allowed` until the typed contract (`typed_v1`, gate G1) is selected. Unknown labels are never relabelled. The full nine-purpose vocabulary is specified in `docs/SPEC_INSIGHT_TYPES.md` §3.
 
 ### 4.4 Event (NEW in v2.0)
 

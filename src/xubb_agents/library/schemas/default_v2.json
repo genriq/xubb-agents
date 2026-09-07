@@ -13,5 +13,20 @@
     "facts_field": "facts",
     "memory_field": "memory_updates",
     "state_field": null
+  },
+  "descriptor": {
+    "schema_version": "legacy_v2",
+    "gate_mode": "boolean",
+    "supported_insight_types": [
+      "suggestion",
+      "warning",
+      "opportunity",
+      "fact",
+      "praise"
+    ],
+    "supported_contracts": [
+      "legacy_v2"
+    ],
+    "supported_content_contracts": []
   }
 }

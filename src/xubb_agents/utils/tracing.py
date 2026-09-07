@@ -54,6 +54,12 @@ class StructuredLogTracer(AgentCallbackHandler):
         }
 
         if response:
+            # XUBB-ITC-1 (G0): the D-LR disposition is distinguishable from
+            # success and from silence — accepted / accepted_silent / partial /
+            # rejected — with sanitized diagnostics (never raw content).
+            step_info["acceptance"] = response.acceptance_status
+            if response.diagnostics:
+                step_info["diagnostics"] = [d.model_dump() for d in response.diagnostics]
             step_info["insights"] = [
                 {
                     "type": i.type,

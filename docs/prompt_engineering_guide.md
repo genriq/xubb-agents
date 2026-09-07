@@ -249,6 +249,8 @@ Create `library/schemas/my_schema.json` to define custom output formats. The sch
 > If your schema's instruction tells the model to emit a gate field (e.g. `has_insight`) but the mapping forgets to wire it up via `check_field`, `DynamicAgent` logs a **load-time warning** — fix it by adding `check_field`, or opt into the speak-on-content default with `speak_without_gate`.
 
 > **Insight robustness (v2.2).** Model-supplied `confidence` is coerced to a float and clamped to `[0, 1]` (defaulting to `1.0` on a non-numeric value), and `expiry`/`action_label` returned by the model are parsed through to the insight — so a malformed value from the LLM no longer turns a good insight into an error or gets silently dropped.
+>
+> **Gate and type strictness (G0, XUBB-ITC-1 §8).** Two things are *not* coerced. The gate must be an actual JSON Boolean: `true` speaks, `false` is silence, and `"true"`, `"false"`, `1`, `null` or an omitted `has_insight` are reported as `invalid_gate` (the result never speaks). The `type` must be one of the values the schema offers: an unknown label (`"briefing"`, `"summary"`) or a value outside the legacy set (`"error"`, `"observation"`, `"reply"`, …) rejects the insight with `unknown_type` / `type_not_allowed` — it is never relabelled as a suggestion. Valid state channels in the same response still commit (status `partial`), so tell the model plainly: *return only valid JSON, a real Boolean gate, and exactly one of the listed types.*
 
 ---
 

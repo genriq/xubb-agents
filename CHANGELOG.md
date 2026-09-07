@@ -13,6 +13,59 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed — G0 legacy safety (XUBB-ITC-1 §8, FINAL_DECISIONS D-LR)
+
+The insight contract's first dependency gate. Applies on the default `legacy_v2`
+path to every agent; `typed_v1` (whole-response atomic rejection, the nine-purpose
+vocabulary) lands at G1. Behavioural edges, all deliberate:
+
+- **Gates are declared, never truthiness.** A Boolean gate speaks only on an actual
+  `true`; `"true"`, `"false"`, `1`, `null` and a *missing* required gate are
+  `invalid_gate` (the result never speaks; the malformed gate is reported).
+  Presence-gated schemas (`v2_raw`, `ui_control`, `widget_control`) reject a
+  non-object root instead of treating it as empty. `custom1` declares a
+  `content_presence` gate. Each shipped schema now carries a versioned `descriptor`
+  (`gate_mode`, `supported_insight_types`, `supported_contracts`).
+- **Unknown insight types are rejected, never relabelled.** The parser no longer maps
+  an unrecognised type to `SUGGESTION`. An unknown label is `unknown_type`; `error`
+  and the future wire values `observation` / `reply` / `correction` / `question` are
+  `type_not_allowed` on the legacy path. Case-folding (`"WARNING"`) and the absent-type
+  default (`suggestion`) remain as declared legacy normalisations.
+- **Legacy partial acceptance (D-LR).** A recoverable insight error rejects all
+  insights from that result but commits its independently validated, authorized
+  domain channels with an explicit `partial` status; action-bearing `data` sidecars
+  are withheld. Invalid domain payloads (e.g. `"facts": "none"`), agent-proposed
+  `sys.*` writes (`reserved_state_write`) and unparseable envelopes reject the whole
+  response. Previously malformed channels were silently ignored and `sys.*` writes
+  warned-and-applied (INV-4 amended: host writes still warn; agent writes reject).
+- **No parse-time durable mutation.** `DynamicAgent` never touches `private_state`
+  while parsing; memory becomes durable only through the engine merge (INV-14 sync).
+  Hosts that evaluated agents outside an engine and relied on in-process
+  `private_state` accumulation must run turns through `AgentEngine`.
+- **Framework ERROR insights are sanitized.** Content is the category `agent_error`
+  plus the exception class name in metadata; the exception text is only in the
+  non-serializing `debug_info`. Provenance is runtime-established: an agent-authored
+  `ERROR` insight is dropped at the engine boundary.
+
+### Added — G0
+
+- `AgentResponse.acceptance_status` (`accepted | accepted_silent | partial | rejected`),
+  `AgentResponse.diagnostics` (sanitized `InsightDiagnostic` rows: execution id, agent,
+  code, field path, bounded classification, retained/withheld channels),
+  `AgentResponse.execution_id`, and `acceptance_by_agent` on the aggregated turn response.
+- `AgentCallbackHandler.on_insight_validation_error(issue)` — fired by the engine exactly
+  once per partial/rejected execution result.
+- `core/insight_validation.py` — pure gate / type / domain-channel validators and the
+  D-LR decision table, reused by `DynamicAgent` and the engine boundary check.
+- `StructuredLogTracer` steps carry `acceptance` and `diagnostics`.
+- Docs: the packaged reference artifacts (local/provider JSON schemas, response
+  contract, fallback-signature registry, host-kit procedure, provenance, manifest)
+  under `docs/reference/insight_types_1.2.0/`, alongside the contract documents merged
+  in PR #22; the live-assistance roadmap `docs/SPEC_V3_LIVE_ASSISTANCE.md` with its
+  item-level cross-reference to the contract. Six new framework contracts
+  (ITC-04/05/06/13/23/24 `.FW`) registered and INV-4 amended; host and end-to-end
+  leaves are not claimed.
+
 ### Changed
 
 - **`src/` layout.** The package moved from repo-root to `src/xubb_agents/`; `pip install -e .`

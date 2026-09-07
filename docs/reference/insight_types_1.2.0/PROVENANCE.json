@@ -1,0 +1,27 @@
+{
+  "specification": "XUBB-ITC-1",
+  "spec_version": "1.2.0",
+  "status": "PROPOSED",
+  "revision_date": "2026-09-06",
+  "parent_package": "Xubb_Insight_Types_Specification_v1.1.zip",
+  "parent_package_sha256": "1a5bfeeb17daa6be6b7041470991c355e5b48a2fdb87723d52c87e1106261f50",
+  "parent_spec_sha256": "9e0d948e255be7a7b7e37fa634f1a8d1495df2049272b5ba93a9c7e3a13179fb",
+  "parent_integrity": {
+    "manifest_entries_verified": 14,
+    "report_input_hashes_verified": 7,
+    "fresh_parent_runtime_tests_run": false
+  },
+  "repository_baseline": "genriq/xubb-agents@f83fc5b1e3d39da176be0ef30f40eefdd9fe51bc",
+  "baseline_inspection": "Carried forward; no new repository audit, write, or access to reported uncommitted working tree.",
+  "revision_basis": "User-supplied Amendment 2 consolidation; final D-LR insight-only legacy recovery and D-CR confidence-neutral default ranking.",
+  "semantic_changes": "See SPEC_INSIGHT_TYPES_AMENDMENT_2.md and FIXTURE_CHANGELOG.md; expected fixture results not claimed unchanged.",
+  "sources_checked_in_this_revision": [
+    "https://developers.openai.com/api/docs/guides/structured-outputs",
+    "https://developers.openai.com/api/docs/guides/error-codes",
+    "https://docs.python.org/3/howto/sorting.html"
+  ],
+  "provider_signatures_verified": 0,
+  "production_provider_calls": 0,
+  "actual_host_tests": 0,
+  "actual_xubb_imports": 0
+}
