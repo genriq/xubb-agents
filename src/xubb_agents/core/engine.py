@@ -117,7 +117,8 @@ class AgentEngine:
                  strict_reasoning_config: bool = True,
                  insight_contract: str = DEFAULT_INSIGHT_CONTRACT,
                  structured_outputs: str = DEFAULT_STRUCTURED_OUTPUTS,
-                 fallback_signatures: Optional[List[Dict[str, Any]]] = None):
+                 fallback_signatures: Optional[List[Dict[str, Any]]] = None,
+                 content_limits: Optional[Dict[str, Any]] = None):
         """Initialize the AgentEngine.
 
         Args:
@@ -156,6 +157,11 @@ class AgentEngine:
             raise ValueError(
                 f"structured_outputs must be one of {STRUCTURED_OUTPUT_MODES}, got {structured_outputs!r}")
         self.structured_outputs = structured_outputs
+        # C1 / §14.6: OPERATOR limits for long_form_v1 — a finite max_response_bytes
+        # (required to enable the extension), the live-lane ceilings
+        # (live_max_output_tokens / live_max_timeout_seconds) and optional global
+        # character caps. Injected into agents at registration.
+        self.content_limits: Dict[str, Any] = dict(content_limits or {})
         # EN-1 / INV-18: only-when-set, so LLMClient defaults keep applying
         # otherwise; update_api_key rebuilds from THIS dict, never bare.
         self._llm_config: Dict[str, Any] = {}
@@ -329,6 +335,15 @@ class AgentEngine:
                 f"json_schema transport; '{schema}' declares "
                 f"{descriptor.get('supported_transports') or ['json_object']}. Use insight_v1, or "
                 f"structured_outputs='auto'/'json_object'.")
+        if cfg is not None and cfg.content is not None:
+            # C1 / §14.10: the extension needs the typed contract AND a schema
+            # adapter that declares it. Never silently inert.
+            if self.insight_contract != "typed_v1":
+                violations.append(
+                    f"Agent '{agent_id}': insight_config.content (long_form_v1) requires insight_contract='typed_v1'.")
+            elif "long_form_v1" not in (descriptor.get("supported_content_contracts") or []):
+                violations.append(
+                    f"Agent '{agent_id}': schema '{schema}' does not support content contract long_form_v1; use insight_v1.")
         if self.insight_contract == "typed_v1" and cfg is not None:
             fields = set(descriptor.get("supported_insight_fields") or [])
             needed = set()
@@ -376,6 +391,7 @@ class AgentEngine:
         # Inject the LLM client and the engine-selected contract into the agent.
         agent.llm = self.llm_client
         agent.insight_contract = self.insight_contract
+        agent.content_limits = self.content_limits
 
         with self._agents_lock:
             # Track registration order for deterministic merge ordering. Cache
@@ -429,6 +445,7 @@ class AgentEngine:
             for index, agent in enumerate(agents):
                 agent.llm = self.llm_client
                 agent.insight_contract = self.insight_contract
+                agent.content_limits = self.content_limits
                 new_index[agent.config.id] = index
                 new_meta[agent.config.id] = (agent.config.priority, index)
                 new_agents.append(agent)
@@ -888,6 +905,10 @@ class AgentEngine:
             insight_reference_context=context.insight_reference_context.model_copy(deep=True),
             # only the VALIDATED answers reach agents (§11.2)
             insight_answers=[a.model_copy(deep=True) for a in getattr(self, "_validated_answers", [])],
+            # C1 §14.6: host depth requests and the trusted execution declaration
+            insight_content_requests={k: v.model_copy(deep=True) for k, v in context.insight_content_requests.items()},
+            content_execution_context=(context.content_execution_context.model_copy(deep=True)
+                                       if context.content_execution_context is not None else None),
         )
         
         # Run all agents in parallel

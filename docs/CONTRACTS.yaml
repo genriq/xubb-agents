@@ -988,12 +988,136 @@ contracts:
     test_dynamic: "tests/test_corrections_g3.py::TestArbitration::test_dynamic_agents_arbitrate_too"
     status: covered   # G3 part 2. Deadline closure of the arbitration set arrives with the delivery workstream (DL-2).
 
+  # ---- XUBB-ITC-1 — C1: the long-form content contract long_form_v1 (§14.4–§14.10) ----
+
+  - id: CONTENT-POLICY-DERIVATION
+    statement: >
+      The framework's content policy (core/content_contract.py) is the reference policy:
+      it reproduces all 62 packaged content fixtures — negotiation, policy validity,
+      depth resolution, admission, completion, exact limits, format — and never edits or
+      truncates a submitted body. Completion status derives from trusted adapter
+      telemetry (stop = complete; length / truncated = incomplete; failure = failed;
+      unreported = unknown), never from model metadata.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §14.5–§14.7"
+      - "src/xubb_agents/core/content_contract.py"
+    test: "tests/test_long_form_c1.py::TestPackagedFixtures::test_all_62_content_fixtures_reproduce"
+    test_admission: "tests/test_long_form_c1.py::TestPackagedFixtures::test_admission_reference_rules"
+    test_completion: "tests/test_long_form_c1.py::TestPackagedFixtures::test_completion_status_from_telemetry"
+    status: covered   # C1.
+
+  - id: ITC-26.FW-length-independent-of-type
+    statement: >
+      Under long_form_v1 an extended body keeps the purpose the candidate declared; no
+      length-based type, subtype or relabel exists.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §14.4"
+    invariant: ITC-26.FW
+    test: "tests/test_long_form_c1.py::TestBodyPreviewAndLimits::test_length_does_not_change_the_type"
+    status: covered   # C1.
+
+  - id: ITC-27.FW-preview-never-replaces-body
+    statement: >
+      The complete accepted body is emitted in content; preview is a separate optional
+      plain-text field under the same insight id; they are one insight, and serialization
+      carries both unchanged. The legacy projection omits every extension field.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §14.5, §14.10"
+    invariant: ITC-27.FW
+    test: "tests/test_long_form_c1.py::TestBodyPreviewAndLimits::test_preview_never_replaces_the_body_and_shares_its_identity"
+    test_projection: "tests/test_long_form_c1.py::TestNegotiation::test_negotiated_output_carries_extension_fields_non_negotiated_does_not"
+    status: covered   # C1. Host storage/expansion/export fidelity (ITC-27.HOST) is a conformance run.
+
+  - id: ITC-28.FW-depth-resolution-and-admission
+    statement: >
+      Effective depth is the host's request for the agent, else the agent's default; an
+      unavailable profile is unsupported_depth. Admission runs BEFORE generation against
+      the host's trusted execution declaration: in an active session only brief within the
+      operator's live ceilings is admitted (a brief profile cannot evade them with larger
+      budgets); standard/detailed need a declared pause or post-session execution; the
+      isolated active path is refused (isolated_path_not_implemented) until C2; a missing
+      declaration is invalid_content_execution_context; a rejected plan makes no call.
+      FORCE is neither authorization nor isolation. The admitted profile's output-token cap
+      and per-request timeout are the generation budget.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §14.6, §14.6.1"
+      - "src/xubb_agents/library/dynamic.py: _content_plan"
+    invariant: ITC-28.FW
+    test: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_extended_depth_in_live_session_is_refused_before_the_call"
+    test_force: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_force_is_not_isolation"
+    test_pause: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_declared_pause_admits_detailed_with_its_own_budget"
+    test_pause_declared: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_pause_must_be_declared_and_post_session_is_fine"
+    test_missing_context: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_missing_execution_context_rejects"
+    test_isolated_gate: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_isolated_active_path_is_refused_until_c2"
+    test_depth_and_evasion: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_unsupported_depth_and_brief_profile_evasion"
+    test_default: "tests/test_long_form_c1.py::TestDepthAndAdmission::test_brief_default_in_live_session"
+    status: covered   # C1. Isolated active execution (C2) not claimed.
+
+  - id: ITC-29.FW-exact-limits-never-truncate
+    statement: >
+      Body and preview limits are decoded code points, the most restrictive of profile,
+      host and operator; exactly the limit passes, one over rejects (content_too_large /
+      preview_too_large) with nothing shortened; the response-byte ceiling is checked on
+      the transport byte count (response_too_large); an unsupported or un-negotiated
+      format is unsupported_content_format.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §14.5–§14.7"
+    invariant: ITC-29.FW
+    test: "tests/test_long_form_c1.py::TestBodyPreviewAndLimits::test_exact_character_boundaries_never_truncate"
+    test_bytes: "tests/test_long_form_c1.py::TestBodyPreviewAndLimits::test_byte_ceiling_uses_transport_bytes"
+    test_formats: "tests/test_long_form_c1.py::TestBodyPreviewAndLimits::test_unsupported_and_negotiated_formats"
+    status: covered   # C1.
+
+  - id: ITC-30.FW-incomplete-generation-rejected
+    statement: >
+      Only a COMPLETE generation (trusted adapter telemetry) may emit an extended insight:
+      a parseable body with finish_reason=length is incomplete_generation, an unreported
+      completion is completion_unknown, and model metadata cannot assert completeness.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §14.7"
+    invariant: ITC-30.FW
+    test: "tests/test_long_form_c1.py::TestBodyPreviewAndLimits::test_parseable_but_incomplete_generation_is_rejected"
+    test_metadata: "tests/test_long_form_c1.py::TestBodyPreviewAndLimits::test_model_cannot_assert_completeness"
+    status: covered   # C1.
+
+  - id: ITC-33.FW-extension-requires-explicit-support
+    statement: >
+      long_form_v1 is enabled for a run only when the agent declares insight_config.content,
+      the schema adapter declares the contract and the host declares content_contracts +
+      expanded_reading + positive limits, under typed_v1 with a finite operator byte
+      ceiling; a content block on a legacy engine or an unsupporting schema fails
+      registration; an unsupporting host rejects before any call
+      (content_contract_unavailable); non-negotiated runs still reject preview /
+      content_format (content_extension_not_enabled) and emit no extension fields.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §14.4, §14.10"
+      - "src/xubb_agents/core/engine.py: _validate_insight_config"
+    invariant: ITC-33.FW
+    test: "tests/test_long_form_c1.py::TestNegotiation::test_host_without_the_contract_makes_no_call"
+    test_registration: "tests/test_long_form_c1.py::TestNegotiation::test_content_block_requires_typed_contract_and_a_supporting_schema"
+    test_operator: "tests/test_long_form_c1.py::TestNegotiation::test_missing_operator_byte_limit_is_invalid_policy"
+    test_not_negotiated: "tests/test_long_form_c1.py::TestNegotiation::test_unnegotiated_extension_fields_still_reject"
+    test_prompt_schema: "tests/test_long_form_c1.py::TestNegotiation::test_prompt_and_provider_schema_reflect_the_plan"
+    status: covered   # C1. Host serialization to old strict consumers (ITC-33.HOST) is a conformance run.
+
+  - id: ITC-35.FW-long-form-atomicity
+    statement: >
+      An oversize or incomplete long-form result rejects the whole response: no domain
+      channel commits and a valid preview never salvages a rejected body; valid silence
+      under the extension still commits its channels.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §14.7, §8.4"
+    invariant: ITC-35.FW
+    test: "tests/test_long_form_c1.py::TestBodyPreviewAndLimits::test_oversize_or_incomplete_has_no_domain_effects_and_no_preview_salvage"
+    test_silence: "tests/test_long_form_c1.py::TestBodyPreviewAndLimits::test_valid_silence_still_commits_under_the_extension"
+    status: covered   # C1.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       59   (every contract & invariant names a passing, rule-asserting test)
+# covered:       67   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         59
+# total:         67
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

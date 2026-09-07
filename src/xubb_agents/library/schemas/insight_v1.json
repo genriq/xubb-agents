@@ -39,6 +39,6 @@
     ],
     "supported_contracts": ["typed_v1"],
     "supported_transports": ["json_schema", "json_object"],
-    "supported_content_contracts": []
+    "supported_content_contracts": ["long_form_v1"]
   }
 }
