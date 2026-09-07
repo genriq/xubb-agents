@@ -13,6 +13,46 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — H2: content path and assurance (independent audit of `e3dfaf1`, findings XA-04/05/06/08)
+
+- **Admission at the content entrypoint (XA-04).** `start_content_request` now refuses,
+  before any snapshot copy, clone, task or model call: a non-typed engine
+  (`typed_contract_required`), a non-isolatable agent, an agent without a content
+  contract (`agent_has_no_content_contract`), and any request the negotiated policy
+  rejects for THIS request (host capability, schema support, depth, execution
+  declaration — evaluated through the agent's pure `content_admission` on a shallow
+  view). A refusal is an immediate rejected `ContentResult` on a task-less handle.
+- **Task lifecycle (XA-05).** Capacity is reserved synchronously at the entrypoint and
+  released by the task's done-callback on every exit — completion, rejection,
+  exception, cancellation while running, cancellation before the coroutine first ran.
+  Completed handles leave the pending registry; their results stay readable; session
+  closure revokes pending tasks only. The semaphore is gone; the bound is an explicit
+  counter, described accurately: it limits content-task concurrency and reserves no
+  live-provider capacity.
+- **Prompt derived from the enabled contract (XA-06).** The forbidden-field rule is
+  generated from the same effective descriptor as the requested fields, so a long-form
+  run never forbids `preview` / `content_format` it just asked for. Citation markers,
+  the evidence-reference contract and the host's citable ids are exposed whenever an
+  enabled type needs an evidence basis — a permitted `correction` in the general
+  profile included — so a general-profile DynamicAgent can now actually produce an
+  acceptable correction (previously unreachable).
+- **Strict primitives (XA-08).** `ContentProfile`, `AgentContentConfig.max_preview_chars`
+  and the host's `max_content_chars` / `max_preview_chars` are strict at construction:
+  `"1000"`, `True` and non-finite numbers are rejected through the real configuration
+  path (`AgentConfigurationError`), never coerced.
+- **Distribution evidence.** New CI job `wheel-smoke` builds the wheel, installs it into a
+  fresh venv and runs `tools/wheel_smoke.py` from outside the checkout (typed live turn,
+  custom-agent rejection, packaged artifacts, admitted content task). The script refuses
+  a source-tree import unless explicitly allowed.
+- The audit's regression file is adopted verbatim as
+  `tests/test_audit_e3dfaf1_regressions.py` (assertions unchanged; 19/19 pass).
+  Contracts: CONTENT-ENTRYPOINT-ADMISSION, CONTENT-TASK-LIFECYCLE,
+  PROMPT-FIELDS-FROM-CONTRACT, CONTENT-CONFIG-STRICT-PRIMITIVES, DISTRIBUTION-CLEAN-WHEEL
+  (INV-42…46).
+- One existing G3 test narrowed its assertion: the correctable-messages listing still
+  names own earlier messages only, while the new citable-evidence line may list other
+  agents' insights as a BASIS (evidence, not correction authority).
+
 ### Fixed — H1: enforcement and identity (independent audit of `e3dfaf1`, findings XA-01/02/03/07)
 
 The audit found that the strongest guarantees held on the DynamicAgent path but not

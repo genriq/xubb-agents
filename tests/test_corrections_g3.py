@@ -221,8 +221,13 @@ class TestTargetValidation:
         run(a.evaluate(ctx(prior=[record(rid="mine", agent_id="fixer"), record(rid="theirs", agent_id="observer"),
                                   record(rid="now", agent_id="fixer", turn=3)])))
         system = a.llm.calls[-1]["messages"][0]["content"]
-        assert "mine (turn 1)" in system and "theirs" not in system and "now (turn 3)" not in system
+        # the CORRECTABLE listing names own, earlier messages only (H2 also lists
+        # every citable evidence id — including other agents' insights — as a BASIS,
+        # on a separate line; that is evidence, not correction authority)
+        correctable = next(line for line in system.splitlines() if "Your earlier messages you may correct" in line)
+        assert "mine (turn 1)" in correctable and "theirs" not in correctable and "now (turn 3)" not in correctable
         assert "repairs YOUR OWN earlier message" in system
+        assert "Additional evidence ids you may cite" in system and "insight:mine" in system
 
 
 # ---------------------------------------------------------------------------
