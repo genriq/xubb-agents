@@ -104,11 +104,12 @@ HUMAN_WIRE_VALUES: Tuple[str, ...] = (
 IMPLEMENTED_TYPED_TYPES: Tuple[str, ...] = (
     "fact", "observation", "suggestion", "warning", "opportunity", "praise",
     "reply", "question",   # G3 part 1: permissioned drafts and correlated questions
+    "correction",          # G3 part 2: self-repair with target validation and arbitration
 )
 
 # Reasons that are RUN-SPECIFIC (a capability the run lacks) map to the
 # ``capability_unavailable`` diagnostic; static reasons map to ``type_not_allowed``.
-RUN_SPECIFIC_UNAVAILABLE_REASONS = frozenset({"missing_principal"})
+RUN_SPECIFIC_UNAVAILABLE_REASONS = frozenset({"missing_principal", "missing_history"})
 
 
 @dataclass(frozen=True)
@@ -131,7 +132,8 @@ def effective_insight_types(*, contract: str, allowed_types: List[str],
                             host_supported: List[str], host_reply_drafts: bool,
                             host_text_questions: bool, host_corrections: bool,
                             principal_present: bool,
-                            implemented: Tuple[str, ...] = IMPLEMENTED_TYPED_TYPES) -> EffectiveTypes:
+                            implemented: Tuple[str, ...] = IMPLEMENTED_TYPED_TYPES,
+                            history_present: bool = True) -> EffectiveTypes:
     """Spec §7.2: framework ∩ agent ∩ schema ∩ host ∩ permission prerequisites.
 
     Pure and order-preserving (canonical order). On the legacy path the set is
@@ -164,6 +166,8 @@ def effective_insight_types(*, contract: str, allowed_types: List[str],
                                   else "question_not_permitted")
         elif value == "correction" and not (allow_correction and host_corrections):
             unavailable[value] = "correction_not_permitted"
+        elif value == "correction" and not history_present:
+            unavailable[value] = "missing_history"     # §10.1: no trusted history snapshot this run
         elif value not in implemented:
             unavailable[value] = "not_implemented_in_this_release"
         else:
@@ -194,7 +198,43 @@ def effective_types_for_run(*, contract: str, insight_config: Any, descriptor: O
         host_text_questions=bool(caps and caps.text_questions),
         host_corrections=bool(caps and caps.corrections),
         principal_present=bool(getattr(context, "principal_id", None)),
+        history_present=bool(getattr(getattr(context, "insight_reference_context", None), "prior_insights", None)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Correction target validation (spec §10.1, G3 part 2)
+# ---------------------------------------------------------------------------
+
+def validate_correction_target(payload: Dict[str, Any], *, prior_insights: List[Any], session_id: str,
+                               principal_id: Optional[str], turn_count: int, agent_id: str,
+                               policy: str = "own_only", allowlist: Tuple[str, ...] = (),
+                               field_path: str = "insight.correction") -> Optional[Issue]:
+    """§10.1: the target must be a previously EMITTED human-facing insight from an
+    earlier turn, in this session, for this principal, present in the trusted
+    history snapshot and still active; default authority is the agent's own
+    output, extended only by the host's explicit allowlist. The reference
+    identifies the earlier message; it does not establish that it was wrong —
+    the correction basis (evidence) is checked by the candidate validator."""
+    target_id = payload.get("target_insight_id")
+    record = next((r for r in prior_insights if getattr(r, "id", None) == target_id), None)
+    if record is None:
+        return Issue("invalid_correction_target", field_path, "unknown_target")
+    if getattr(record, "session_id", None) != session_id:
+        return Issue("cross_session_reference", field_path, bounded(getattr(record, "session_id", None)))
+    if getattr(record, "type", None) not in HUMAN_WIRE_VALUES:
+        return Issue("invalid_correction_target", field_path, "target_not_human_facing")
+    if getattr(record, "turn", None) is None or record.turn >= turn_count:
+        return Issue("invalid_correction_target", field_path, "same_turn_deferred")
+    if getattr(record, "status", "active") != "active":
+        return Issue("invalid_correction_target", field_path, f"target_{record.status}")
+    record_principal = getattr(record, "principal_id", None)
+    if record_principal is not None and principal_id is not None and record_principal != principal_id:
+        return Issue("invalid_correction_target", field_path, "principal_mismatch")
+    if getattr(record, "agent_id", None) != agent_id:
+        if not (policy == "allowlisted" and agent_id in allowlist):
+            return Issue("invalid_correction_target", field_path, "not_authorized")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -628,6 +668,9 @@ def validate_typed_candidate(candidate: Any, *, effective: EffectiveTypes,
         if not ok:
             issues.append(Issue("invalid_correction_target", "insight.correction",
                                 "missing" if correction is None else bounded(correction)))
+        if not refs:
+            # §6.3: the target names the old statement; the BASIS is separate evidence.
+            issues.append(Issue("missing_evidence", "insight.evidence_refs", "correction_requires_basis"))
     if type_value == "question":
         ok = (isinstance(question, dict) and set(question) == {"reason", "response_format"}
               and _nonblank(question.get("reason")) and question.get("response_format") == "text")

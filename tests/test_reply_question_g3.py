@@ -86,9 +86,8 @@ def answer(eid="e-1", qid="q-1", principal="p-1", status="answered", text="Only 
 # ---------------------------------------------------------------------------
 
 class TestImplementationGate:
-    def test_reply_and_question_are_implemented_correction_is_not(self):
+    def test_reply_and_question_are_implemented(self):
         assert "reply" in IMPLEMENTED_TYPED_TYPES and "question" in IMPLEMENTED_TYPED_TYPES
-        assert "correction" not in IMPLEMENTED_TYPED_TYPES
 
 
 # ---------------------------------------------------------------------------

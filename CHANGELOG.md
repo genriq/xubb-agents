@@ -13,6 +13,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — G3 part 2: the correction lifecycle (XUBB-ITC-1 §10)
+
+The last interactive purpose becomes available under `typed_v1`; all nine purposes are
+now implemented on the typed path.
+
+- **CORRECTION** needs `allow_correction`, membership, host `corrections` and a retained
+  history snapshot this run (`insight_reference_context.prior_insights`; otherwise
+  `capability_unavailable` / `missing_history`).
+- **Target validation at the engine boundary** (DynamicAgent and custom agents alike):
+  the target must be a previously emitted human-facing insight from an earlier turn, in
+  this session, still `active`, for the same principal; same-turn and cross-session
+  targets are deferred (rejected). Authority is own-agent output unless the host's
+  `correction_agent_policy="allowlisted"` names the agent in `correction_agent_ids`;
+  nothing in the payload or metadata widens it. A separate evidence basis is required
+  and must resolve. Violations reject the whole response; a failed correction never
+  becomes another card.
+- **Whole-response arbitration at phase close** (`_arbitrate_corrections`), before
+  anything from the phase commits: correction-bearing responses are ordered by
+  descending priority then later registration (never arrival); a response is accepted
+  only when all its targets are unreserved and reserves them together; otherwise it is
+  rejected whole with `correction_conflict` (no sibling insight, state, event, memory or
+  sidecar commits; one callback). Duplicate targets in one response reject it. Earlier-
+  phase reservations stand; reservations reset each turn.
+- The generated instruction lists the agent's own correctable earlier messages and the
+  self-repair rule.
+- Contracts: ITC-18.FW, ITC-20.FW. Host delivery (ITC-19 and the `.HOST` leaves) is a
+  conformance run, not claimed. Deadline closure of the arbitration set arrives with the
+  delivery workstream.
+
 ### Added — G3 part 1: reply drafts and correlated questions (XUBB-ITC-1 §9, §11)
 
 Two of the three interactive purposes become available under `typed_v1`, each behind

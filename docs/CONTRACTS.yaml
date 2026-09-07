@@ -932,12 +932,68 @@ contracts:
     test_shape: "tests/test_reply_question_g3.py::TestBatchIdempotency::test_model_rejects_unknown_fields_on_answers"
     status: covered   # G3 part 1. ITC-22.HOST (durable dedup) is a conformance run, not claimed.
 
+  # ---- XUBB-ITC-1 — G3 part 2: the correction lifecycle (§10) ----
+
+  - id: ITC-18.FW-correction-targets-prior-active-same-principal
+    statement: >
+      A CORRECTION is available only with allow_correction, host corrections and a
+      retained history snapshot this run (otherwise capability_unavailable
+      missing_history). Its target must resolve, at the engine boundary for DynamicAgent
+      and custom agents alike, to a previously emitted human-facing insight from an
+      EARLIER turn, in this session, still active, for the same principal; same-turn and
+      cross-session targets are deferred (rejected). Authority is the agent's own output
+      unless the host's allowlisted policy names the agent; nothing in the payload or
+      metadata widens it. A separate evidence basis is required and must resolve. Any
+      violation rejects the whole response (typed atomicity); a failed correction is never
+      turned into another card.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §10.1, §10.2"
+      - "src/xubb_agents/core/insight_validation.py: validate_correction_target"
+      - "src/xubb_agents/core/engine.py: _enforce_typed"
+    invariant: ITC-18.FW
+    test: "tests/test_corrections_g3.py::TestTargetValidation::test_invalid_targets_reject_whole_response"
+    test_accepted: "tests/test_corrections_g3.py::TestTargetValidation::test_valid_self_correction_is_accepted"
+    test_withdraw: "tests/test_corrections_g3.py::TestTargetValidation::test_withdraw_is_accepted"
+    test_allowlist: "tests/test_corrections_g3.py::TestTargetValidation::test_allowlisted_agent_may_repair_another_agents_insight"
+    test_no_self_grant: "tests/test_corrections_g3.py::TestTargetValidation::test_model_cannot_grant_itself_authority"
+    test_basis: "tests/test_corrections_g3.py::TestTargetValidation::test_basis_is_required_and_must_resolve"
+    test_payload_rules: "tests/test_corrections_g3.py::TestTargetValidation::test_correction_payload_on_other_types_and_missing_payload_reject"
+    test_pure: "tests/test_corrections_g3.py::TestTargetValidation::test_pure_validator_rules"
+    test_history_required: "tests/test_corrections_g3.py::TestAvailability::test_no_history_this_run_is_capability_unavailable"
+    test_prompt: "tests/test_corrections_g3.py::TestTargetValidation::test_prompt_lists_own_correctable_messages_only"
+    status: covered   # G3 part 2. Host delivery (ITC-18/19.HOST) is a conformance run, not claimed.
+
+  - id: ITC-20.FW-correction-arbitration-whole-response
+    statement: >
+      Correction-bearing responses are held whole and arbitrated at phase close before
+      anything from the phase commits: complete accepted responses carrying corrections
+      are ordered by descending agent priority, then later registration (never arrival);
+      a response is accepted only when ALL its targets are unreserved and then reserves
+      them together; otherwise it is rejected whole with correction_conflict — no sibling
+      insight, state, fact, event, memory or sidecar from it commits, and exactly one
+      validation callback fires. Duplicate targets within one response reject it.
+      Reservations from an earlier phase of the same turn cannot be overturned by a later
+      phase; reservations reset each turn.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §10.3 (A2-7)"
+      - "src/xubb_agents/core/engine.py: _arbitrate_corrections"
+    invariant: ITC-20.FW
+    test: "tests/test_corrections_g3.py::TestArbitration::test_higher_priority_wins_loser_commits_nothing"
+    test_registration_order: "tests/test_corrections_g3.py::TestArbitration::test_equal_priority_later_registration_wins_independent_of_arrival"
+    test_multi_target: "tests/test_corrections_g3.py::TestArbitration::test_multi_target_is_all_or_nothing"
+    test_duplicates: "tests/test_corrections_g3.py::TestArbitration::test_duplicate_targets_within_one_response_reject_it"
+    test_phase_reservation: "tests/test_corrections_g3.py::TestArbitration::test_earlier_phase_reservation_cannot_be_overturned_by_phase_two"
+    test_no_conflict: "tests/test_corrections_g3.py::TestArbitration::test_no_conflict_means_all_commit"
+    test_reset: "tests/test_corrections_g3.py::TestArbitration::test_reservations_reset_each_turn"
+    test_dynamic: "tests/test_corrections_g3.py::TestArbitration::test_dynamic_agents_arbitrate_too"
+    status: covered   # G3 part 2. Deadline closure of the arbitration set arrives with the delivery workstream (DL-2).
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       57   (every contract & invariant names a passing, rule-asserting test)
+# covered:       59   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         57
+# total:         59
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

@@ -31,7 +31,7 @@ import uuid
 from .insight_validation import (
     LEGACY_HUMAN_TYPES, RESERVED_VAR_PREFIX, LEGACY_MEMORY_PREFIX, bounded,
     INSIGHT_CONTRACTS, DEFAULT_INSIGHT_CONTRACT, EffectiveTypes, effective_types_for_run,
-    HUMAN_WIRE_VALUES, MISSING, resolve_urgency, validate_answers,
+    HUMAN_WIRE_VALUES, MISSING, resolve_urgency, validate_answers, validate_correction_target,
 )
 from .provider_schema import STRUCTURED_OUTPUT_MODES, DEFAULT_STRUCTURED_OUTPUTS
 from .agent import BaseAgent
@@ -677,6 +677,9 @@ class AgentEngine:
         # against the retained question records. Invalid events are dropped with
         # an engine-level diagnostic; agents only ever see the validated subset
         # (phase copies). The host's own list is never mutated.
+        # §10.3: correction targets reserved by an accepted response in this turn.
+        # A later phase cannot overturn an earlier phase's reservation.
+        self._reserved_correction_targets = set()
         self._validated_answers, answer_issues = validate_answers(
             list(context.insight_answers), list(context.insight_reference_context.prior_insights),
             context.session_id, context.principal_id)
@@ -727,6 +730,7 @@ class AgentEngine:
             
             # Run phase 1 and merge results
             phase1_responses = await self._run_phase(phase1_agents, context)
+            await self._arbitrate_corrections(phase1_responses)
             self._merge_responses(phase1_responses, context.blackboard, final_response, phase=1)
             
             # Collect events emitted in phase 1
@@ -789,6 +793,7 @@ class AgentEngine:
 
                     # Run phase 2 and merge results
                     phase2_responses = await self._run_phase(phase2_agents, context)
+                    await self._arbitrate_corrections(phase2_responses)
                     self._merge_responses(phase2_responses, context.blackboard, final_response, phase=2)
 
                     # Events emitted in Phase 2 are recorded but NOT dispatched
@@ -1032,6 +1037,27 @@ class AgentEngine:
                     insight.urgency = resolve_urgency(value, MISSING, cfg.default_urgency if cfg else None)
                 except ValueError as e:
                     fatal.append(diag("invalid_urgency", f"insights[{i}].urgency", str(e)))
+        # §10.1 (G3 part 2): correction targets — validated here, at the ONE
+        # boundary both DynamicAgent and custom agents pass through.
+        if context is not None:
+            caps = context.insight_capabilities
+            for i, insight in enumerate(response.insights):
+                if insight.type is not InsightType.CORRECTION:
+                    continue
+                payload = insight.correction.model_dump() if insight.correction is not None else None
+                if payload is None:
+                    fatal.append(diag("invalid_correction_target", f"insights[{i}].correction", "missing"))
+                    continue
+                if not insight.evidence_refs:
+                    fatal.append(diag("missing_evidence", f"insights[{i}].evidence_refs", "correction_requires_basis"))
+                issue = validate_correction_target(
+                    payload, prior_insights=list(context.insight_reference_context.prior_insights),
+                    session_id=context.session_id, principal_id=context.principal_id,
+                    turn_count=context.turn_count, agent_id=agent.config.id,
+                    policy=caps.correction_agent_policy, allowlist=tuple(caps.correction_agent_ids),
+                    field_path=f"insights[{i}].correction")
+                if issue is not None:
+                    fatal.append(diag(issue.code, issue.field_path, issue.classification))
         if fatal:
             self._reject_whole(response, fatal)
             return
@@ -1044,6 +1070,50 @@ class AgentEngine:
             insight.contract_version = "typed_v1"
             if insight.confidence_provided is None:
                 insight.confidence_provided = False   # unknown provenance is not certainty
+
+    async def _arbitrate_corrections(self, responses: List[AgentResponse]) -> None:
+        """§10.3 (G3 part 2): deterministic, response-level correction arbitration
+        at phase close — BEFORE anything from the phase commits.
+
+        Every correction-bearing response has been held whole (the phase gathers
+        all results before merging). Complete, accepted responses that carry
+        corrections are ordered by descending agent priority, then later
+        registration; a response is accepted only when ALL its targets are still
+        unreserved, and then reserves all of them together. Otherwise the whole
+        response is rejected with ``correction_conflict`` — it reserves nothing
+        and commits nothing (siblings, state, events, memory, sidecars included).
+        Duplicate targets inside one response reject it. Reservations made by an
+        earlier phase of the same turn cannot be overturned. This is authority
+        ordering, never truth adjudication.
+        """
+        bearing = []
+        for resp in responses:
+            if resp is None or resp.acceptance_status == "rejected":
+                continue
+            targets = [ins.correction.target_insight_id for ins in resp.insights
+                       if ins.type is InsightType.CORRECTION and ins.correction is not None]
+            if targets:
+                meta = self._agent_meta.get(resp.source_agent_id or "", (0, 0))
+                bearing.append((-meta[0], -meta[1], resp, targets))
+        for _neg_priority, _neg_index, resp, targets in sorted(bearing, key=lambda b: (b[0], b[1])):
+            execution_id = resp.execution_id or "arbitration"
+            agent_id = resp.source_agent_id or "unknown"
+            if len(set(targets)) != len(targets):
+                reason = "duplicate_targets_in_response"
+            elif any(t in self._reserved_correction_targets for t in targets):
+                reason = "target_already_reserved"
+            else:
+                self._reserved_correction_targets.update(targets)
+                continue
+            diagnostic = InsightDiagnostic(execution_id=execution_id, agent_id=agent_id,
+                                           code="correction_conflict", field_path="insights[].correction",
+                                           classification=reason)
+            self._reject_whole(resp, [diagnostic])
+            for cb in self.callbacks:
+                try:
+                    await cb.on_insight_validation_error(diagnostic)
+                except Exception as cb_err:
+                    logger.error(f"Callback error on_insight_validation_error: {cb_err}")
 
     @staticmethod
     def _reject_whole(response: AgentResponse, diagnostics: List[InsightDiagnostic]) -> None:
