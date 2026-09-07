@@ -1,0 +1,65 @@
+{
+  "specification": "XUBB-ITC-1",
+  "spec_version": "1.2.0",
+  "status": "ILLUSTRATIVE CONFIGURATION — not measured provider budgets or implemented APIs",
+  "agent_content": {
+    "contract": "long_form_v1",
+    "default_depth": "brief",
+    "formats": [
+      "plain_text",
+      "markdown"
+    ],
+    "max_preview_chars": 280,
+    "profiles": {
+      "brief": {
+        "max_content_chars": 1200,
+        "max_output_tokens": 1000,
+        "llm_timeout_seconds": 10
+      },
+      "standard": {
+        "max_content_chars": 8000,
+        "max_output_tokens": 3500,
+        "llm_timeout_seconds": 20
+      },
+      "detailed": {
+        "max_content_chars": 40000,
+        "max_output_tokens": 16000,
+        "llm_timeout_seconds": 60
+      }
+    }
+  },
+  "host_content": {
+    "content_contracts": [
+      "long_form_v1"
+    ],
+    "content_formats": [
+      "plain_text",
+      "markdown"
+    ],
+    "expanded_reading": true,
+    "max_content_chars": 40000,
+    "max_preview_chars": 280
+  },
+  "operator_limits": {
+    "max_response_bytes": 262144,
+    "live_max_output_tokens": 1000,
+    "live_max_timeout_seconds": 10
+  },
+  "schema_content_contracts": [
+    "long_form_v1"
+  ],
+  "example_request": {
+    "depth": "detailed",
+    "request_id": "host-detail-request-001"
+  },
+  "example_execution_context": {
+    "session_mode": "paused",
+    "execution_path": "offline_content",
+    "request_id": "host-detail-request-001",
+    "source_snapshot_id": "example-snapshot-001",
+    "holds_live_turn_lock": false,
+    "writes_live_blackboard": false,
+    "pause_declared": true,
+    "task_isolation_verified": false
+  }
+}

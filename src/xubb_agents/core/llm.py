@@ -116,6 +116,9 @@ class LLMResult:
     transport: Optional[str] = None
     downgraded: bool = False
     failure: Optional[Dict[str, Any]] = None
+    # C1 (§14.7): trusted transport size of the message body in UTF-8 bytes, for
+    # the content contract's byte ceiling (never the decoded character count).
+    raw_bytes: Optional[int] = None
 
 
 class LLMClient:
@@ -426,7 +429,8 @@ class LLMClient:
             logger.warning(f"LLM call failed [category=malformed]: {e}")
             return self._finish(error_category="malformed", usage=usage, transport=transport)
 
-        return self._finish(parsed=parsed, usage=usage, finish_reason=finish_reason, transport=transport)
+        result = self._finish(parsed=parsed, usage=usage, finish_reason=finish_reason, transport=transport)
+        return _dc_replace(result, raw_bytes=len(content.encode("utf-8")))
 
     @staticmethod
     def _failure_record(exc: Any, status: Optional[int], transport: str) -> Dict[str, Any]:

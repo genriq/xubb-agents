@@ -145,6 +145,56 @@ _INTERACTIVE_FLAGS = (("reply", "allow_reply"), ("question", "allow_question"),
                       ("correction", "allow_correction"))
 
 
+class ContentProfile(BaseModel):
+    """One generation profile of the long-form content contract (§14.6)."""
+    model_config = ConfigDict(extra="forbid")
+    max_content_chars: int = Field(..., gt=0)
+    max_output_tokens: int = Field(..., gt=0)
+    llm_timeout_seconds: float = Field(..., gt=0)
+
+
+class AgentContentConfig(BaseModel):
+    """``insight_config.content`` — the agent's side of ``long_form_v1`` (§14.6).
+    Illustrative limits are the operator's choice, never framework defaults."""
+    model_config = ConfigDict(extra="forbid")
+    contract: Literal["long_form_v1"] = "long_form_v1"
+    default_depth: Literal["brief", "standard", "detailed"] = "brief"
+    formats: List[Literal["plain_text", "markdown"]] = Field(default_factory=lambda: ["plain_text"])
+    max_preview_chars: int = Field(..., gt=0)
+    profiles: Dict[Literal["brief", "standard", "detailed"], ContentProfile]
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.profiles:
+            raise ValueError("insight_config.content.profiles must name at least one depth")
+        if self.default_depth not in self.profiles:
+            raise ValueError("insight_config.content.default_depth must be one of the configured profiles")
+        if not self.formats:
+            raise ValueError("insight_config.content.formats must not be empty")
+
+
+class InsightContentRequest(BaseModel):
+    """Host-selected depth for one agent in one run (§14.6); overrides the
+    agent's default. Not a permission and not a minimum length."""
+    model_config = ConfigDict(extra="forbid")
+    depth: Literal["brief", "standard", "detailed"]
+    request_id: Optional[str] = None
+
+
+class ContentExecutionContext(BaseModel):
+    """Trusted host/runtime declaration of HOW this run executes (§14.6.1).
+    Validated by the adapter; never model metadata. Booleans asserting isolation
+    do not replace actual concurrency tests (C2)."""
+    model_config = ConfigDict(extra="forbid")
+    session_mode: Literal["active", "paused", "post_session"]
+    execution_path: Literal["live_turn", "isolated_content", "offline_content"]
+    request_id: Optional[str] = None
+    source_snapshot_id: Optional[str] = None
+    holds_live_turn_lock: Optional[bool] = None
+    writes_live_blackboard: Optional[bool] = None
+    pause_declared: Optional[bool] = None
+    task_isolation_verified: Optional[bool] = None
+
+
 class InsightConfig(BaseModel):
     """Per-agent ``insight_config`` (XUBB-ITC-1 §7.1).
 
@@ -167,6 +217,8 @@ class InsightConfig(BaseModel):
     allow_correction: bool = False
     analysis_profile: Literal["general", "consulting"] = "general"
     default_urgency: Optional[Literal["now", "soon", "whenever"]] = None
+    # §14.6: opting into long_form_v1 (requires host + schema support; typed only)
+    content: Optional[AgentContentConfig] = None
 
     def model_post_init(self, __context: Any) -> None:
         human = {t.value for t in HUMAN_INSIGHT_TYPES}
@@ -343,6 +395,10 @@ class AgentContext(BaseModel):
     # agents only ever see the VALIDATED subset (phase copies), and by default
     # only the originating agent sees its own answers.
     insight_answers: List[InsightAnswer] = Field(default_factory=list)
+    # §14.6 long-form: host-selected depth per agent, and the trusted execution
+    # declaration for this run (required whenever an agent has a content block).
+    insight_content_requests: Dict[str, InsightContentRequest] = Field(default_factory=dict)
+    content_execution_context: Optional[ContentExecutionContext] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -424,6 +480,15 @@ class AgentInsight(BaseModel):
     assumptions: List[str] = Field(default_factory=list)
     correction: Optional[CorrectionPayload] = None
     question: Optional[QuestionPayload] = None
+    # ---- long_form_v1 (C1). Model-authored: preview / content_format (only when
+    # negotiated). Engine-stamped: the rest. All None outside the extension and
+    # omitted from the legacy projection (§14.10). ----
+    preview: Optional[str] = Field(default=None, description="Optional plain-text entry point; never replaces content")
+    content_format: Optional[Literal["plain_text", "markdown"]] = None
+    content_contract: Optional[str] = Field(default=None, description='"long_form_v1" when negotiated (engine-stamped)')
+    response_depth: Optional[Literal["brief", "standard", "detailed"]] = Field(default=None, description="Effective depth (engine-stamped)")
+    content_request_id: Optional[str] = None
+    source_snapshot_id: Optional[str] = None
 
     # XUBB-ITC-1 §14.3 (G0): runtime-established provenance. Only BaseAgent.process
     # sets "framework" on the ERROR insight it manufactures; a model (or a custom

@@ -13,6 +13,43 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — C1: the long-form content contract `long_form_v1` (XUBB-ITC-1 §14.4–§14.10)
+
+Under `typed_v1` an agent may opt into extended content. Type describes purpose, never
+length; the default `legacy_v2` path is unchanged.
+
+- **Negotiation.** `insight_config.content` (`AgentContentConfig`: contract, default
+  depth, formats, preview limit, per-depth profiles with character cap, output-token cap
+  and per-request timeout) + host `content_contracts` / `content_formats` /
+  `expanded_reading` / limits + a schema adapter declaring the contract (`insight_v1`) +
+  `AgentEngine(content_limits={...})` with a finite `max_response_bytes` and the live
+  ceilings. A content block on a legacy engine or unsupporting schema fails registration;
+  an unsupporting host rejects before any call.
+- **Depth and admission before generation** (`core/content_contract.py`, the reference
+  policy verbatim). Effective depth is the host's `insight_content_requests[agent]` or the
+  agent's default. Admission runs against the host's trusted
+  `AgentContext.content_execution_context`: in an active session only `brief` within the
+  operator's live ceilings; `standard` / `detailed` need a declared pause or post-session
+  execution; the isolated active path is refused until C2; no declaration →
+  `invalid_content_execution_context`. FORCE is neither authorization nor isolation. The
+  admitted profile's `max_output_tokens` and `llm_timeout_seconds` become the call budget.
+- **Body, preview, limits, completion.** The complete body is `content`; `preview` is
+  an optional plain-text entry point under the same id; limits are decoded code points
+  (most restrictive of profile, host, operator) plus a UTF-8 byte ceiling on the transport
+  body (`LLMResult.raw_bytes`); exactly the limit passes, one over rejects with nothing
+  shortened. Only a complete generation (finish_reason `stop`) may emit; `length` is
+  `incomplete_generation`, unreported is `completion_unknown`, model metadata cannot
+  assert completeness. Rejections are atomic; a preview never salvages a body.
+- **Output.** Negotiated insights carry `preview`, `content_format`,
+  `content_contract="long_form_v1"`, `response_depth`, `content_request_id`,
+  `source_snapshot_id`; non-negotiated output and `model_dump_legacy()` omit them. The
+  generated instruction states the depth objective, limits, preview fidelity and formats;
+  the provider projection includes the extension fields only when negotiated.
+- Contracts: CONTENT-POLICY-DERIVATION (62 packaged fixtures reproduce),
+  ITC-26/27/28/29/30/33/35 `.FW`. Reading retention, safe rendering and
+  expand-without-generation (ITC-31/32/34) are host conformance runs; isolated
+  active-session generation is C2.
+
 ### Added — G3 part 2: the correction lifecycle (XUBB-ITC-1 §10)
 
 The last interactive purpose becomes available under `typed_v1`; all nine purposes are

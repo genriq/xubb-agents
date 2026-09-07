@@ -19,11 +19,15 @@ from ..core.insight_validation import (
     CONTENT_EXTENSION_FIELDS,
     # evidence catalog (G2)
     ReferenceContext, snapshot_catalog, snapshot_ref,
+    Issue,
 )
 from ..core.models import (
     EvidenceCatalogEntry, EvidenceSnapshot, EvidenceRef, CorrectionPayload, QuestionPayload,
 )
 from ..core.provider_schema import compile_schema, schema_issues, decode_response
+from ..core.content_contract import (
+    check_content_contract, build_configuration, completion_status_from, CONTRACT as CONTENT_CONTRACT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +248,8 @@ class DynamicAgent(BaseAgent):
         # registration (like the LLM client). Evaluated outside an engine, an
         # agent runs the legacy path.
         self.insight_contract = DEFAULT_INSIGHT_CONTRACT
+        # C1: operator limits for long_form_v1, injected by the engine.
+        self.content_limits: Dict[str, Any] = {}
 
         # A-1 / INV-11: warn at load time if the schema is misconfigured in a way
         # that silently loses the "stay silent" contract.
@@ -461,6 +467,19 @@ class DynamicAgent(BaseAgent):
         cite = typed and self.config.insight_config.analysis_profile == "consulting"
         exposed_docs = list(context.rag_docs) if (self.include_context and context.rag_docs) else []
         reference = self._build_reference_context(context, execution_id, target_segments, exposed_docs) if typed else None
+        # C1 / §14.6.1: negotiate long_form_v1 and run ADMISSION before generation;
+        # the plan also shapes the generated instruction and the provider schema.
+        content_plan = self._content_plan(context) if typed else None
+        if content_plan is not None and not content_plan["accepted"]:
+            # Fail closed BEFORE any prompt is rendered or call is made (§14.6.1).
+            response = AgentResponse(execution_id=execution_id, acceptance_status="rejected")
+            response.debug_info = {"model": self.model, "llm_output": None, "content_plan": content_plan}
+            for code in content_plan["codes"]:
+                response.diagnostics.append(self._diagnostic(
+                    execution_id, code, "$", classification=content_plan.get("classification")))
+            self.logger.warning(f"{self.config.name}: long-form content not admitted "
+                                f"({content_plan['codes']}); no call made")
+            return response
 
         for i, seg in enumerate(target_segments):
             prefix = f"[{snapshot_ref(execution_id, 'segment', i)}] " if cite else ""
@@ -575,7 +594,7 @@ class DynamicAgent(BaseAgent):
                            for r in context.insight_reference_context.prior_insights
                            if r.status == "active" and r.turn < context.turn_count]
             parts.append(self._typed_instruction(self._effective_types(context), reference if cite else None,
-                                                 own_records))
+                                                 own_records, content_plan))
         elif self.json_instruction:
             parts.append(self.json_instruction)
 
@@ -610,6 +629,11 @@ class DynamicAgent(BaseAgent):
         if self.config.model_params:
             llm_kwargs["extra_params"] = self.config.model_params
 
+        # C1 / §14.6: an admitted plan pins the profile's generation budget.
+        if content_plan is not None:
+            llm_kwargs["max_tokens"] = content_plan["max_output_tokens"]
+            llm_kwargs["timeout"] = content_plan["llm_timeout_seconds"]
+
         # G2 / §13.3: provider structured outputs. Only an adapter declaring the
         # json_schema transport (insight_v1) gets a compiled projection, derived
         # from the authoritative contract and restricted to the run's effective
@@ -617,7 +641,7 @@ class DynamicAgent(BaseAgent):
         # reaches the wire (fail closed, provider_schema_error).
         response_schema = None
         if typed and "json_schema" in (self.descriptor.get("supported_transports") or []):
-            response_schema = compile_schema(full=True, content_extension=False,
+            response_schema = compile_schema(full=True, content_extension=content_plan is not None,
                                              allowed_types=list(self._effective_types(context).types))
             lint = schema_issues(response_schema)
             if lint:
@@ -633,6 +657,7 @@ class DynamicAgent(BaseAgent):
         llm_transport = None
         llm_downgraded = False
         llm_failure = None
+        llm_telemetry: Dict[str, Any] = {}   # C1: trusted completion/size telemetry
         try:
             gen = getattr(self.llm, "generate", None)
             if callable(gen):
@@ -644,6 +669,9 @@ class DynamicAgent(BaseAgent):
                 llm_transport = getattr(llm_result, "transport", None)
                 llm_downgraded = bool(getattr(llm_result, "downgraded", False))
                 llm_failure = getattr(llm_result, "failure", None)
+                llm_telemetry = {"finish_reason": getattr(llm_result, "finish_reason", None),
+                                 "error_category": getattr(llm_result, "error_category", None),
+                                 "raw_bytes": getattr(llm_result, "raw_bytes", None)}
             else:
                 # Duck-typed fakes without generate(): plain JSON-object path.
                 result = await self.llm.generate_json(model=self.model, messages=messages,
@@ -690,6 +718,10 @@ class DynamicAgent(BaseAgent):
                 execution_id, "invalid_envelope", "$",
                 classification="none" if result is None else type(result).__name__,
             ))
+            if content_plan is not None and llm_telemetry.get("error_category") == "truncated":
+                # §14.7: a length-stopped extended generation is incomplete, billed,
+                # and never salvaged.
+                response.diagnostics.append(self._diagnostic(execution_id, "incomplete_generation", "$", "length"))
             return response
 
         if llm_transport == "json_schema":
@@ -705,7 +737,8 @@ class DynamicAgent(BaseAgent):
                 return response
 
         if typed:
-            self._stage_typed(result, context, working_memory, execution_id, response, reference)
+            self._stage_typed(result, context, working_memory, execution_id, response, reference,
+                              content_plan, llm_telemetry)
         else:
             self._stage_legacy(result, context, working_memory, execution_id, response)
         return response
@@ -761,7 +794,8 @@ class DynamicAgent(BaseAgent):
         return keys
 
     def _typed_instruction(self, eff: EffectiveTypes, reference: Optional["ReferenceContext"] = None,
-                           reference_records: Optional[List[Dict[str, Any]]] = None) -> str:
+                           reference_records: Optional[List[Dict[str, Any]]] = None,
+                           content_plan: Optional[Dict[str, Any]] = None) -> str:
         """The exact allowed-value instruction for this run (§13.1, §13.4).
         ``reference`` (consulting profile) adds the citation contract and the
         host-supplied evidence ids the model may cite; ``reference_records`` lists
@@ -793,6 +827,10 @@ class DynamicAgent(BaseAgent):
             '"correction": null, "question": null,',
             '"metadata": {}',
         ]
+        if content_plan is not None:
+            fields[-1] = '"metadata": {},'
+            fields.append('"preview": null | "a short plain-text summary or faithful excerpt of content",')
+            fields.append('"content_format": ' + " | ".join(f'"{f}"' for f in content_plan["formats"]))
         candidate = "\n".join("    " + f for f in fields)
         channels = ('  "events": [ {"name": "event_name", "payload": {}} ],\n'
                     '  "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}')
@@ -832,6 +870,13 @@ class DynamicAgent(BaseAgent):
                          '"reason": "what was wrong"} and cite the evidence for the repair in evidence_refs. '
                          'It is not for disagreements in the conversation and not for the current turn.'
                          + (f" Your earlier messages you may correct: {listing}." if listing else ""))
+        if content_plan is not None:
+            rules.append(f'Response depth for this run: {content_plan["effective_depth"]}. Depth is a writing objective, not a '
+                         f'minimum length — never pad. "content" is the COMPLETE body (at most '
+                         f'{content_plan["effective_max_content_chars"]} characters); "preview", if given, is a faithful '
+                         f'plain-text summary or excerpt of the same body (at most {content_plan["effective_max_preview_chars"]} '
+                         f'characters) that adds no claim and hides no caveat; "content_format" must be one of '
+                         f'{", ".join(content_plan["formats"])}. Do not invent material to fill the depth.')
         if consulting:
             rules.append("A hypothesis needs evidence_refs, a rationale and a validation_step; an implication needs evidence_refs and a rationale. "
                          "Evidence references must name items you were actually given.")
@@ -863,9 +908,62 @@ class DynamicAgent(BaseAgent):
         root_key = self.mapping.get("root_key") or "insight"
         return "root_presence", MISSING, result.get(root_key, MISSING)
 
+    # ------------------------------------------------------------------
+    # C1: long_form_v1 plan (§14.6)
+    # ------------------------------------------------------------------
+
+    def _content_plan(self, context: AgentContext) -> Optional[Dict[str, Any]]:
+        """Negotiate the content extension for this run and run ADMISSION before
+        generation. None = the agent has no content block (base contract).
+        Otherwise the reference policy is evaluated against a silence envelope
+        (policy + admission only); an accepted plan carries the effective depth,
+        limits, formats and generation budget; a rejected plan carries codes."""
+        cfg = self.config.insight_config
+        if cfg.content is None:
+            return None
+        configuration = build_configuration(cfg.content, context.insight_capabilities, self.content_limits,
+                                            self.descriptor.get("supported_content_contracts"))
+        req = context.insight_content_requests.get(self.config.id)
+        request = req.model_dump(exclude_none=True) if req is not None else None
+        exec_ctx = context.content_execution_context
+        exec_dict = exec_ctx.model_dump() if exec_ctx is not None else None
+        # C2 gate: the isolated active path does not exist in this release. A
+        # declaration cannot stand in for it (§14.6.1 "booleans asserting
+        # isolation do not replace actual concurrency tests").
+        if exec_dict is not None and exec_dict.get("session_mode") == "active" \
+                and exec_dict.get("execution_path") == "isolated_content":
+            return {"accepted": False, "codes": ["content_execution_not_allowed"],
+                    "classification": "isolated_path_not_implemented", "configuration": configuration}
+        execution = {"completion_status": "complete", "content_execution_context": exec_dict,
+                     "domain_effects_present": False}
+        outcome = check_content_contract({"has_insight": False, "insight": None}, configuration,
+                                         request=request, execution=execution)
+        plan: Dict[str, Any] = {"accepted": outcome["accepted"], "codes": outcome["codes"],
+                                "configuration": configuration, "request": request, "execution_context": exec_dict}
+        if outcome["accepted"]:
+            depth = outcome["effective_depth"]
+            profile = cfg.content.profiles[depth]
+            host = configuration["host_content"]
+            operator = configuration["operator_limits"]
+            max_content = min(profile.max_content_chars, host["max_content_chars"])
+            max_preview = min(cfg.content.max_preview_chars, host["max_preview_chars"])
+            if "max_content_chars" in operator:
+                max_content = min(max_content, operator["max_content_chars"])
+            if "max_preview_chars" in operator:
+                max_preview = min(max_preview, operator["max_preview_chars"])
+            plan.update(effective_depth=depth, max_output_tokens=profile.max_output_tokens,
+                        llm_timeout_seconds=profile.llm_timeout_seconds,
+                        effective_max_content_chars=max_content, effective_max_preview_chars=max_preview,
+                        formats=[f for f in cfg.content.formats if f in host["content_formats"]])
+        else:
+            plan["classification"] = None
+        return plan
+
     def _stage_typed(self, result: Dict[str, Any], context: AgentContext,
                      working_memory: Dict[str, Any], execution_id: str,
-                     response: AgentResponse, reference: Optional["ReferenceContext"] = None) -> None:
+                     response: AgentResponse, reference: Optional["ReferenceContext"] = None,
+                     content_plan: Optional[Dict[str, Any]] = None,
+                     telemetry: Optional[Dict[str, Any]] = None) -> None:
         cfg = self.config.insight_config
         eff = self._effective_types(context)
         if reference is not None and getattr(self, "_last_snapshot", None) is not None \
@@ -893,11 +991,32 @@ class DynamicAgent(BaseAgent):
                 cand, effective=eff, analysis_profile=cfg.analysis_profile,
                 default_urgency=cfg.default_urgency,
                 reference_context=reference,           # G2: per-agent snapshot + host records
-                content_extension_enabled=False,       # long_form_v1 lands at C1
+                content_extension_enabled=content_plan is not None,   # C1: negotiated per run
             )
             insight_issues.extend(cand_issues)
 
         channels, domain_issues = validate_domain_channels(result, self.mapping)
+
+        # C1 / §14.7: the negotiated content contract — trusted completion
+        # telemetry, admission against the declared execution context, exact
+        # character and byte ceilings. Nothing is shortened and accepted; a
+        # preview never salvages a rejected body.
+        content_outcome = None
+        if content_plan is not None:
+            tele = telemetry or {}
+            execution = {
+                "completion_status": completion_status_from(tele.get("finish_reason"), tele.get("error_category")),
+                "content_execution_context": content_plan.get("execution_context"),
+                "domain_effects_present": channels.has_domain(),
+            }
+            envelope = {"has_insight": bool(speak), "insight": (dict(candidate) if speak and isinstance(candidate, dict) else None)}
+            raw = tele.get("raw_bytes")
+            content_outcome = check_content_contract(
+                envelope, content_plan["configuration"], request=content_plan.get("request"),
+                execution=execution, serialized_response=(None if raw is None else b"\0" * raw))
+            if not content_outcome["accepted"]:
+                for code in content_outcome["codes"]:
+                    insight_issues.append(Issue(code, "insight" if speak else "$", None))
         decision = decide_typed(speak, insight_issues, domain_issues)
         response.acceptance_status = decision.status
         for issue in insight_issues + domain_issues:
@@ -925,6 +1044,14 @@ class DynamicAgent(BaseAgent):
             insight.assumptions = typed.assumptions
             insight.correction = CorrectionPayload(**typed.correction) if typed.correction else None
             insight.question = QuestionPayload(**typed.question) if typed.question else None
+            if content_outcome is not None and content_outcome.get("mode") == CONTENT_CONTRACT:
+                # §14.10: the extension's fields appear ONLY on negotiated output.
+                insight.preview = content_outcome.get("preview")
+                insight.content_format = content_outcome.get("content_format")
+                insight.content_contract = CONTENT_CONTRACT
+                insight.response_depth = content_outcome.get("effective_depth")
+                insight.content_request_id = content_outcome.get("content_request_id")
+                insight.source_snapshot_id = content_outcome.get("source_snapshot_id")
             # id / turn / contract_version are ENGINE-minted at acceptance (§8.1 step 8)
             response.insights.append(insight)
 
