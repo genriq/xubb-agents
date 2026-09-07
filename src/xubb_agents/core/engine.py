@@ -27,7 +27,10 @@ from typing import List, Optional, Dict, Any, Tuple
 from .models import (
     AgentContext, AgentResponse, TriggerType, Event, InsightType, InsightDiagnostic
 )
-from .insight_validation import LEGACY_HUMAN_TYPES, RESERVED_VAR_PREFIX, LEGACY_MEMORY_PREFIX, bounded
+from .insight_validation import (
+    LEGACY_HUMAN_TYPES, RESERVED_VAR_PREFIX, LEGACY_MEMORY_PREFIX, bounded,
+    INSIGHT_CONTRACTS, DEFAULT_INSIGHT_CONTRACT, EffectiveTypes, effective_insight_types,
+)
 from .agent import BaseAgent
 from .llm import LLMClient, FRAMEWORK_OWNED_PARAMS
 from .callbacks import AgentCallbackHandler
@@ -108,7 +111,8 @@ class AgentEngine:
                  llm_max_tokens: Optional[int] = None,
                  llm_base_url: Optional[str] = None,
                  llm_wire_max_tokens_param: Optional[str] = None,
-                 strict_reasoning_config: bool = True):
+                 strict_reasoning_config: bool = True,
+                 insight_contract: str = DEFAULT_INSIGHT_CONTRACT):
         """Initialize the AgentEngine.
 
         Args:
@@ -125,7 +129,25 @@ class AgentEngine:
                 (default): registering an agent whose model looks
                 reasoning-capable without an explicit ``reasoning_effort``
                 raises ``AgentConfigurationError``. False: warns instead.
+            insight_contract: XUBB-ITC-1 §7.1 contract selection. ``legacy_v2``
+                (default, the current-major compatibility path: G0 legacy
+                safety). ``typed_v1`` selects strict local validation with
+                whole-response atomic rejection — its acceptance path is NOT
+                implemented yet, so selecting it FAILS CLOSED with
+                ``AgentConfigurationError`` rather than silently running the
+                legacy path under a typed label. Any other value is a
+                ``ValueError``.
         """
+        if insight_contract not in INSIGHT_CONTRACTS:
+            raise ValueError(
+                f"insight_contract must be one of {INSIGHT_CONTRACTS}, got {insight_contract!r}")
+        if insight_contract != DEFAULT_INSIGHT_CONTRACT:
+            # Fail closed (spec §15.2: a capability is unavailable until its
+            # supporting path is implemented and tested). Do not downgrade.
+            raise AgentConfigurationError(
+                f"insight_contract={insight_contract!r} is not available in this release: typed "
+                f"acceptance (gate G1 part 2) is not implemented. Use the default 'legacy_v2'.")
+        self.insight_contract = insight_contract
         # EN-1 / INV-18: only-when-set, so LLMClient defaults keep applying
         # otherwise; update_api_key rebuilds from THIS dict, never bare.
         self._llm_config: Dict[str, Any] = {}
@@ -253,6 +275,44 @@ class AgentEngine:
 
         return violations
 
+    # -------------------------------------------------------------------------
+    # XUBB-ITC-1 (G1) — insight configuration validation and effective types
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_insight_config(agent: BaseAgent) -> List[str]:
+        """Load-time contradiction check (§7.2): a permission flag and the
+        corresponding ``allowed_types`` membership must agree. Returns HARD
+        violations (registration fails; nothing mutated)."""
+        cfg = getattr(agent.config, "insight_config", None)
+        if cfg is None:
+            return []
+        agent_id = getattr(agent.config, "id", "?")
+        return [f"Agent '{agent_id}': insight_config contradiction — {c}" for c in cfg.contradictions()]
+
+    def effective_insight_types(self, agent: BaseAgent,
+                                context: Optional[AgentContext] = None) -> EffectiveTypes:
+        """The run's effective human-facing set for ``agent`` (§7.2): framework
+        ∩ agent ∩ schema ∩ host ∩ permission prerequisites, with a reason for
+        every absent value. Under ``legacy_v2`` this is the host-safe five."""
+        cfg = getattr(agent.config, "insight_config", None)
+        descriptor = getattr(agent, "descriptor", None) or {}
+        caps = context.insight_capabilities if context is not None else None
+        return effective_insight_types(
+            contract=self.insight_contract,
+            allowed_types=list(cfg.allowed_types) if cfg else [],
+            allow_reply=bool(cfg and cfg.allow_reply),
+            allow_question=bool(cfg and cfg.allow_question),
+            allow_correction=bool(cfg and cfg.allow_correction),
+            schema_supported=descriptor.get("supported_insight_types"),
+            host_supported=list(caps.supported_types) if caps else
+                ["suggestion", "warning", "opportunity", "fact", "praise"],
+            host_reply_drafts=bool(caps and caps.reply_drafts),
+            host_text_questions=bool(caps and caps.text_questions),
+            host_corrections=bool(caps and caps.corrections),
+            principal_present=bool(context is not None and context.principal_id),
+        )
+
     def register_agent(self, agent: BaseAgent) -> None:
         """Register an agent with the engine.
 
@@ -266,7 +326,7 @@ class AgentEngine:
         on failure the registry is untouched and the agent's ``llm`` stays None.
         """
         # VL-1: validate-before-mutate.
-        violations = self._validate_agent_llm_config(agent)
+        violations = self._validate_agent_llm_config(agent) + self._validate_insight_config(agent)
         if violations:
             raise AgentConfigurationError(" | ".join(violations))
 
@@ -312,6 +372,7 @@ class AgentEngine:
             all_violations: List[str] = []
             for agent in agents:
                 all_violations.extend(self._validate_agent_llm_config(agent))
+                all_violations.extend(self._validate_insight_config(agent))
             if all_violations:
                 raise AgentConfigurationError(
                     "Agent reload rejected (all-or-nothing; old registry still "
@@ -757,6 +818,10 @@ class AgentEngine:
             turn_count=context.turn_count,
             phase=context.phase,
             agent_config_overrides=context.agent_config_overrides,
+            # XUBB-ITC-1 §6.4 / ITC-14: trusted host inputs are frozen before the
+            # run and propagated through EVERY phase-context copy (Phase 1 and 2).
+            principal_id=context.principal_id,
+            insight_capabilities=context.insight_capabilities.model_copy(deep=True),
         )
         
         # Run all agents in parallel

@@ -13,6 +13,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — G1 part 1: vocabulary, alias, contract selection (XUBB-ITC-1 §3–§4, §7)
+
+Inert on the wire: no behaviour of the default `legacy_v2` path changes.
+
+- **`InsightType` gains the nine-purpose vocabulary.** New members `OBSERVATION`,
+  `REPLY`, `CORRECTION`, `QUESTION`; `INFORMATION` is an alias of `FACT` (same member,
+  wire value stays `"fact"`, `.name` stays `"FACT"`, no `@unique`). `HUMAN_INSIGHT_TYPES`
+  is the canonical nine-tuple type-offering code must use; `INSIGHT_TYPE_LABELS` is the
+  explicit display map. On the legacy path the four new values remain
+  `type_not_allowed` (G0) — the enum members exist; the capabilities do not yet.
+- **`AgentEngine(insight_contract="legacy_v2" | "typed_v1")`.** Default `legacy_v2`.
+  `typed_v1` **fails closed** with `AgentConfigurationError` until typed acceptance
+  lands (G1 part 2); any other value is a `ValueError`.
+- **Per-agent `insight_config`** (`allowed_types`, `allow_reply` / `allow_question` /
+  `allow_correction`, `analysis_profile`, `default_urgency`), typed with `extra="forbid"`;
+  `allowed_types=[]` is state-only. Malformed blocks fail `DynamicAgent` construction;
+  a flag/membership contradiction fails `register_agent` / `replace_agents` before any
+  mutation (all-or-nothing, VL-1 pattern). Also accepted on `AgentConfig` for custom agents.
+- **Trusted host inputs on `AgentContext`:** `principal_id` and `insight_capabilities`
+  (`HostInsightCapabilities`, safe defaults: the five legacy values, all interactive
+  capabilities off). Frozen per run and propagated through Phase 1 and Phase 2 copies.
+- **`AgentEngine.effective_insight_types(agent, context)`** — the §7.2 intersection
+  (framework ∩ agent ∩ schema ∩ host ∩ permission prerequisites) with a reason for every
+  absent value. Under `legacy_v2` it returns the host-safe five; typed enforcement uses
+  it at G1 part 2.
+- Five contracts registered: ITC-01.FW, ITC-02.FW, ITC-14.FW, INSIGHT-CONTRACT-SELECTION,
+  INSIGHT-CONFIG-LOAD-TIME.
+
 ### Changed — G0 legacy safety (XUBB-ITC-1 §8, FINAL_DECISIONS D-LR)
 
 The insight contract's first dependency gate. Applies on the default `legacy_v2`

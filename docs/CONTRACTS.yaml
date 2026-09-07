@@ -502,12 +502,94 @@ contracts:
     test_unit_table: "tests/test_insight_validation.py::TestDecideLegacy::test_fatal_domain_issue_rejects_everything_even_with_valid_insight"
     status: covered   # G0: negative control = parse-time private_state.update() fails.
 
+  # ---- XUBB-ITC-1 — G1 part 1: vocabulary, alias, contract selection, config (inert on the wire) ----
+
+  - id: ITC-01.FW-nine-human-purposes
+    statement: >
+      HUMAN_INSIGHT_TYPES names exactly nine human-facing purposes (information/fact,
+      observation, suggestion, warning, opportunity, praise, reply, correction, question)
+      in canonical order; ERROR is excluded and type-offering code never uses
+      unrestricted enum iteration.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §3, §4.1"
+      - "src/xubb_agents/core/models.py: InsightType / HUMAN_INSIGHT_TYPES"
+    invariant: ITC-01.FW
+    test: "tests/test_insight_vocabulary_g1.py::TestVocabulary::test_exactly_nine_human_values_error_excluded"
+    test_mirror: "tests/test_insight_vocabulary_g1.py::TestVocabulary::test_validation_module_mirrors_the_enum"
+    test_no_iteration: "tests/test_insight_vocabulary_g1.py::TestVocabulary::test_no_unrestricted_enum_iteration_in_type_offering_code"
+    status: covered   # G1 part 1.
+
+  - id: ITC-02.FW-information-alias
+    statement: >
+      InsightType.INFORMATION is InsightType.FACT: same member, .value == "fact",
+      .name == "FACT"; iteration yields ten unique members, __members__ eleven names;
+      the enum is not @unique; display labels come from INSIGHT_TYPE_LABELS, never
+      .name; the wire value "information" is not accepted (a future versioned migration).
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §4.2, §4.3"
+      - "src/xubb_agents/core/models.py: InsightType / INSIGHT_TYPE_LABELS"
+    invariant: ITC-02.FW
+    test: "tests/test_insight_vocabulary_g1.py::TestInformationAlias::test_alias_identity_value_and_canonical_name"
+    test_counts: "tests/test_insight_vocabulary_g1.py::TestInformationAlias::test_ten_unique_members_eleven_names"
+    test_not_unique: "tests/test_insight_vocabulary_g1.py::TestInformationAlias::test_enum_is_not_decorated_unique"
+    test_wire: "tests/test_insight_vocabulary_g1.py::TestInformationAlias::test_serialization_keeps_fact_on_the_wire"
+    test_labels: "tests/test_insight_vocabulary_g1.py::TestInformationAlias::test_display_label_comes_from_explicit_map_not_name"
+    test_future_wire: "tests/test_insight_vocabulary_g1.py::TestInformationAlias::test_future_information_wire_value_is_not_accepted"
+    status: covered   # G1 part 1.
+
+  - id: ITC-14.FW-context-extensions-propagate
+    statement: >
+      Trusted host inputs on AgentContext (principal_id, insight_capabilities) are
+      frozen before a run and reach every agent unchanged in Phase 1 and Phase 2 via
+      the phase-context copy; an agent mutating its copy cannot alter the host-owned
+      declaration on the live context.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §6.4, §6.5"
+      - "src/xubb_agents/core/engine.py: _run_phase (phase_context)"
+    invariant: ITC-14.FW
+    test: "tests/test_insight_vocabulary_g1.py::TestContextPropagation::test_principal_and_capabilities_reach_phase1_and_phase2_unchanged"
+    test_frozen: "tests/test_insight_vocabulary_g1.py::TestContextPropagation::test_phase_copy_cannot_mutate_the_host_declaration"
+    status: covered   # G1 part 1 (principal_id + insight_capabilities; later extensions register as they land).
+
+  - id: INSIGHT-CONTRACT-SELECTION
+    statement: >
+      AgentEngine(insight_contract=...) accepts exactly {"legacy_v2", "typed_v1"};
+      the default is legacy_v2 in the current major. typed_v1 FAILS CLOSED with
+      AgentConfigurationError until typed acceptance is implemented — the engine never
+      runs the legacy path under a typed label. Any other value is a ValueError.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §7.1, §15.2 (capabilities unavailable until implemented)"
+      - "src/xubb_agents/core/engine.py: AgentEngine.__init__"
+    test: "tests/test_insight_vocabulary_g1.py::TestContractSelection::test_typed_v1_fails_closed_until_implemented"
+    test_default: "tests/test_insight_vocabulary_g1.py::TestContractSelection::test_default_is_legacy_v2"
+    test_unknown: "tests/test_insight_vocabulary_g1.py::TestContractSelection::test_unknown_contract_is_a_value_error"
+    status: covered   # G1 part 1; the typed_v1 gate flips when G1 part 2 lands.
+
+  - id: INSIGHT-CONFIG-LOAD-TIME
+    statement: >
+      Per-agent insight_config is a typed block (extra=forbid): allowed_types are
+      human-facing wire values (default: the six ordinary purposes; [] = state-only,
+      never "all"); a malformed block fails DynamicAgent construction with
+      AgentConfigurationError; a contradiction between an interactive flag and its
+      allowed_types membership fails register_agent/replace_agents before any registry
+      mutation (all-or-nothing). Flags never implicitly expand allowed_types.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §7.1, §7.2"
+      - "src/xubb_agents/core/models.py: InsightConfig"
+      - "src/xubb_agents/core/engine.py: _validate_insight_config"
+    test: "tests/test_insight_vocabulary_g1.py::TestInsightConfig::test_contradiction_fails_registration_before_mutation"
+    test_malformed: "tests/test_insight_vocabulary_g1.py::TestInsightConfig::test_malformed_config_fails_at_construction"
+    test_state_only: "tests/test_insight_vocabulary_g1.py::TestInsightConfig::test_empty_allowed_types_is_state_only_not_all"
+    test_all_or_nothing: "tests/test_insight_vocabulary_g1.py::TestInsightConfig::test_replace_agents_is_all_or_nothing_on_contradiction"
+    test_flags_no_expand: "tests/test_insight_vocabulary_g1.py::TestEffectiveTypes::test_flags_never_expand_allowed_types"
+    status: covered   # G1 part 1.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       36   (every contract & invariant names a passing, rule-asserting test)
+# covered:       41   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         36
+# total:         41
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

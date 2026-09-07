@@ -80,6 +80,72 @@ LEGACY_MEMORY_PREFIX = "memory_"
 _CLASSIFICATION_MAX = 64
 _MISSING = object()
 
+# ---------------------------------------------------------------------------
+# Contract selection and the effective type set (G1, spec §7)
+# ---------------------------------------------------------------------------
+
+INSIGHT_CONTRACTS: Tuple[str, ...] = ("legacy_v2", "typed_v1")
+DEFAULT_INSIGHT_CONTRACT = "legacy_v2"
+
+# Wire values of the nine human-facing purposes, canonical order (spec §3/§4).
+# Kept as plain strings here so this module stays free of pydantic/enum imports;
+# tests pin it against models.HUMAN_INSIGHT_TYPES.
+HUMAN_WIRE_VALUES: Tuple[str, ...] = (
+    "fact", "observation", "suggestion", "warning", "opportunity", "praise",
+    "reply", "correction", "question",
+)
+
+
+@dataclass(frozen=True)
+class EffectiveTypes:
+    """The run's effective human-facing set plus why each other value is absent."""
+    types: Tuple[str, ...]
+    unavailable: Dict[str, str]   # wire value → reason (diagnostic classification)
+
+    def __contains__(self, value: str) -> bool:
+        return value in self.types
+
+
+def effective_insight_types(*, contract: str, allowed_types: List[str],
+                            allow_reply: bool, allow_question: bool, allow_correction: bool,
+                            schema_supported: Optional[List[str]],
+                            host_supported: List[str], host_reply_drafts: bool,
+                            host_text_questions: bool, host_corrections: bool,
+                            principal_present: bool) -> EffectiveTypes:
+    """Spec §7.2: framework ∩ agent ∩ schema ∩ host ∩ permission prerequisites.
+
+    Pure and order-preserving (canonical order). On the legacy path the set is
+    the host-safe five (§7.2 "safe host type set"); everything else is enforced
+    only under ``typed_v1``. Flags never expand ``allowed_types``. Reasons use
+    the diagnostic vocabulary so a caller can emit ``capability_unavailable``.
+    """
+    if contract == DEFAULT_INSIGHT_CONTRACT:
+        legacy = tuple(v for v in HUMAN_WIRE_VALUES if v in LEGACY_HUMAN_TYPES)
+        return EffectiveTypes(legacy, {v: "typed_contract_required" for v in HUMAN_WIRE_VALUES if v not in legacy})
+    if contract not in INSIGHT_CONTRACTS:
+        raise ValueError(f"unknown insight_contract {contract!r}")
+
+    unavailable: Dict[str, str] = {}
+    kept: List[str] = []
+    for value in HUMAN_WIRE_VALUES:
+        if value not in allowed_types:
+            unavailable[value] = "not_in_agent_allowed_types"
+        elif schema_supported is not None and value not in schema_supported:
+            unavailable[value] = "not_supported_by_schema"
+        elif value not in host_supported:
+            unavailable[value] = "not_supported_by_host"
+        elif value == "reply" and not (allow_reply and host_reply_drafts and principal_present):
+            unavailable[value] = ("missing_principal" if (allow_reply and host_reply_drafts)
+                                  else "reply_not_permitted")
+        elif value == "question" and not (allow_question and host_text_questions and principal_present):
+            unavailable[value] = ("missing_principal" if (allow_question and host_text_questions)
+                                  else "question_not_permitted")
+        elif value == "correction" and not (allow_correction and host_corrections):
+            unavailable[value] = "correction_not_permitted"
+        else:
+            kept.append(value)
+    return EffectiveTypes(tuple(kept), unavailable)
+
 
 # ---------------------------------------------------------------------------
 # Issue record
