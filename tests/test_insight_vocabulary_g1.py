@@ -236,9 +236,11 @@ class TestEffectiveTypes:
                     host_supported=list(HUMAN_WIRE_VALUES), host_reply_drafts=True, host_text_questions=True,
                     host_corrections=True, principal_present=True)
         e = effective_insight_types(**base)
-        assert e.types == IMPLEMENTED_TYPED_TYPES == ("fact", "observation", "suggestion", "warning", "opportunity",
-                                                      "praise", "reply", "question")
-        assert e.unavailable["correction"] == "not_implemented_in_this_release"   # G3 part 2
+        assert e.types == HUMAN_WIRE_VALUES                               # all nine since G3 part 2
+        assert set(IMPLEMENTED_TYPED_TYPES) == set(HUMAN_WIRE_VALUES)
+        # the gate mechanism itself still works when a release narrows it
+        narrowed = effective_insight_types(**base, implemented=("fact",))
+        assert narrowed.types == ("fact",) and narrowed.unavailable["reply"] == "not_implemented_in_this_release"
 
     def test_intersection_with_schema_and_host(self):
         e = eff(schema_supported=["fact", "warning", "reply"], host_supported=["fact", "reply"])

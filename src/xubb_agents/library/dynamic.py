@@ -569,7 +569,13 @@ class DynamicAgent(BaseAgent):
             # the run's effective set; the schema's static instruction (which
             # carries the legacy literal enum) is not sent, so no conflicting
             # enum reaches the model.
-            parts.append(self._typed_instruction(self._effective_types(context), reference if cite else None))
+            own_records = [{"id": r.id, "turn": r.turn, "content": r.content, "agent_id": r.agent_id,
+                            "shared": context.insight_capabilities.correction_agent_policy == "allowlisted"
+                            and self.config.id in context.insight_capabilities.correction_agent_ids}
+                           for r in context.insight_reference_context.prior_insights
+                           if r.status == "active" and r.turn < context.turn_count]
+            parts.append(self._typed_instruction(self._effective_types(context), reference if cite else None,
+                                                 own_records))
         elif self.json_instruction:
             parts.append(self.json_instruction)
 
@@ -754,10 +760,12 @@ class DynamicAgent(BaseAgent):
                 keys.add(self.mapping[mk])
         return keys
 
-    def _typed_instruction(self, eff: EffectiveTypes, reference: Optional["ReferenceContext"] = None) -> str:
+    def _typed_instruction(self, eff: EffectiveTypes, reference: Optional["ReferenceContext"] = None,
+                           reference_records: Optional[List[Dict[str, Any]]] = None) -> str:
         """The exact allowed-value instruction for this run (§13.1, §13.4).
         ``reference`` (consulting profile) adds the citation contract and the
-        host-supplied evidence ids the model may cite."""
+        host-supplied evidence ids the model may cite; ``reference_records`` lists
+        the agent's own retained earlier messages it may correct."""
         adapter = self.descriptor.get("typed_adapter", "insight_v1")
         cfg = self.config.insight_config
         types = list(eff.types)
@@ -816,6 +824,14 @@ class DynamicAgent(BaseAgent):
             rules.append('A "question" asks the PRINCIPAL for information you need to assist; fill "question": '
                          '{"reason": "why the information matters", "response_format": "text"}. Never assume the answer; '
                          'an unanswered or dismissed question is not consent and not an answer.')
+        if "correction" in types:
+            prior = [r for r in (reference_records or []) if r.get("agent_id") == self.config.id or r.get("shared")]
+            listing = "; ".join(f'{r["id"]} (turn {r["turn"]}): {r["content"][:80]}' for r in prior[:20])
+            rules.append('A "correction" repairs YOUR OWN earlier message that was incorrect, misleading or unsupported; fill '
+                         '"correction": {"target_insight_id": "<id of the earlier message>", "operation": "replace" | "withdraw", '
+                         '"reason": "what was wrong"} and cite the evidence for the repair in evidence_refs. '
+                         'It is not for disagreements in the conversation and not for the current turn.'
+                         + (f" Your earlier messages you may correct: {listing}." if listing else ""))
         if consulting:
             rules.append("A hypothesis needs evidence_refs, a rationale and a validation_step; an implication needs evidence_refs and a rationale. "
                          "Evidence references must name items you were actually given.")

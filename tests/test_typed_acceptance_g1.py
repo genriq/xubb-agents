@@ -310,12 +310,15 @@ class TestCapabilityIntersection:
         assert final.acceptance_by_agent[agent.config.id] == "accepted"
 
     def test_unimplemented_interactive_type_stays_unavailable_even_when_permitted(self):
-        """correction awaits its lifecycle (G3 part 2); reply/question landed in G3 part 1."""
-        agent = tagent(envelope(cand(type="correction", correction={"target_insight_id": "i1", "operation": "replace", "reason": "r"})),
-                       insight_config={"allowed_types": ["fact", "correction"], "allow_correction": True})
-        final, _ = turn(tengine(agent))
-        d = next(d for d in final.diagnostics if d.code == "type_not_allowed")
-        assert d.classification == "not_implemented_in_this_release"
+        """§15.2 gate mechanism: a release that has not implemented a type keeps it
+        unavailable even when every permission holds (pinned via the pure function;
+        every purpose is implemented since G3 part 2)."""
+        from xubb_agents.core.insight_validation import effective_insight_types
+        e = effective_insight_types(contract="typed_v1", allowed_types=list(HUMAN_WIRE_VALUES), allow_reply=True,
+                                    allow_question=True, allow_correction=True, schema_supported=None,
+                                    host_supported=list(HUMAN_WIRE_VALUES), host_reply_drafts=True, host_text_questions=True,
+                                    host_corrections=True, principal_present=True, implemented=("fact",))
+        assert "correction" not in e and e.unavailable["correction"] == "not_implemented_in_this_release"
 
     def test_custom_agent_is_held_to_the_same_set(self):
         class Custom(BaseAgent):
