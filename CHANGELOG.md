@@ -35,8 +35,9 @@ execution path instead of a refusal.
   interactive types reject the result; the host checks currentness against the snapshot
   before presenting it.
 - **Bounded admission.** `content_limits.max_concurrent_content_tasks` (default 1);
-  exhaustion rejects immediately (`provider_admission_exhausted`) rather than queueing
-  behind the live lane.
+  exhaustion rejects immediately (`provider_admission_exhausted`) rather than queueing.
+  The bound limits content-task concurrency only; it does not reserve live-provider
+  capacity for the live turn.
 - **Closure.** `handle.cancel()` or `AgentEngine.close_session_content(session_id)`
   revokes publication: a cancelled or late result reports `cancelled` with usage and
   diagnostics retained and nothing published.

@@ -195,7 +195,8 @@ class AgentEngine:
         # character caps. Injected into agents at registration.
         self.content_limits: Dict[str, Any] = dict(content_limits or {})
         # C2 / §14.6.1: bounded shared-provider admission for isolated content
-        # tasks (default 1) so they cannot consume the live lane's capacity, and
+        # tasks (default 1). It bounds content-task concurrency only — it does NOT
+        # reserve provider capacity for the live turn — and keeps
         # the registry of live task handles per session (for closure).
         max_tasks = self.content_limits.get("max_concurrent_content_tasks", 1)
         if not isinstance(max_tasks, int) or isinstance(max_tasks, bool) or max_tasks < 1:
