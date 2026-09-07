@@ -25,8 +25,9 @@ from copy import deepcopy
 from typing import List, Optional, Dict, Any, Tuple
 
 from .models import (
-    AgentContext, AgentResponse, TriggerType, Event
+    AgentContext, AgentResponse, TriggerType, Event, InsightType, InsightDiagnostic
 )
+from .insight_validation import LEGACY_HUMAN_TYPES, RESERVED_VAR_PREFIX, LEGACY_MEMORY_PREFIX, bounded
 from .agent import BaseAgent
 from .llm import LLMClient, FRAMEWORK_OWNED_PARAMS
 from .callbacks import AgentCallbackHandler
@@ -777,10 +778,111 @@ class AgentEngine:
         (unexpected), we catch and discard to preserve atomic failure.
         """
         try:
-            return await agent.process(context, callbacks=self.callbacks)
+            response = await agent.process(context, callbacks=self.callbacks)
         except Exception as e:
             logger.error(f"Agent {agent.config.name} failed unexpectedly: {e}")
             return None
+        if response is None:
+            return None
+        # XUBB-ITC-1 (G0): engine-boundary acceptance. Revalidates EVERY response
+        # (DynamicAgent staging and custom BaseAgent subclasses alike) and is the
+        # single emitter of on_insight_validation_error — once per rejected or
+        # partial execution result.
+        self._enforce_acceptance(agent, response)
+        if response.acceptance_status in ("partial", "rejected") and response.diagnostics:
+            primary = next((d for d in response.diagnostics
+                            if d.code != "partial_legacy_response"), response.diagnostics[0])
+            for cb in self.callbacks:
+                try:
+                    await cb.on_insight_validation_error(primary)
+                except Exception as cb_err:
+                    logger.error(f"Callback error on_insight_validation_error: {cb_err}")
+        return response
+
+    # =========================================================================
+    # Engine-boundary acceptance (XUBB-ITC-1 §6.1 / §8.6, D-LR) — legacy_v2
+    # =========================================================================
+
+    def _enforce_acceptance(self, agent: BaseAgent, response: AgentResponse) -> None:
+        """Revalidate a response at the engine boundary and apply D-LR.
+
+        A mutable object that passed model construction is not proof that its
+        current content is valid, so this runs for every response:
+
+        * insight types must be in the legacy human-facing set; an ERROR is
+          accepted only with runtime-established framework provenance. Any
+          other insight rejects ALL insights from the result (never relabelled)
+          → ``partial`` if independently valid channels remain, else ``rejected``;
+        * a proposed write to the reserved ``sys.*`` namespace rejects the
+          whole response (``reserved_state_write``);
+        * on ``partial`` the action-bearing ``data`` sidecar is withheld.
+        """
+        agent_id = agent.config.id
+        execution_id = response.execution_id or f"boundary-{id(response):x}"
+        response.execution_id = execution_id
+
+        def diag(code: str, path: str, classification=None, **extra) -> InsightDiagnostic:
+            return InsightDiagnostic(execution_id=execution_id, agent_id=agent_id, code=code,
+                                     field_path=path, classification=classification, **extra)
+
+        # --- fatal: reserved-state writes proposed by the agent ---------------
+        fatal: List[InsightDiagnostic] = []
+        for key in response.variable_updates:
+            if isinstance(key, str) and key.startswith(RESERVED_VAR_PREFIX):
+                fatal.append(diag("reserved_state_write", f"variable_updates.{key}", bounded(key)))
+        for key in response.state_updates:
+            if isinstance(key, str) and key.startswith(RESERVED_VAR_PREFIX) \
+                    and not key.startswith(LEGACY_MEMORY_PREFIX):
+                fatal.append(diag("reserved_state_write", f"state_updates.{key}", bounded(key)))
+        if fatal:
+            self._reject_whole(response, fatal)
+            return
+
+        # --- insight component: allowed types + ERROR provenance --------------
+        insight_issues: List[InsightDiagnostic] = []
+        for i, insight in enumerate(response.insights):
+            value = insight.type.value if isinstance(insight.type, InsightType) else str(insight.type)
+            if value in LEGACY_HUMAN_TYPES:
+                continue
+            if value == InsightType.ERROR.value and getattr(insight, "_origin", "agent") == "framework":
+                continue
+            insight_issues.append(diag("type_not_allowed", f"insights[{i}].type", bounded(value)))
+
+        if not insight_issues:
+            return  # nothing to change — the producer's status stands
+
+        # Recoverable insight error at the boundary (custom agent path):
+        # drop every insight, keep independently valid channels, report.
+        retained = [name for name, value in (
+            ("events", response.events), ("variable_updates", response.variable_updates),
+            ("queue_pushes", response.queue_pushes), ("facts", response.facts),
+            ("memory_updates", response.memory_updates), ("state_updates", response.state_updates),
+        ) if value]
+        response.insights = []
+        response.diagnostics.extend(insight_issues)
+        if retained:
+            withheld = ["data"] if response.data else []
+            response.data = {}
+            response.acceptance_status = "partial"
+            response.diagnostics.append(diag("partial_legacy_response", "$",
+                                             retained_channels=retained, withheld_channels=withheld))
+        else:
+            self._reject_whole(response, [])
+
+    @staticmethod
+    def _reject_whole(response: AgentResponse, diagnostics: List[InsightDiagnostic]) -> None:
+        """D-LR fatal path: nothing from the response may commit or be shown.
+        Usage, debug_info and diagnostics are execution telemetry and survive."""
+        response.diagnostics.extend(diagnostics)
+        response.acceptance_status = "rejected"
+        response.insights = []
+        response.events = []
+        response.variable_updates = {}
+        response.queue_pushes = {}
+        response.facts = []
+        response.memory_updates = {}
+        response.state_updates = {}
+        response.data = {}
     
     # =========================================================================
     # Response Merging
@@ -830,6 +932,19 @@ class AgentEngine:
         
         # Apply updates
         for priority, index, agent_id, resp in updates:
+            # XUBB-ITC-1 (G0): record the D-LR disposition and carry the sanitized
+            # diagnostics; a REJECTED response commits nothing. Its only pass-through
+            # is a framework-manufactured ERROR insight (runtime provenance), kept as
+            # the migration-era legacy diagnostic channel (§14.3).
+            final_response.acceptance_by_agent[agent_id] = resp.acceptance_status
+            final_response.diagnostics.extend(resp.diagnostics)
+            if resp.acceptance_status == "rejected":
+                final_response.insights.extend(
+                    i for i in resp.insights
+                    if i.type == InsightType.ERROR and getattr(i, "_origin", "agent") == "framework"
+                )
+                continue
+
             # Merge insights
             final_response.insights.extend(resp.insights)
             

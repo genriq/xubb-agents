@@ -1,9 +1,17 @@
 import os
 import json
 import logging
+import uuid
+from typing import Any, Dict, Optional
 from jinja2.sandbox import SandboxedEnvironment
 from ..core.agent import BaseAgent, AgentConfig, DEFAULT_MODEL
-from ..core.models import AgentContext, AgentResponse, InsightType, TriggerType, Event, Fact
+from ..core.models import (
+    AgentContext, AgentResponse, InsightType, TriggerType, Event, Fact, InsightDiagnostic,
+)
+from ..core.insight_validation import (
+    DomainChannels, resolve_gate_mode, evaluate_gate, validate_legacy_candidate,
+    validate_domain_channels, decide_legacy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +207,9 @@ class DynamicAgent(BaseAgent):
         self.schema_def = self._load_schema(output_format)
         self.json_instruction = self.schema_def.get("instruction", "")
         self.mapping = self.schema_def.get("mapping", {})
+        # XUBB-ITC-1 §13.1: versioned descriptor (gate_mode, supported types,
+        # contracts). Absent on user-authored schemas → inferred from the mapping.
+        self.descriptor = self.schema_def.get("descriptor", {}) or {}
 
         # A-1 / INV-11: warn at load time if the schema is misconfigured in a way
         # that silently loses the "stay silent" contract.
@@ -235,7 +246,8 @@ class DynamicAgent(BaseAgent):
                 "check_field": "has_insight",
                 "content_field": "message",
                 "type_field": "type"
-            }
+            },
+            "descriptor": {"gate_mode": "boolean", "supported_contracts": ["legacy_v2"]},
         }
 
     # A-1 (INV-11): gate fields a schema's instruction might reference. If the
@@ -518,7 +530,8 @@ class DynamicAgent(BaseAgent):
             self.logger.error(f"LLM call failed for {self.config.name}: {e}", exc_info=True)
             return None
 
-        response = AgentResponse()
+        execution_id = uuid.uuid4().hex
+        response = AgentResponse(execution_id=execution_id)
 
         # SoC Principle: The Agent knows what it sent. We attach it for observability.
         response.debug_info = {
@@ -531,207 +544,147 @@ class DynamicAgent(BaseAgent):
         if llm_usage is not None:
             response.usage = llm_usage
             response.debug_info["usage"] = llm_usage
-        
-        if result:
-            # Log for debugging
-            self.logger.debug(f"{self.config.name} evaluation: result_keys={list(result.keys())}")
-            
-            # --- Generic dynamic parsing ---
-            # 1. Resolve Root Object (if nested)
-            root_data = result
-            if self.mapping.get("root_key"):
-                root_data = result.get(self.mapping["root_key"], {})
-            
-            if not isinstance(root_data, dict):
-                 # Fallback/Safety if root key was missing or invalid
-                 root_data = {}
 
-            # 2. Check "Should I Speak?" condition
-            #
-            # A-1 / INV-11 — gate-less schema silence contract.
-            # An agent must stay silent when its schema's gate says so, and the
-            # ABSENCE of a gate must never *force* speech every turn (HUD spam).
-            # Three cases, in precedence order:
-            #
-            #   (a) check_field present (default, default_v2, custom1):
-            #       the boolean gate (e.g. has_insight) drives the decision.
-            #       Missing/false ⇒ silence. UNCHANGED behavior.
-            #
-            #   (b) no check_field but root_key present (v2_raw, ui_control,
-            #       widget_control): the model speaks by *presence* — emitting a
-            #       non-empty root object IS the gate. An absent/empty root ⇒
-            #       silence. UNCHANGED behavior.
-            #
-            #   (c) no check_field AND no root_key (gate-less, rootless — only
-            #       reachable via user-authored custom schemas): there is NO
-            #       structural gate at all. The DOCUMENTED DEFAULT POLICY is to
-            #       stay SILENT rather than emit an insight on every turn that has
-            #       any content. A schema author who genuinely wants
-            #       "content-present ⇒ speak" must OPT IN explicitly by setting
-            #       "speak_without_gate": true in the mapping. This is the safe,
-            #       documented default that honors INV-11; load-time warning in
-            #       _warn_on_gateless_misconfig flags the common misconfiguration.
-            check_field = self.mapping.get("check_field")
-            if check_field:
-                # (a) Explicit gate field drives the decision.
-                should_speak = root_data.get(check_field, False)
-            elif self.mapping.get("root_key"):
-                # (b) Presence of a non-empty root object is the gate.
-                should_speak = bool(root_data)
-            else:
-                # (c) Gate-less + rootless: default to silence unless opted in.
-                should_speak = bool(self.mapping.get("speak_without_gate", False))
+        if not isinstance(result, dict):
+            # No JSON object arrived: the LLM client already logged its failure
+            # category (timeout / malformed / truncated / ...), or the body was
+            # not an object. Unparseable envelope ⇒ whole response rejected
+            # (D-LR). Usage and the diagnostic survive; nothing is staged.
+            self.logger.warning(f"{self.config.name} received no JSON object from LLM")
+            response.acceptance_status = "rejected"
+            response.diagnostics.append(self._diagnostic(
+                execution_id, "invalid_envelope", "$",
+                classification="none" if result is None else type(result).__name__,
+            ))
+            return response
 
-            # 3. Extract Core Fields
-            if should_speak:
-                # Content
-                content_key = self.mapping.get("content_field", "content")
-                content = root_data.get(content_key)
-                
-                if content:
-                    # Type
-                    type_key = self.mapping.get("type_field", "type")
-                    type_str = root_data.get(type_key, "suggestion").lower()
-                    try:
-                        insight_type = InsightType(type_str)
-                    except ValueError:
-                        # Map common aliases if needed, or default
-                        insight_type = InsightType.SUGGESTION
-                    
-                    # Confidence (A-3): coerce to float and clamp to [0,1].
-                    # A bad LLM value (e.g. 1.5 or "high") must NOT turn a good
-                    # insight into a validation ERROR — default to 1.0 on failure.
-                    conf_key = self.mapping.get("confidence_field", "confidence")
-                    confidence = self._coerce_confidence(root_data.get(conf_key, 1.0))
-
-                    # expiry / action_label (S-1): schemas instruct the model to
-                    # return these, so honor the contract and pass them through.
-                    # Coerce safely; a bad value must not crash the insight.
-                    expiry = self._coerce_expiry(
-                        root_data.get(self.mapping.get("expiry_field", "expiry"))
-                    )
-                    action_label = self._coerce_action_label(
-                        root_data.get(self.mapping.get("action_label_field", "action_label"))
-                    )
-
-                    insight = self.create_insight(
-                        content=content,
-                        type=insight_type,
-                        confidence=confidence,
-                        expiry=expiry,
-                        action_label=action_label,
-                    )
-                    
-                    # Metadata Extraction
-                    meta_key = self.mapping.get("metadata_field")
-                    if meta_key:
-                        # Look in root_data first, then fallback to result root if needed?
-                        # Usually metadata is alongside content
-                        insight.metadata = root_data.get(meta_key, {})
-
-                    response.insights.append(insight)
-            
-            # 4. State/Memory Extraction
-            state_key = self.mapping.get("state_field")
-            if state_key:
-                updates = result.get(state_key, {})
-                
-                if updates and isinstance(updates, dict):
-                     # Legacy memory logic vs V2 State Logic
-                     # If legacy (key=memory_updates), we treat it as Private State -> Shared Blackboard
-                     if state_key == "memory_updates":
-                         self.private_state.update(updates)
-                         mem_key = f"memory_{self.config.id}"
-                         # Emit a COPY: self.private_state is live and keeps mutating on
-                         # later turns, and the response may be captured by a tracer — it
-                         # must not alias the agent's internal state.
-                         response.state_updates[mem_key] = dict(self.private_state)
-                     else:
-                         # V2 Generic State Logic (Direct write to blackboard)
-                         response.state_updates = updates
-
-            # 5. Generic Data Sidecar Extraction
-            # Allows schema to map arbitrary fields (e.g. 'ui_actions') to response.data
-            data_field = self.mapping.get("data_field")
-            data_key = self.mapping.get("data_key", data_field) # Default to same name
-            
-            if data_field and data_key:
-                # We assume sidecar data is at the root of the result
-                sidecar_payload = result.get(data_field)
-                if sidecar_payload:
-                    response.data[data_key] = sidecar_payload
-            
-            # ================================================================
-            # V2: Extract new fields (events, variable_updates, queue_pushes, facts, memory_updates)
-            # ================================================================
-            
-            # 6. Events extraction
-            events_field = self.mapping.get("events_field", "events")
-            raw_events = result.get(events_field, [])
-            if raw_events and isinstance(raw_events, list):
-                current_time = self._session_now(context)  # A-2: session-relative, not epoch
-                for evt in raw_events:
-                    if isinstance(evt, dict):
-                        event = Event(
-                            name=evt.get("name", ""),
-                            payload=evt.get("payload") or evt.get("data", {}),
-                            source_agent=self.config.id,
-                            timestamp=current_time,
-                            id=evt.get("id")
-                        )
-                        response.events.append(event)
-                    elif isinstance(evt, str):
-                        # Simple string event (legacy format)
-                        event = Event(
-                            name=evt,
-                            payload={},
-                            source_agent=self.config.id,
-                            timestamp=current_time
-                        )
-                        response.events.append(event)
-            
-            # 7. Variable updates (v2 style - replaces state_updates)
-            var_field = self.mapping.get("variable_updates_field", "variable_updates")
-            var_updates = result.get(var_field, {})
-            if var_updates and isinstance(var_updates, dict):
-                response.variable_updates.update(var_updates)
-            
-            # 8. Queue pushes
-            queue_field = self.mapping.get("queue_field", "queue_pushes")
-            queue_pushes = result.get(queue_field, {})
-            if queue_pushes and isinstance(queue_pushes, dict):
-                for queue_name, items in queue_pushes.items():
-                    if isinstance(items, list):
-                        if queue_name not in response.queue_pushes:
-                            response.queue_pushes[queue_name] = []
-                        response.queue_pushes[queue_name].extend(items)
-            
-            # 9. Facts extraction
-            facts_field = self.mapping.get("facts_field", "facts")
-            raw_facts = result.get(facts_field, [])
-            if raw_facts and isinstance(raw_facts, list):
-                current_time = self._session_now(context)  # A-2: session-relative, not epoch
-                for f in raw_facts:
-                    if isinstance(f, dict):
-                        fact = Fact(
-                            type=f.get("type", "unknown"),
-                            key=f.get("key"),
-                            value=f.get("value"),
-                            confidence=f.get("confidence", 1.0),
-                            source_agent=self.config.id,
-                            timestamp=current_time
-                        )
-                        response.facts.append(fact)
-            
-            # 10. Memory updates (v2 style - agent-private state)
-            memory_field = self.mapping.get("memory_field", "memory_updates")
-            memory_updates = result.get(memory_field, {})
-            if memory_updates and isinstance(memory_updates, dict):
-                # Also update private_state for backward compatibility
-                self.private_state.update(memory_updates)
-                response.memory_updates.update(memory_updates)
-
-        else:
-            self.logger.warning(f"{self.config.name} received None result from LLM")
-            
+        self._stage_legacy(result, context, working_memory, execution_id, response)
         return response
+
+    # ------------------------------------------------------------------
+    # G0 staging (XUBB-ITC-1 §8 / FINAL_DECISIONS D-LR).
+    #
+    # parse → gate → validate insight → validate domain channels independently
+    # → decide → stage. NOTHING here mutates self.private_state, the Blackboard
+    # or any durable state; the engine commits staged channels at its merge
+    # boundary (legacy_v2: insight-only rejection for recoverable insight
+    # errors; fatal domain/envelope errors reject the whole response).
+    # ------------------------------------------------------------------
+
+    def _diagnostic(self, execution_id: str, code: str, field_path: str = "",
+                    classification: Optional[str] = None, **extra) -> InsightDiagnostic:
+        return InsightDiagnostic(execution_id=execution_id, agent_id=self.config.id,
+                                 code=code, field_path=field_path,
+                                 classification=classification, **extra)
+
+    def _stage_legacy(self, result: Dict[str, Any], context: AgentContext,
+                      working_memory: Dict[str, Any], execution_id: str,
+                      response: AgentResponse) -> None:
+        mapping = self.mapping
+
+        # 1. Root object (nested schemas). A malformed root is reported by the
+        #    gate check, not silently treated as an empty object.
+        root_key = mapping.get("root_key")
+        root_data = result.get(root_key, {}) if root_key else result
+        if not isinstance(root_data, dict):
+            root_data = {}
+
+        # 2. Gate — declared mode, never raw truthiness (§8.2).
+        gate_mode = resolve_gate_mode(mapping, self.descriptor)
+        speak, gate_issue = evaluate_gate(gate_mode, mapping, result, root_data)
+        insight_issues = [gate_issue] if gate_issue else []
+
+        # 3. Insight candidate (only when the gate says speak).
+        candidate = None
+        if speak:
+            candidate, candidate_issues = validate_legacy_candidate(root_data, mapping)
+            insight_issues.extend(candidate_issues)
+
+        # 4. Domain channels — validated independently of insight validity.
+        channels, domain_issues = validate_domain_channels(result, mapping)
+
+        # 5. Decide (D-LR).
+        decision = decide_legacy(speak, insight_issues, domain_issues, channels.has_domain())
+        response.acceptance_status = decision.status
+        for issue in insight_issues + domain_issues:
+            response.diagnostics.append(self._diagnostic(
+                execution_id, issue.code, issue.field_path, issue.classification))
+        if decision.status == "rejected":
+            return  # nothing staged; usage + diagnostics already on the response
+
+        # 6. Stage the accepted insight (legacy coercions A-3 / S-1 preserved).
+        if decision.emit_insight and candidate is not None:
+            conf_key = mapping.get("confidence_field", "confidence")
+            insight = self.create_insight(
+                content=candidate.content,
+                type=InsightType(candidate.type_value),
+                confidence=self._coerce_confidence(root_data.get(conf_key, 1.0)),
+                expiry=self._coerce_expiry(root_data.get(mapping.get("expiry_field", "expiry"))),
+                action_label=self._coerce_action_label(
+                    root_data.get(mapping.get("action_label_field", "action_label"))),
+            )
+            insight.metadata = candidate.metadata
+            response.insights.append(insight)
+
+        # 7. Stage domain channels. On partial acceptance the action-bearing
+        #    data sidecar is withheld and the disposition is reported.
+        self._stage_channels(channels, context, working_memory, response)
+        if decision.status == "partial":
+            withheld = ["data"] if channels.data is not None else []
+            response.diagnostics.append(self._diagnostic(
+                execution_id, "partial_legacy_response", "$",
+                retained_channels=channels.retained_names(), withheld_channels=withheld))
+        elif channels.data is not None:
+            data_key = mapping.get("data_key", mapping.get("data_field"))
+            response.data[data_key] = channels.data
+
+    def _stage_channels(self, ch: DomainChannels, context: AgentContext,
+                        working_memory: Dict[str, Any], response: AgentResponse) -> None:
+        """Copy shape-validated channels onto the response. No durable writes."""
+        # Legacy state_field: the memory alias stages a MERGED view (committed
+        # memory + this turn's updates) — it no longer touches private_state.
+        if ch.state:
+            if ch.state_is_memory:
+                staged = dict(working_memory)
+                staged.update(ch.state)
+                response.state_updates[f"memory_{self.config.id}"] = staged
+            else:
+                response.state_updates = dict(ch.state)
+
+        if ch.events:
+            current_time = self._session_now(context)  # A-2: session-relative
+            for evt in ch.events:
+                if isinstance(evt, dict):
+                    response.events.append(Event(
+                        name=evt.get("name", ""),
+                        payload=evt.get("payload") or evt.get("data", {}),
+                        source_agent=self.config.id,
+                        timestamp=current_time,
+                        id=evt.get("id"),
+                    ))
+                elif isinstance(evt, str):
+                    response.events.append(Event(
+                        name=evt, payload={}, source_agent=self.config.id,
+                        timestamp=current_time,
+                    ))
+
+        if ch.variable_updates:
+            response.variable_updates.update(ch.variable_updates)
+
+        for queue_name, items in ch.queue_pushes.items():
+            response.queue_pushes.setdefault(queue_name, []).extend(items)
+
+        if ch.facts:
+            current_time = self._session_now(context)
+            for f in ch.facts:
+                response.facts.append(Fact(
+                    type=f.get("type", "unknown"),
+                    key=f.get("key"),
+                    value=f.get("value"),
+                    confidence=f.get("confidence", 1.0),
+                    source_agent=self.config.id,
+                    timestamp=current_time,
+                ))
+
+        if ch.memory_updates:
+            response.memory_updates.update(ch.memory_updates)

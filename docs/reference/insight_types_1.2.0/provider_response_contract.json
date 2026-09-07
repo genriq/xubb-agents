@@ -1,0 +1,88 @@
+{
+  "spec_version": "1.2.0",
+  "encoding": "map_entries_v1",
+  "domain_channels": {
+    "state_updates": {
+      "encoding": "map_entries_v1",
+      "normalized_type": "object"
+    },
+    "variable_updates": {
+      "encoding": "map_entries_v1",
+      "normalized_type": "object"
+    },
+    "queue_pushes": {
+      "encoding": "map_entries_v1",
+      "normalized_type": "object"
+    },
+    "memory_updates": {
+      "encoding": "map_entries_v1",
+      "normalized_type": "object"
+    },
+    "data": {
+      "encoding": "map_entries_v1",
+      "normalized_type": "object"
+    },
+    "facts": {
+      "encoding": "fact_array",
+      "provider_shape": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "key": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "value": {
+              "$ref": "#/$defs/json_value"
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "type",
+            "key",
+            "value",
+            "confidence"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "events": {
+      "encoding": "event_array",
+      "provider_shape": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "payload": {
+              "$ref": "#/$defs/map"
+            }
+          },
+          "required": [
+            "name",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "notes": [
+    "Schema authority for domain transport only. Domain shape, namespace authorization and side-effect permissions require local checks.",
+    "No model-authored source identity, timestamp, acceptance state or confidence_provided.",
+    "Zero provider calls performed."
+  ]
+}

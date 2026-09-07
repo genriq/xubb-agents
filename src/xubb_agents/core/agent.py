@@ -128,16 +128,27 @@ class BaseAgent(ABC):
                     except Exception:
                         pass
 
-            # Return an error insight for UI feedback
+            # Return a framework-manufactured ERROR insight for legacy UI feedback.
+            # XUBB-ITC-1 §14.3 (G0): the content is a sanitized CATEGORY, never the
+            # raw exception text — that belongs only in the protected debug channel
+            # (debug_info is exclude=True and never serializes). Provenance is
+            # runtime-established (_origin="framework"); a model or a custom
+            # evaluate() cannot forge it, and the engine drops any other ERROR.
+            error_insight = self.create_insight(
+                content="agent_error",
+                type=InsightType.ERROR,
+                confidence=1.0,
+            )
+            error_insight.metadata = {
+                "category": "agent_error",
+                "exception_type": type(e).__name__,
+            }
+            error_insight._origin = "framework"
             response = AgentResponse(
                 source_agent_id=self.config.id,
-                insights=[
-                    self.create_insight(
-                        content=f"Agent '{self.config.name}' encountered an error: {e}",
-                        type=InsightType.ERROR,
-                        confidence=1.0
-                    )
-                ]
+                insights=[error_insight],
+                acceptance_status="rejected",
+                debug_info={"error": str(e), "exception_type": type(e).__name__},
             )
             return response
         finally:

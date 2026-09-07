@@ -1,5 +1,5 @@
-from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from typing import List, Optional, Dict, Any, Literal, TYPE_CHECKING
 from enum import Enum
 
 if TYPE_CHECKING:
@@ -131,15 +131,75 @@ class AgentInsight(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     expiry: int = Field(default=15, description="Seconds to display")
     action_label: Optional[str] = None # Optional button text
-    
+
     # Generic extension point for UI-specific rendering options (zone, color, voice style, etc.)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    # XUBB-ITC-1 §14.3 (G0): runtime-established provenance. Only BaseAgent.process
+    # sets "framework" on the ERROR insight it manufactures; a model (or a custom
+    # agent) cannot forge it through metadata. Private attrs never serialize.
+    _origin: str = PrivateAttr(default="agent")
+
+
+# ============================================================================
+# XUBB-ITC-1 (G0) — acceptance status and sanitized diagnostics
+# ============================================================================
+
+# D-LR (FINAL_DECISIONS.md): the engine-derived disposition of one agent response.
+#   accepted        — a permitted insight was emitted; authorized channels committed
+#   accepted_silent — valid false gate / no candidate; authorized channels committed
+#   partial         — all insights rejected (recoverable insight error); independently
+#                     validated channels committed; action-bearing sidecars withheld
+#   rejected        — nothing from the response committed
+AcceptanceStatus = Literal["accepted", "accepted_silent", "partial", "rejected"]
+
+
+class InsightDiagnostic(BaseModel):
+    """A sanitized, serializable validation issue (XUBB-ITC-1 §8.5 / §14).
+
+    Carries an execution id, the agent, an error code and a field path. It MAY
+    carry a bounded raw classification string; it never carries transcripts,
+    prompts, raw exception bodies or hidden reasoning. The engine is the single
+    emitter of ``on_insight_validation_error`` for these.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    execution_id: str
+    agent_id: str
+    code: str
+    field_path: str = ""
+    classification: Optional[str] = Field(
+        default=None, max_length=64,
+        description="Bounded raw classification string (e.g. the unknown type label)",
+    )
+    retained_channels: List[str] = Field(
+        default_factory=list, description="Domain channels committed on partial acceptance"
+    )
+    withheld_channels: List[str] = Field(
+        default_factory=list, description="Channels withheld on partial acceptance (e.g. data sidecars)"
+    )
+
 
 class AgentResponse(BaseModel):
     """The result of a processing cycle."""
     # Agent that produced this response (set by framework, used for identity resolution)
     source_agent_id: Optional[str] = Field(default=None, description="Agent that produced this response")
     insights: List[AgentInsight] = Field(default_factory=list)
+
+    # ---- XUBB-ITC-1 (G0) acceptance / diagnostics ----
+    # Engine-derived; a model cannot author these (they are not schema-mapped).
+    execution_id: Optional[str] = Field(default=None, description="Opaque id of the producing execution")
+    acceptance_status: AcceptanceStatus = Field(
+        default="accepted",
+        description="D-LR disposition of this response (per-agent responses); engine-derived",
+    )
+    diagnostics: List[InsightDiagnostic] = Field(
+        default_factory=list, description="Sanitized validation diagnostics (per-agent and aggregated)"
+    )
+    acceptance_by_agent: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Aggregated responses only: agent_id → acceptance_status",
+    )
     # Updates to the shared memory (v1 compatibility)
     state_updates: Dict[str, Any] = Field(default_factory=dict)
     

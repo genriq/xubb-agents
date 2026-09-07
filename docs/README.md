@@ -14,12 +14,14 @@
 | [EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md) | High-level overview: the model, the architecture, and use cases. |
 | [archive/](archive/) | Superseded specs, kept for provenance (see the folder's own README). |
 
-## Proposed insight contract — specification 1.2.0
+## Insight contract — specification 1.2.0
 
-These documents describe the agreed design direction, **not implemented runtime capabilities or a Xubb package-version bump**. Existing runtime/API documentation above remains authoritative for what is shipped.
+These documents describe the agreed design direction. **Implementation status:** gate **G0 (legacy safety)** is implemented in this tree — declared gates, unknown-type rejection, D-LR partial acceptance, sanitized diagnostics, no parse-time mutation — and registered as framework contracts ITC-04/05/06/13/23/24 `.FW`. Every later gate (nine-purpose enum, `typed_v1`, provider schemas, evidence, interactions, long-form) is staged, not shipped, and there is no Xubb package-version bump. Existing runtime/API documentation above remains authoritative for what is shipped.
 
 | Doc | What it is |
 |-----|-----------|
+| [SPEC_V3_LIVE_ASSISTANCE.md](SPEC_V3_LIVE_ASSISTANCE.md) | **PROPOSED** — the live-assistance roadmap the contract sits inside: insight lifecycle, delivery, timing & principal, session state & budgets, evaluation (invariants INV-20…INV-37), cross-referenced item by item to the type contract (Appendix C). |
+| [reference/insight_types_1.2.0/](reference/insight_types_1.2.0/) | Packaged reference artifacts, manifest-verified: local and provider JSON schemas, response contract, fallback-signature registry, host conformance kit procedure, provenance. Reference material, not runtime. |
 | [SPEC_INSIGHT_TYPES.md](SPEC_INSIGHT_TYPES.md) | Consolidated repository edition: nine human-facing purposes, typed/legacy validation, consulting subtypes, permissioned interactions, and long-form content/execution requirements. |
 | [SPEC_INSIGHT_TYPES_AMENDMENT_2.md](SPEC_INSIGHT_TYPES_AMENDMENT_2.md) | Nine engineering-review amendments and the final reconciled rulings. |
 | [INSIGHT_TYPES_FINAL_DECISIONS.md](INSIGHT_TYPES_FINAL_DECISIONS.md) | Exact D-LR legacy partial-rejection and D-CR confidence-neutral ranking decisions. |
