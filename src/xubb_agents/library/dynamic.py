@@ -1053,7 +1053,6 @@ class DynamicAgent(BaseAgent):
             )
             insight.metadata = typed.metadata
             insight.urgency = typed.urgency
-            insight.confidence_provided = typed.confidence_provided
             insight.observation_kind = typed.observation_kind
             # Typed payloads are validated dicts; store them as the normative models
             # (pydantic does not validate on attribute assignment).
@@ -1063,15 +1062,24 @@ class DynamicAgent(BaseAgent):
             insight.assumptions = typed.assumptions
             insight.correction = CorrectionPayload(**typed.correction) if typed.correction else None
             insight.question = QuestionPayload(**typed.question) if typed.question else None
+            # H1: runtime-derived values go to the engine through the private
+            # hand-over, never through public engine-owned fields (which a
+            # producer — or a callback — could set). The engine revalidates the
+            # candidate and stamps them at the boundary.
+            staged: Dict[str, Any] = {"confidence_provided": typed.confidence_provided,
+                                      "content_extension": bool(content_plan is not None and content_plan["accepted"]),
+                                      "content": None}
             if content_outcome is not None and content_outcome.get("mode") == CONTENT_CONTRACT:
                 # §14.10: the extension's fields appear ONLY on negotiated output.
                 insight.preview = content_outcome.get("preview")
                 insight.content_format = content_outcome.get("content_format")
-                insight.content_contract = CONTENT_CONTRACT
-                insight.response_depth = content_outcome.get("effective_depth")
-                insight.content_request_id = content_outcome.get("content_request_id")
-                insight.source_snapshot_id = content_outcome.get("source_snapshot_id")
-            # id / turn / contract_version are ENGINE-minted at acceptance (§8.1 step 8)
+                staged["content"] = {"content_contract": CONTENT_CONTRACT,
+                                     "response_depth": content_outcome.get("effective_depth"),
+                                     "content_request_id": content_outcome.get("content_request_id"),
+                                     "source_snapshot_id": content_outcome.get("source_snapshot_id")}
+            insight._staged = staged
+            # id / turn / contract_version / provenance / content stamps are
+            # ENGINE-minted at acceptance (§8.1 step 8)
             response.insights.append(insight)
 
         self._stage_channels(channels, context, working_memory, response)

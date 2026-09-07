@@ -1149,12 +1149,103 @@ contracts:
     test_incomplete: "tests/test_isolated_content_c2.py::TestConcurrencyAndClosure::test_incomplete_generation_on_the_isolated_path_is_rejected"
     status: covered   # C2. Host currentness checks and presentation (ITC-28/34 .HOST/.E2E) are not claimed.
 
+  # ---- H1 — audit hardening: enforcement and identity (audit of e3dfaf1, XA-01/02/03/07) ----
+
+  - id: BOUNDARY-UNIFIED-ACCEPTANCE
+    statement: >
+      The engine boundary is ONE authoritative acceptance pipeline for every producer —
+      DynamicAgent staging, custom BaseAgent subclasses and callback-modified responses.
+      Under typed_v1 the producer-controlled projection of every insight is re-run
+      through the strict candidate validator (type, content, confidence, urgency,
+      metadata, analytical fields, interactive payloads, evidence resolution, content
+      extension) against the run's effective set, profile and reference context; every
+      engine-owned public field (id, turn, contract_version, confidence_provided,
+      content_contract, response_depth, content_request_id, source_snapshot_id) must be
+      unset — trusted staging hands its runtime-derived values over privately and the
+      engine stamps them after validation; reference authority comes from the invocation
+      (host records + this run's own snapshot held by the agent), never from a snapshot
+      attached to the response. In BOTH contracts the domain channels of the object that
+      would commit are shape-revalidated (events, variable_updates, queue_pushes, facts
+      incl. confidence, memory_updates, state_updates, data) with reserved sys.* writes;
+      a fatal domain error rejects the whole response, typed atomicity holds, and D-LR
+      legacy partial acceptance for recoverable insight errors is preserved.
+    source:
+      - "src/xubb_agents/core/engine.py: _enforce_acceptance / _enforce_typed / _candidate_projection / _boundary_reference_context"
+      - "src/xubb_agents/core/insight_validation.py: validate_typed_candidate / validate_response_channels"
+      - "src/xubb_agents/library/dynamic.py: _stage_typed (private hand-over)"
+    invariant: INV-38
+    test: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_custom_question_without_payload_rejects_whole_response"
+    test_control: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_control_valid_custom_insight_is_accepted_and_stamped"
+    test_hypothesis: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_custom_hypothesis_needs_evidence_rationale_and_validation_step"
+    test_mutation: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_mutated_custom_output_is_revalidated"
+    test_engine_owned: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_engine_owned_public_fields_cannot_be_producer_set"
+    test_callback: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_finish_callback_mutation_is_caught_for_dynamic_agents_too"
+    test_staged: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_staged_provenance_and_content_fields_survive_the_unified_boundary"
+    test_domain: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_domain_channels_are_revalidated_on_the_object_that_commits"
+    test_legacy_partial: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_legacy_keeps_partial_acceptance_for_recoverable_insight_errors"
+    test_reference_authority: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_reference_authority_comes_from_the_invocation_not_the_response"
+    test_host_records: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_host_records_still_resolve_for_custom_agents"
+    status: covered   # H1. Closes audit XA-01.
+
+  - id: ANSWER-VISIBILITY-SCOPED
+    statement: >
+      Per-agent answer visibility is decided by the engine on the invocation view each
+      agent receives — from the frozen context and the retained question records — so it
+      holds through direct context access, template aliases of the full context, custom
+      agents and isolated content tasks; a validated answer is visible only to the agent
+      that asked the question unless the host authorised sharing. The host's own answer
+      list is never mutated.
+    source:
+      - "src/xubb_agents/core/engine.py: _scoped_view / _run_phase / start_content_request"
+    invariant: INV-39
+    test: "tests/test_boundary_hardening_h1.py::TestAnswerVisibility::test_unrelated_custom_agent_sees_nothing_and_the_asker_sees_its_answer"
+    test_shared: "tests/test_boundary_hardening_h1.py::TestAnswerVisibility::test_host_authorised_sharing_exposes_to_all"
+    test_template: "tests/test_boundary_hardening_h1.py::TestAnswerVisibility::test_template_alias_of_the_full_context_is_scoped_too"
+    test_isolated: "tests/test_boundary_hardening_h1.py::TestAnswerVisibility::test_isolated_content_task_view_is_scoped"
+    status: covered   # H1. Closes audit XA-02.
+
+  - id: INTERACTIVE-PRINCIPAL-IDENTITY
+    statement: >
+      Interactive operations require a present, matching current principal taken from
+      the frozen invocation context: an answer is accepted only when the current
+      principal is present and equals both the question record's and the answer's
+      principal; a correction target is valid only when the current principal is present
+      and equals the record's; correction capability, like reply and question, is
+      unavailable without a principal (missing_principal). A missing identity on either
+      side disables the operation — it is never a wildcard.
+    source:
+      - "src/xubb_agents/core/insight_validation.py: validate_answers / validate_correction_target / effective_insight_types"
+    invariant: INV-40
+    test: "tests/test_boundary_hardening_h1.py::TestPrincipalIdentity::test_answer_requires_current_principal_to_match_question_and_answer"
+    test_correction_rule: "tests/test_boundary_hardening_h1.py::TestPrincipalIdentity::test_correction_requires_present_matching_principal"
+    test_capability: "tests/test_boundary_hardening_h1.py::TestPrincipalIdentity::test_correction_capability_needs_a_principal_like_reply_and_question"
+    test_engine_reject: "tests/test_boundary_hardening_h1.py::TestPrincipalIdentity::test_engine_rejects_a_correction_without_current_identity"
+    test_engine_accept: "tests/test_boundary_hardening_h1.py::TestPrincipalIdentity::test_engine_accepts_a_correction_under_the_matching_principal"
+    status: covered   # H1. Closes audit XA-03.
+
+  - id: TYPED-FAILURES-ARE-DIAGNOSTICS
+    statement: >
+      Under typed_v1 an evaluation failure produces diagnostics only (invalid_envelope,
+      classification agent_error:<ExceptionType>, no exception text) and no insight: the
+      framework-manufactured ERROR card is converted at the boundary and never forwarded
+      by the merge; every typed insight in a final response has a human-facing type and
+      engine-minted identity. The sanitized ERROR card remains a legacy_v2-only surface.
+    source:
+      - "src/xubb_agents/core/engine.py: _enforce_typed (rejected branch) / _merge_responses"
+      - "src/xubb_agents/core/agent.py: process"
+    invariant: INV-41
+    test: "tests/test_boundary_hardening_h1.py::TestTypedFailures::test_typed_exception_is_a_diagnostic_not_an_insight"
+    test_identity: "tests/test_boundary_hardening_h1.py::TestTypedFailures::test_every_typed_insight_has_a_human_facing_type_and_identity"
+    test_legacy_control: "tests/test_boundary_hardening_h1.py::TestTypedFailures::test_legacy_error_card_surface_is_unchanged"
+    test_forged: "tests/test_boundary_hardening_h1.py::TestTypedFailures::test_forged_framework_error_on_an_accepted_typed_result_is_rejected"
+    status: covered   # H1. Closes audit XA-07.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       68   (every contract & invariant names a passing, rule-asserting test)
+# covered:       72   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         68
+# total:         72
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

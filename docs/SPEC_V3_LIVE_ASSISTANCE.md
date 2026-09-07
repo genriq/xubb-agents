@@ -54,7 +54,7 @@ Behind them: the engine cannot gate an LLM call on anything it can see in the tr
 |---|---|
 | Workstreams | 6 (A–F) |
 | Items | 29 here (SO-1, LH-1, UR-1, CF-1, LC-1…5, DL-1…6, TP-1…4, SS-1…5, EV-1…4) plus the type contract's 35 ITC contracts |
-| New invariants | INV-20 … INV-37 (18) |
+| New invariants | INV-20 … INV-41 (22; INV-38…41 added by the H1 hardening) |
 | New models | `Urgency`, `AnchorRef`, `InsightOutcome`, `TurnEvent`, `SessionBudget` |
 | New public API | `stream_turn`, `record_outcome`, `InsightPolicy`, `SessionRecorder`, `replay` |
 | Gates | G0, A, B1, B2, C, L, D — dependency-ordered, versions chosen per gate (§13) |
@@ -143,6 +143,10 @@ Registered in `CONTRACTS.yaml` with rule-asserting tests and negative controls, 
 | **INV-35** | **Runtime state survives rehydration.** After `Blackboard.to_dict()` → `from_dict()`, an agent's cooldown and private memory are what they were; a turn on the rehydrated board respects them. | D |
 | **INV-36** | **Replay determinism.** Replaying a recording with its recorded LLM outputs, under passthrough policy, reproduces the recorded insights and Blackboard end state exactly. | D |
 | **INV-37** | **Content requests are isolated.** An extended-generation request never acquires the live-turn lock and never writes the live Blackboard; its result carries request and snapshot identity. A live turn started during a content request completes within its own deadline. | C |
+| **INV-38** | **One acceptance boundary.** Every producer's response — DynamicAgent, custom agent, callback-modified — passes the same candidate and domain revalidation at the engine boundary; engine-owned fields are never producer-set. (H1, audit XA-01) | — |
+| **INV-39** | **Answer visibility is scoped on the invocation view.** An agent's context contains only the answers to its own questions unless the host authorised sharing, through every access path. (H1, audit XA-02) | — |
+| **INV-40** | **Interactive identity is present and matching.** Answers and corrections require a present current principal equal to the record's; missing identity disables, never wildcards. (H1, audit XA-03) | — |
+| **INV-41** | **Typed failures are diagnostics.** Under typed_v1 an evaluation failure never enters the insight channel; the ERROR card is legacy-only. (H1, audit XA-07) | — |
 
 ---
 

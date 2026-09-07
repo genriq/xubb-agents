@@ -26,6 +26,7 @@ Rules implemented here (spec §8.2, §8.6, FINAL_DECISIONS.md D-LR):
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -164,8 +165,9 @@ def effective_insight_types(*, contract: str, allowed_types: List[str],
         elif value == "question" and not (allow_question and host_text_questions and principal_present):
             unavailable[value] = ("missing_principal" if (allow_question and host_text_questions)
                                   else "question_not_permitted")
-        elif value == "correction" and not (allow_correction and host_corrections):
-            unavailable[value] = "correction_not_permitted"
+        elif value == "correction" and not (allow_correction and host_corrections and principal_present):
+            unavailable[value] = ("missing_principal" if (allow_correction and host_corrections)
+                                  else "correction_not_permitted")
         elif value == "correction" and not history_present:
             unavailable[value] = "missing_history"     # §10.1: no trusted history snapshot this run
         elif value not in implemented:
@@ -228,8 +230,11 @@ def validate_correction_target(payload: Dict[str, Any], *, prior_insights: List[
         return Issue("invalid_correction_target", field_path, "same_turn_deferred")
     if getattr(record, "status", "active") != "active":
         return Issue("invalid_correction_target", field_path, f"target_{record.status}")
-    record_principal = getattr(record, "principal_id", None)
-    if record_principal is not None and principal_id is not None and record_principal != principal_id:
+    # H1 (XA-03): the current principal must be present and match the target's;
+    # a missing identity on either side rejects — never a wildcard.
+    if principal_id is None:
+        return Issue("missing_principal", field_path, "current_principal_required")
+    if getattr(record, "principal_id", None) != principal_id:
         return Issue("invalid_correction_target", field_path, "principal_mismatch")
     if getattr(record, "agent_id", None) != agent_id:
         if not (policy == "allowlisted" and agent_id in allowlist):
@@ -423,9 +428,17 @@ def validate_answers(answers: List[Any], prior_insights: List[Any], session_id: 
         if getattr(target, "status", "active") != "active":
             issues.append(Issue("invalid_input_reference", path, f"question_{getattr(target, 'status', '?')}"))
             continue
-        target_principal = getattr(target, "principal_id", None)
-        expected_principal = target_principal or principal_id
-        if expected_principal is not None and getattr(ans, "principal_id", None) != expected_principal:
+        # H1 (XA-03): authority comes from the frozen invocation context. The
+        # CURRENT principal must be present and must match BOTH the question's
+        # principal and the answer's principal. A missing identity disables
+        # the operation — it is never a wildcard.
+        if principal_id is None:
+            issues.append(Issue("missing_principal", path, "current_principal_required"))
+            continue
+        if getattr(target, "principal_id", None) != principal_id:
+            issues.append(Issue("invalid_input_reference", path, "principal_mismatch"))
+            continue
+        if getattr(ans, "principal_id", None) != principal_id:
             issues.append(Issue("invalid_input_reference", path, "principal_mismatch"))
             continue
         status = getattr(ans, "status", None)
@@ -907,6 +920,66 @@ class DomainChannels:
     def has_domain(self) -> bool:
         """Non-sidecar channels present (sidecars never count for partial)."""
         return bool(self.retained_names())
+
+
+def validate_response_channels(response: Any) -> List[Issue]:
+    """H1 (XA-01): shape-revalidate the domain channels of a RESPONSE OBJECT at
+    the engine boundary — what commits is the object's current content, not
+    whatever an earlier stage validated. Construction-time model validation is
+    no proof: attributes can be reassigned by a custom ``evaluate`` or by an
+    ``on_agent_finish`` callback. Every issue is fatal (``invalid_domain_payload``
+    / ``reserved_state_write``): a fatal domain error rejects the whole response
+    in both contracts (D-LR keeps partial acceptance for RECOVERABLE insight
+    errors only)."""
+    from .models import Event as _Event, Fact as _Fact   # local: avoid an import cycle
+    issues: List[Issue] = []
+
+    def fatal(code: str, path: str, value: Any = None) -> None:
+        issues.append(Issue(code, path, bounded(value), fatal=True))
+
+    def str_keyed(name: str, value: Any, reserved: bool = False, exclude_memory: bool = False) -> None:
+        if not isinstance(value, dict):
+            fatal("invalid_domain_payload", name, value)
+            return
+        for key in value:
+            if not isinstance(key, str):
+                fatal("invalid_domain_payload", f"{name}.{bounded(key)}", key)
+            elif reserved and key.startswith(RESERVED_VAR_PREFIX) \
+                    and not (exclude_memory and key.startswith(LEGACY_MEMORY_PREFIX)):
+                fatal("reserved_state_write", f"{name}.{key}", key)
+
+    events = getattr(response, "events", [])
+    if not isinstance(events, list):
+        fatal("invalid_domain_payload", "events", events)
+    else:
+        for i, evt in enumerate(events):
+            if not isinstance(evt, _Event) or not isinstance(evt.name, str) or not isinstance(evt.payload, dict):
+                fatal("invalid_domain_payload", f"events[{i}]", evt)
+    str_keyed("variable_updates", getattr(response, "variable_updates", {}), reserved=True)
+    queues = getattr(response, "queue_pushes", {})
+    str_keyed("queue_pushes", queues)
+    if isinstance(queues, dict):
+        for name, items in queues.items():
+            if isinstance(name, str) and not isinstance(items, list):
+                fatal("invalid_domain_payload", f"queue_pushes.{name}", items)
+    facts = getattr(response, "facts", [])
+    if not isinstance(facts, list):
+        fatal("invalid_domain_payload", "facts", facts)
+    else:
+        for i, f in enumerate(facts):
+            conf = getattr(f, "confidence", None)
+            ok = (isinstance(f, _Fact) and isinstance(f.type, str) and bool(f.type)
+                  and (f.key is None or isinstance(f.key, str))
+                  and isinstance(conf, (int, float)) and not isinstance(conf, bool)
+                  and math.isfinite(conf) and 0.0 <= conf <= 1.0)
+            if not ok:
+                fatal("invalid_domain_payload", f"facts[{i}]", f)
+    str_keyed("memory_updates", getattr(response, "memory_updates", {}))
+    str_keyed("state_updates", getattr(response, "state_updates", {}), reserved=True, exclude_memory=True)
+    data = getattr(response, "data", {})
+    if not isinstance(data, dict) or not all(isinstance(k, str) for k in data):
+        fatal("invalid_domain_payload", "data", data)
+    return issues
 
 
 def _reserved_keys(mapping_dict: Dict[str, Any], exclude_memory: bool = False) -> List[str]:

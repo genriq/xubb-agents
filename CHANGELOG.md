@@ -13,6 +13,51 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — H1: enforcement and identity (independent audit of `e3dfaf1`, findings XA-01/02/03/07)
+
+The audit found that the strongest guarantees held on the DynamicAgent path but not
+uniformly across every supported producer. H1 closes the four high-priority findings;
+nothing in the design or the type vocabulary changes.
+
+- **One acceptance pipeline for every producer (XA-01).** The engine boundary now re-runs
+  the strict candidate validator on the producer-controlled projection of every insight —
+  custom `BaseAgent` subclasses, DynamicAgent staging and callback-modified responses
+  alike — so a `question` without its payload, a hypothesis without evidence, an empty
+  body, a non-finite confidence, an unsupported urgency, an engine-owned key in metadata
+  or an un-negotiated content field rejects the whole typed response whichever class
+  produced it. Engine-owned public fields (`id`, `turn`, `contract_version`,
+  `confidence_provided`, `content_contract`, `response_depth`, `content_request_id`,
+  `source_snapshot_id`) can never be producer-set: trusted staging hands its
+  runtime-derived values to the engine privately and the engine stamps them after
+  validation. Reference authority comes from the invocation — host records plus the
+  run's own snapshot held by the agent — never from a snapshot attached to the response.
+- **Domain channels are revalidated on the object that commits (XA-01).** In both
+  contracts the boundary shape-checks `events`, `variable_updates`, `queue_pushes`,
+  `facts` (including confidence), `memory_updates`, `state_updates` and `data`, with
+  reserved `sys.*` writes. A fatal domain error rejects the whole response; D-LR legacy
+  partial acceptance for recoverable insight errors is preserved; typed atomicity holds.
+- **Answer visibility is scoped on the invocation view (XA-02).** The engine builds a
+  per-agent context whose `insight_answers` contain only the answers to that agent's
+  own questions (or all, when the host authorised sharing) — for the live phases and for
+  isolated content tasks — so the rule holds through direct access, template aliases
+  of the full context and custom agents, not just the prompt shortcut.
+- **Interactive operations require a present, matching principal (XA-03).** Answers are
+  accepted only when the current principal is present and equals both the question's
+  and the answer's principal; correction targets only when the current principal is
+  present and equals the record's; correction capability, like reply and question, is
+  unavailable without a principal (`missing_principal`). Missing identity is never a
+  wildcard.
+- **Typed failures are diagnostics only (XA-07).** An evaluation exception under
+  `typed_v1` yields `invalid_envelope` / `agent_error:<ExceptionType>` and no insight;
+  the sanitized ERROR card remains a `legacy_v2`-only surface.
+- Contracts: BOUNDARY-UNIFIED-ACCEPTANCE, ANSWER-VISIBILITY-SCOPED,
+  INTERACTIVE-PRINCIPAL-IDENTITY, TYPED-FAILURES-ARE-DIAGNOSTICS (INV-38…41). The
+  audit's own regression file passes its 14 H1-scope cases unmodified; the 5 remaining
+  cases are H2 scope.
+- Behaviour change to note: a `PriorInsightRecord` without `principal_id` no longer
+  matches any current principal for answers or corrections; hosts must record the
+  principal on interactive records.
+
 ### Added — C2: isolated active-session extended generation (XUBB-ITC-1 §14.6.1, §14.9; DL-6)
 
 The last contract gate. Extended content during an ACTIVE session now has a real
