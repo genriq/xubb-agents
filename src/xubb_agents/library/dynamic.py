@@ -7,6 +7,7 @@ from jinja2.sandbox import SandboxedEnvironment
 from ..core.agent import BaseAgent, AgentConfig, DEFAULT_MODEL
 from ..core.models import (
     AgentContext, AgentResponse, InsightType, TriggerType, Event, Fact, InsightDiagnostic,
+    InsightConfig,
 )
 from ..core.insight_validation import (
     DomainChannels, resolve_gate_mode, evaluate_gate, validate_legacy_candidate,
@@ -166,6 +167,23 @@ class DynamicAgent(BaseAgent):
                     f"(model / reasoning_effort / timeout / max_tokens) instead."
                 )
         
+        # XUBB-ITC-1 (G1): per-agent insight_config. A malformed block is a
+        # CONFIG error (loud at construction, like model_params collisions) —
+        # never a silent widening or narrowing of the vocabulary.
+        raw_insight_config = config_dict.get("insight_config")
+        insight_config = None
+        if raw_insight_config is not None:
+            if not isinstance(raw_insight_config, dict):
+                from ..core.engine import AgentConfigurationError
+                raise AgentConfigurationError(
+                    f"Agent '{agent_name}': insight_config must be an object, got "
+                    f"{type(raw_insight_config).__name__}")
+            try:
+                insight_config = InsightConfig(**raw_insight_config)
+            except (ValueError, TypeError) as e:
+                from ..core.engine import AgentConfigurationError
+                raise AgentConfigurationError(f"Agent '{agent_name}': invalid insight_config: {e}") from e
+
         # Parse output format (default, v2_raw, or custom filename)
         output_format = config_dict.get("output_format", "default")
         
@@ -191,6 +209,7 @@ class DynamicAgent(BaseAgent):
             timeout=llm_timeout,
             max_tokens=llm_max_tokens,
             model_params=model_params,
+            insight_config=insight_config,
         ))
         
         self.system_prompt = config_dict.get("text", "")

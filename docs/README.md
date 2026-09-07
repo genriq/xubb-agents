@@ -16,7 +16,7 @@
 
 ## Insight contract — specification 1.2.0
 
-These documents describe the agreed design direction. **Implementation status:** gate **G0 (legacy safety)** is implemented in this tree — declared gates, unknown-type rejection, D-LR partial acceptance, sanitized diagnostics, no parse-time mutation — and registered as framework contracts ITC-04/05/06/13/23/24 `.FW`. Every later gate (nine-purpose enum, `typed_v1`, provider schemas, evidence, interactions, long-form) is staged, not shipped, and there is no Xubb package-version bump. Existing runtime/API documentation above remains authoritative for what is shipped.
+These documents describe the agreed design direction. **Implementation status:** gate **G0 (legacy safety)** is implemented — declared gates, unknown-type rejection, D-LR partial acceptance, sanitized diagnostics, no parse-time mutation (contracts ITC-04/05/06/13/23/24 `.FW`). **G1 part 1** is implemented — the nine-purpose enum with the `INFORMATION` alias, `insight_contract` selection (`typed_v1` fails closed until part 2), per-agent `insight_config`, host capability and principal context fields (contracts ITC-01/02/14 `.FW`, INSIGHT-CONTRACT-SELECTION, INSIGHT-CONFIG-LOAD-TIME). Typed acceptance, provider schemas, evidence, interactions and long-form are staged, not shipped, and there is no Xubb package-version bump. Existing runtime/API documentation above remains authoritative for what is shipped.
 
 | Doc | What it is |
 |-----|-----------|

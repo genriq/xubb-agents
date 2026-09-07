@@ -11,12 +11,60 @@ if TYPE_CHECKING:
 
 
 class InsightType(str, Enum):
-    SUGGESTION = "suggestion"
-    WARNING = "warning"
-    OPPORTUNITY = "opportunity" # Zone A: Urgent Positive
-    FACT = "fact"
-    PRAISE = "praise"
-    ERROR = "error" # For system alerts
+    """The primary communicative PURPOSE of a human-facing message (XUBB-ITC-1 §3).
+
+    A type names what a message is — never a UI surface, colour, voice, length,
+    urgency, certainty, or permission to act. The canonical members and wire
+    values are preserved; ``INFORMATION`` is an intentional ALIAS of ``FACT``
+    (same member, wire value stays ``"fact"``), so this enum must never carry
+    ``@unique``. Iteration yields ten unique members (incl. ERROR); ``__members__``
+    holds eleven names. Type-offering code uses ``HUMAN_INSIGHT_TYPES``, never
+    unrestricted iteration. ``ERROR`` is a framework-manufactured diagnostic only.
+    """
+    SUGGESTION = "suggestion"      # a recommended action, approach, or course of action
+    WARNING = "warning"            # a material risk, adverse consequence, or constraint
+    OPPORTUNITY = "opportunity"    # a favourable opening or potential benefit
+    FACT = "fact"                  # canonical name retained; see INFORMATION
+    PRAISE = "praise"              # recognition of specific effective behaviour
+    ERROR = "error"                # legacy framework diagnostics only — never model-authorable
+
+    INFORMATION = FACT             # preferred public name; same member, wire value "fact"
+    OBSERVATION = "observation"    # a grounded interpretation, pattern, or synthesis
+    REPLY = "reply"                # optional wording for the principal to say to a counterpart
+    CORRECTION = "correction"      # explicit repair/withdrawal of earlier assistant assistance
+    QUESTION = "question"          # a request from the assistant to the principal for input
+
+
+# The nine human-facing purposes, in the contract's canonical order. This — not
+# enum iteration — is the source for allowed-type sets and provider enums.
+HUMAN_INSIGHT_TYPES = (
+    InsightType.INFORMATION,
+    InsightType.OBSERVATION,
+    InsightType.SUGGESTION,
+    InsightType.WARNING,
+    InsightType.OPPORTUNITY,
+    InsightType.PRAISE,
+    InsightType.REPLY,
+    InsightType.CORRECTION,
+    InsightType.QUESTION,
+)
+
+# Display labels come from this explicit map, never from ``.name`` (which stays
+# "FACT" for the alias). Hosts may override per locale/profile (§12.1 allows
+# "Recommendation" for SUGGESTION without changing the wire value).
+INSIGHT_TYPE_LABELS = {
+    InsightType.INFORMATION: "Information",
+    InsightType.OBSERVATION: "Observation",
+    InsightType.SUGGESTION: "Suggestion",
+    InsightType.WARNING: "Warning",
+    InsightType.OPPORTUNITY: "Opportunity",
+    InsightType.PRAISE: "Praise",
+    InsightType.REPLY: "Reply",
+    InsightType.CORRECTION: "Correction",
+    InsightType.QUESTION: "Question",
+    InsightType.ERROR: "Error",
+}
+
 
 class TriggerType(str, Enum):
     """The type of event that triggered this agent run."""
@@ -89,6 +137,99 @@ class AgentConfigOverride(BaseModel):
     instructions_append: Optional[str] = None
 
 
+# ============================================================================
+# XUBB-ITC-1 (G1) — per-agent insight configuration and host capabilities
+# ============================================================================
+
+_INTERACTIVE_FLAGS = (("reply", "allow_reply"), ("question", "allow_question"),
+                      ("correction", "allow_correction"))
+
+
+class InsightConfig(BaseModel):
+    """Per-agent ``insight_config`` (XUBB-ITC-1 §7.1).
+
+    ``allowed_types`` are wire values; the default is the six ordinary purposes.
+    ``allowed_types=[]`` means STATE-ONLY, never "all". The interactive
+    permission flags never implicitly expand ``allowed_types``; a flag and the
+    corresponding membership must agree, and the engine rejects a contradictory
+    static configuration at registration (see ``contradictions()``).
+    Unknown keys are rejected (extra="forbid") so a typo cannot silently widen
+    or narrow the vocabulary.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_types: List[str] = Field(
+        default_factory=lambda: ["fact", "observation", "suggestion", "warning", "opportunity", "praise"],
+        description="Wire values the agent may emit; [] = state-only",
+    )
+    allow_reply: bool = False
+    allow_question: bool = False
+    allow_correction: bool = False
+    analysis_profile: Literal["general", "consulting"] = "general"
+    default_urgency: Optional[Literal["now", "soon", "whenever"]] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        human = {t.value for t in HUMAN_INSIGHT_TYPES}
+        seen = set()
+        for value in self.allowed_types:
+            if not isinstance(value, str) or value not in human:
+                raise ValueError(
+                    f"insight_config.allowed_types: {value!r} is not a human-facing wire value "
+                    f"(allowed: {sorted(human)})"
+                )
+            if value in seen:
+                raise ValueError(f"insight_config.allowed_types: duplicate value {value!r}")
+            seen.add(value)
+
+    def contradictions(self) -> List[str]:
+        """Static contradictions that must fail at load time (§7.2)."""
+        found = []
+        for wire, flag in _INTERACTIVE_FLAGS:
+            listed = wire in self.allowed_types
+            allowed = getattr(self, flag)
+            if listed and not allowed:
+                found.append(f"'{wire}' is in allowed_types but {flag} is false")
+            elif allowed and not listed:
+                found.append(f"{flag} is true but '{wire}' is not in allowed_types "
+                             f"(flags never implicitly expand allowed_types)")
+        return found
+
+
+class HostInsightCapabilities(BaseModel):
+    """What the HOST declares it can present or handle (XUBB-ITC-1 §6.5).
+
+    Safe defaults: the five existing non-error wire values and every interactive
+    capability off. A host that has not declared a capability does not have it;
+    in particular OBSERVATION support must be declared explicitly. These are
+    host inputs, never model output.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    supported_types: List[str] = Field(
+        default_factory=lambda: ["suggestion", "warning", "opportunity", "fact", "praise"])
+    reply_drafts: bool = False
+    text_questions: bool = False
+    corrections: bool = False
+    correction_agent_policy: Literal["own_only", "allowlisted"] = "own_only"
+    correction_agent_ids: List[str] = Field(default_factory=list)
+    expanded_reading: bool = False
+    content_contracts: List[str] = Field(default_factory=list)
+    content_formats: List[str] = Field(default_factory=lambda: ["plain_text"])
+    max_content_chars: Optional[int] = None
+    max_preview_chars: Optional[int] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        human = {t.value for t in HUMAN_INSIGHT_TYPES}
+        for value in self.supported_types:
+            if value not in human:
+                raise ValueError(f"insight_capabilities.supported_types: {value!r} is not a human-facing wire value")
+        if self.content_contracts:
+            for name, limit in (("max_content_chars", self.max_content_chars),
+                                ("max_preview_chars", self.max_preview_chars)):
+                if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+                    raise ValueError(f"insight_capabilities.{name} must be a positive int when content contracts are enabled")
+
+
 class AgentContext(BaseModel):
     """The full context required for an Agent to think."""
     session_id: str
@@ -119,6 +260,15 @@ class AgentContext(BaseModel):
     agent_config_overrides: Dict[str, AgentConfigOverride] = Field(
         default_factory=dict, description="Per-agent config overrides from Role modifiers"
     )
+
+    # ---- XUBB-ITC-1 (G1) trusted host inputs — never model output ----
+    # Stable identity of the assisted human. Host-declared; the framework never
+    # infers it from transcript speakers. Absent ⇒ no principal ⇒ REPLY/QUESTION
+    # unavailable for the run.
+    principal_id: Optional[str] = Field(default=None, description="Host-declared principal identity")
+    # Host capability declaration (safe defaults). Frozen per run and propagated
+    # through every phase-context copy (§6.4, ITC-14).
+    insight_capabilities: HostInsightCapabilities = Field(default_factory=HostInsightCapabilities)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

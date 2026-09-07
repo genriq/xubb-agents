@@ -303,12 +303,16 @@ class AgentInsight(BaseModel):
     metadata: Dict[str, Any] = {}
 ```
 
-**Insight Types:**
-- `SUGGESTION`: Passive advice (Zone C)
-- `WARNING`: Urgent negative alert (Zone A)
-- `OPPORTUNITY`: Urgent positive alert (Zone A)
-- `FACT`: Contextual information (Zone C)
-- `PRAISE`: Positive reinforcement
+**Insight Types** (XUBB-ITC-1 §3 — a type names the message's *purpose*, never a surface, urgency or permission; `HUMAN_INSIGHT_TYPES` is the canonical nine-tuple, `INSIGHT_TYPE_LABELS` the display map):
+- `INFORMATION` (alias of `FACT`, wire value `"fact"`): relevant information without added interpretation
+- `OBSERVATION`: a grounded interpretation, pattern or synthesis *(G1 member; unavailable until `typed_v1`)*
+- `SUGGESTION`: a recommended action, approach or course of action
+- `WARNING`: a material risk, adverse consequence or constraint
+- `OPPORTUNITY`: a favourable opening or potential benefit
+- `PRAISE`: recognition of specific effective behaviour
+- `REPLY`: optional wording for the principal to say to a counterpart *(G1 member; permissioned, unavailable until `typed_v1`)*
+- `CORRECTION`: explicit repair/withdrawal of earlier assistant assistance *(G1 member; permissioned, unavailable until `typed_v1`)*
+- `QUESTION`: a request from the assistant to the principal for input *(G1 member; permissioned, unavailable until `typed_v1`)*
 - `ERROR`: Framework-manufactured diagnostic only (G0): content is the sanitized category `agent_error`, metadata carries the exception class name, the exception text lives only in the non-serializing `debug_info`. Never offered to a model; a model-authored `"error"` is rejected (`type_not_allowed`), and an agent-authored ERROR insight is dropped at the engine boundary (runtime provenance).
 
 > **Type labels on the legacy path (G0):** an absent type defaults to `suggestion` (declared adapter default); labels are case-folded; any other unrecognised label is `unknown_type` and `observation` / `reply` / `correction` / `question` are `type_not_allowed` until the typed contract (`typed_v1`, gate G1) is selected. Unknown labels are never relabelled. The full nine-purpose vocabulary is specified in `docs/SPEC_INSIGHT_TYPES.md` §3.

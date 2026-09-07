@@ -294,6 +294,7 @@ A piece of advice returned by an agent:
 - `OPPORTUNITY`: Urgent positive alert (Zone A)
 - `FACT`: Contextual information (Zone C)
 - `PRAISE`: Positive reinforcement
+- *G1 members, present in the enum but unavailable on the default `legacy_v2` path until typed acceptance lands:* `OBSERVATION`, `REPLY`, `CORRECTION`, `QUESTION`; `INFORMATION` is an alias of `FACT` (wire value stays `"fact"`). See `docs/SPEC_INSIGHT_TYPES.md`.
 - `ERROR`: System issues
 
 ---

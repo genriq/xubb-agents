@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Optional, Dict, Any, List
 from abc import ABC, abstractmethod
-from .models import AgentContext, AgentResponse, AgentInsight, InsightType, TriggerType
+from .models import AgentContext, AgentResponse, AgentInsight, InsightType, TriggerType, InsightConfig
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,13 @@ class AgentConfig:
                  reasoning_effort: Optional[str] = None,
                  timeout: Optional[float] = None,
                  max_tokens: Optional[int] = None,
-                 model_params: Optional[Dict[str, Any]] = None):
+                 model_params: Optional[Dict[str, Any]] = None,
+                 # XUBB-ITC-1 (G1): per-agent insight configuration (§7.1). None ⇒
+                 # the documented defaults. Validated for contradictions at
+                 # registration; enforced by typed acceptance (typed_v1).
+                 insight_config: Optional["InsightConfig"] = None):
         self.name = name
+        self.insight_config = insight_config if insight_config is not None else InsightConfig()
         self.id = id or name.lower().replace(" ", "_")
         self.trigger_interval = trigger_interval
         self.cooldown = cooldown
