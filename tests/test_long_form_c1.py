@@ -260,11 +260,12 @@ class TestDepthAndAdmission:
         final, _ = turn(engine(a), ctx(execution=None))
         assert "invalid_content_execution_context" in codes(final) and a.llm.calls == []
 
-    def test_isolated_active_path_is_refused_until_c2(self):
+    def test_host_declared_isolated_path_is_refused(self):
+        """A declaration of isolation is not the engine's isolated task (C2)."""
         a = agent(body())
         final, _ = turn(engine(a), ctx(execution=ISOLATED, request=InsightContentRequest(depth="standard", request_id="r-1")))
         d = next(d for d in final.diagnostics if d.code == "content_execution_not_allowed")
-        assert d.classification == "isolated_path_not_implemented" and a.llm.calls == []
+        assert d.classification == "isolated_path_requires_engine_task" and a.llm.calls == []
 
     def test_unsupported_depth_and_brief_profile_evasion(self):
         only_brief = dict(CONTENT, profiles={"brief": PROFILES["brief"]})

@@ -194,6 +194,30 @@ class ContentExecutionContext(BaseModel):
     pause_declared: Optional[bool] = None
     task_isolation_verified: Optional[bool] = None
 
+    # C2: the ISOLATED active path is admitted only on a declaration the ENGINE
+    # issued for a content task it owns (fresh agent instance, frozen snapshot,
+    # no live lock or writes). A host-authored isolated declaration is refused —
+    # a boolean never substitutes for the runtime (§14.6.1). Private, never
+    # serialized, never settable from data.
+    _engine_issued: bool = PrivateAttr(default=False)
+
+
+class ContentResult(BaseModel):
+    """The outcome of an isolated content task (C2, §14.6.1). Result-only: it is
+    never merged into the live Blackboard, never bumps the live turn counter and
+    never reserves correction targets. The host checks currentness against
+    ``source_snapshot_id`` before presenting it."""
+    model_config = ConfigDict(extra="forbid")
+    request_id: str
+    source_snapshot_id: str
+    session_id: str
+    agent_id: str
+    snapshot_turn: int
+    status: Literal["accepted", "silent", "rejected", "cancelled"]
+    insight: Optional["AgentInsight"] = None
+    diagnostics: List["InsightDiagnostic"] = Field(default_factory=list)
+    usage: Optional[Dict[str, int]] = None
+
 
 class InsightConfig(BaseModel):
     """Per-agent ``insight_config`` (XUBB-ITC-1 §7.1).

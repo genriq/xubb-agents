@@ -25,7 +25,8 @@ from copy import deepcopy
 from typing import List, Optional, Dict, Any, Tuple
 
 from .models import (
-    AgentContext, AgentResponse, TriggerType, Event, InsightType, InsightDiagnostic
+    AgentContext, AgentResponse, TriggerType, Event, InsightType, InsightDiagnostic,
+    ContentExecutionContext, ContentResult, InsightContentRequest,
 )
 import uuid
 from .insight_validation import (
@@ -103,6 +104,37 @@ def _on_close_task_done(task: "asyncio.Task") -> None:
         logger.warning(f"Failed to close previous LLM client: {exc}")
 
 
+class ContentTaskHandle:
+    """Ownership handle of one isolated content task (C2). ``cancel()`` revokes
+    publication and cancels the task; ``result()`` awaits the ContentResult."""
+
+    def __init__(self, request_id: str, source_snapshot_id: str, session_id: str,
+                 agent_id: str, snapshot_turn: int):
+        self.request_id = request_id
+        self.source_snapshot_id = source_snapshot_id
+        self.session_id = session_id
+        self.agent_id = agent_id
+        self.snapshot_turn = snapshot_turn
+        self.publishable = True
+        self.task: Optional["asyncio.Task"] = None
+
+    def cancel(self) -> None:
+        self.publishable = False
+        if self.task is not None and not self.task.done():
+            self.task.cancel()
+
+    async def result(self) -> ContentResult:
+        try:
+            return await self.task
+        except asyncio.CancelledError:
+            return ContentResult(request_id=self.request_id, source_snapshot_id=self.source_snapshot_id,
+                                 session_id=self.session_id, agent_id=self.agent_id,
+                                 snapshot_turn=self.snapshot_turn, status="cancelled",
+                                 diagnostics=[InsightDiagnostic(execution_id=self.request_id, agent_id=self.agent_id,
+                                                                code="content_execution_not_allowed", field_path="$",
+                                                                classification="cancelled")])
+
+
 class AgentEngine:
     """Central orchestrator for the agent system (v2)."""
     
@@ -162,6 +194,14 @@ class AgentEngine:
         # (live_max_output_tokens / live_max_timeout_seconds) and optional global
         # character caps. Injected into agents at registration.
         self.content_limits: Dict[str, Any] = dict(content_limits or {})
+        # C2 / §14.6.1: bounded shared-provider admission for isolated content
+        # tasks (default 1) so they cannot consume the live lane's capacity, and
+        # the registry of live task handles per session (for closure).
+        max_tasks = self.content_limits.get("max_concurrent_content_tasks", 1)
+        if not isinstance(max_tasks, int) or isinstance(max_tasks, bool) or max_tasks < 1:
+            raise ValueError("content_limits.max_concurrent_content_tasks must be a positive int")
+        self._content_slots = asyncio.Semaphore(max_tasks)
+        self._content_tasks: Dict[str, List["ContentTaskHandle"]] = {}
         # EN-1 / INV-18: only-when-set, so LLMClient defaults keep applying
         # otherwise; update_api_key rebuilds from THIS dict, never bare.
         self._llm_config: Dict[str, Any] = {}
@@ -921,6 +961,115 @@ class AgentEngine:
         # Filter out None results (failed agents)
         return [r for r in results if r is not None]
     
+    # =========================================================================
+    # C2 (§14.6.1) — isolated content tasks
+    # =========================================================================
+
+    def start_content_request(self, context: AgentContext, agent_id: str,
+                              request: InsightContentRequest) -> "ContentTaskHandle":
+        """Run one extended-content generation OUTSIDE the live turn path.
+
+        The task owns a fresh agent instance and a frozen deep copy of the
+        context (transcript, Blackboard snapshot, capabilities, references) under
+        an engine-issued isolated declaration. It never holds the live turn path,
+        never writes the live Blackboard or durable private memory, never bumps
+        the live turn counter and never reserves correction targets; its output
+        is result-only. Admission is bounded by ``content_limits.max_concurrent_
+        content_tasks`` (default 1). Cancel the handle, or ``close_session_content``,
+        to revoke publication: a late result then reports ``cancelled`` with its
+        diagnostics and usage retained. The host checks currentness against
+        ``source_snapshot_id`` before presenting the result.
+        """
+        agent = next((a for a in self.agents if a.config.id == agent_id), None)
+        if agent is None:
+            raise ValueError(f"unknown agent id {agent_id!r}")
+        clone = getattr(agent, "clone_for_isolated_run", None)
+        request_id = request.request_id or uuid.uuid4().hex
+        snapshot_id = uuid.uuid4().hex
+        frozen = context.model_copy(deep=True)
+        declaration = ContentExecutionContext(
+            session_mode="active", execution_path="isolated_content",
+            request_id=request_id, source_snapshot_id=snapshot_id,
+            holds_live_turn_lock=False, writes_live_blackboard=False,
+            pause_declared=None, task_isolation_verified=clone is not None)
+        declaration._engine_issued = True
+        frozen.content_execution_context = declaration
+        frozen.insight_content_requests = {agent_id: InsightContentRequest(depth=request.depth, request_id=request_id)}
+        handle = ContentTaskHandle(request_id=request_id, source_snapshot_id=snapshot_id,
+                                   session_id=context.session_id, agent_id=agent_id,
+                                   snapshot_turn=context.turn_count)
+        runner = clone() if clone is not None else None
+        handle.task = asyncio.get_running_loop().create_task(self._run_content_task(handle, runner, frozen))
+        self._content_tasks.setdefault(context.session_id, []).append(handle)
+        return handle
+
+    def close_session_content(self, session_id: str) -> int:
+        """Session closure revokes publication for every pending content task of
+        the session and cancels them. Returns the number of handles affected."""
+        handles = self._content_tasks.pop(session_id, [])
+        for h in handles:
+            h.cancel()
+        return len(handles)
+
+    async def _run_content_task(self, handle: "ContentTaskHandle", agent: Optional[BaseAgent],
+                                frozen: AgentContext) -> ContentResult:
+        def diag(code: str, path: str, classification: Optional[str] = None) -> InsightDiagnostic:
+            return InsightDiagnostic(execution_id=handle.request_id, agent_id=handle.agent_id, code=code,
+                                     field_path=path, classification=classification)
+
+        def finish(status: str, insight=None, diagnostics=(), usage=None) -> ContentResult:
+            return ContentResult(request_id=handle.request_id, source_snapshot_id=handle.source_snapshot_id,
+                                 session_id=handle.session_id, agent_id=handle.agent_id,
+                                 snapshot_turn=handle.snapshot_turn, status=status, insight=insight,
+                                 diagnostics=list(diagnostics), usage=usage)
+
+        if agent is None:
+            # Only agents that can be re-instantiated from their definition are
+            # isolatable; a custom BaseAgent instance would be shared mutable state.
+            return finish("rejected", diagnostics=[diag("content_execution_not_allowed", "$", "agent_not_isolatable")])
+        if self._content_slots.locked():
+            return finish("rejected", diagnostics=[diag("content_execution_not_allowed", "$", "provider_admission_exhausted")])
+        async with self._content_slots:
+            try:
+                response = await agent.evaluate(frozen)   # no turn callbacks: isolated trace
+            except asyncio.CancelledError:
+                handle.publishable = False
+                return finish("cancelled", diagnostics=[diag("content_execution_not_allowed", "$", "cancelled")])
+            except Exception as e:
+                return finish("rejected", diagnostics=[diag("invalid_envelope", "$", type(e).__name__)])
+        if response is None:
+            return finish("rejected", diagnostics=[diag("invalid_envelope", "$", "none")])
+        response.source_agent_id = handle.agent_id
+        self._enforce_acceptance(agent, response, frozen)
+        diagnostics = list(response.diagnostics)
+        usage = response.usage
+        # Result-only, belt and braces: nothing from this task may carry effects.
+        effects = any([response.events, response.variable_updates, response.queue_pushes, response.facts,
+                       response.memory_updates, response.state_updates, response.data])
+        insights = [i for i in response.insights if getattr(i, "_origin", "agent") != "framework"]
+        if response.acceptance_status != "rejected" and effects:
+            diagnostics.append(diag("content_execution_not_allowed", "$", "domain_effects_on_isolated_path"))
+            return finish("rejected", diagnostics=diagnostics, usage=usage)
+        if any(i.type in (InsightType.CORRECTION, InsightType.QUESTION) for i in insights):
+            diagnostics.append(diag("content_execution_not_allowed", "insight.type", "interactive_type_on_isolated_path"))
+            return finish("rejected", diagnostics=diagnostics, usage=usage)
+        if not handle.publishable:
+            # Cancelled or session closed while generating: no late publication.
+            return finish("cancelled", diagnostics=diagnostics + [diag("content_execution_not_allowed", "$", "publication_revoked")], usage=usage)
+        if response.acceptance_status == "rejected":
+            for cb in self.callbacks:
+                try:
+                    await cb.on_insight_validation_error(diagnostics[0] if diagnostics else diag("invalid_envelope", "$"))
+                except Exception as cb_err:
+                    logger.error(f"Callback error on_insight_validation_error: {cb_err}")
+            return finish("rejected", diagnostics=diagnostics, usage=usage)
+        if not insights:
+            return finish("silent", diagnostics=diagnostics, usage=usage)
+        insight = insights[0]
+        insight.source_snapshot_id = handle.source_snapshot_id
+        insight.content_request_id = handle.request_id
+        return finish("accepted", insight=insight, diagnostics=diagnostics, usage=usage)
+
     async def _run_agent_safe(self, agent: BaseAgent,
                               context: AgentContext) -> Optional[AgentResponse]:
         """Run an agent with atomic failure handling.

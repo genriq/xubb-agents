@@ -56,6 +56,10 @@ class DynamicAgent(BaseAgent):
     """
     _jinja_env = SandboxedEnvironment()
     def __init__(self, config_dict: dict):
+        # C2: keep the source definition so an isolated content task can run on a
+        # FRESH instance (no shared private_state / snapshot / cooldown state).
+        from copy import deepcopy as _deepcopy
+        self._source_config = _deepcopy(config_dict)
         # Parse Trigger Config
         trigger_conf = config_dict.get("trigger_config", {})
         cooldown = trigger_conf.get("cooldown", 15)
@@ -254,6 +258,18 @@ class DynamicAgent(BaseAgent):
         # A-1 / INV-11: warn at load time if the schema is misconfigured in a way
         # that silently loses the "stay silent" contract.
         self._warn_on_gateless_misconfig(output_format)
+
+    def clone_for_isolated_run(self) -> "DynamicAgent":
+        """A fresh instance from the same definition sharing only the immutable
+        injections (LLM client, contract, operator limits). Mutable per-instance
+        state (private_state, last snapshot, cooldown) is NOT shared — the
+        isolation §14.6.1 requires by construction, not by declaration."""
+        from copy import deepcopy as _deepcopy
+        twin = DynamicAgent(_deepcopy(self._source_config))
+        twin.llm = self.llm
+        twin.insight_contract = self.insight_contract
+        twin.content_limits = self.content_limits
+        return twin
 
     def _load_schema(self, format_name: str) -> dict:
         """Loads schema config from disk, falling back to default if not found."""
@@ -927,13 +943,15 @@ class DynamicAgent(BaseAgent):
         request = req.model_dump(exclude_none=True) if req is not None else None
         exec_ctx = context.content_execution_context
         exec_dict = exec_ctx.model_dump() if exec_ctx is not None else None
-        # C2 gate: the isolated active path does not exist in this release. A
-        # declaration cannot stand in for it (§14.6.1 "booleans asserting
-        # isolation do not replace actual concurrency tests").
+        # C2 gate: the isolated active path is admitted only on a declaration the
+        # ENGINE issued for a content task it owns (AgentEngine.start_content_request).
+        # A host-authored isolated declaration is refused — a boolean cannot stand
+        # in for the runtime (§14.6.1).
         if exec_dict is not None and exec_dict.get("session_mode") == "active" \
-                and exec_dict.get("execution_path") == "isolated_content":
+                and exec_dict.get("execution_path") == "isolated_content" \
+                and not getattr(exec_ctx, "_engine_issued", False):
             return {"accepted": False, "codes": ["content_execution_not_allowed"],
-                    "classification": "isolated_path_not_implemented", "configuration": configuration}
+                    "classification": "isolated_path_requires_engine_task", "configuration": configuration}
         execution = {"completion_status": "complete", "content_execution_context": exec_dict,
                      "domain_effects_present": False}
         outcome = check_content_contract({"has_insight": False, "insight": None}, configuration,
@@ -1007,7 +1025,8 @@ class DynamicAgent(BaseAgent):
             execution = {
                 "completion_status": completion_status_from(tele.get("finish_reason"), tele.get("error_category")),
                 "content_execution_context": content_plan.get("execution_context"),
-                "domain_effects_present": channels.has_domain(),
+                # result-only on the isolated path: sidecars count as effects too
+                "domain_effects_present": channels.has_domain() or channels.data is not None,
             }
             envelope = {"has_insight": bool(speak), "insight": (dict(candidate) if speak and isinstance(candidate, dict) else None)}
             raw = tele.get("raw_bytes")
