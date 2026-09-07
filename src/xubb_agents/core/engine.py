@@ -1051,11 +1051,21 @@ class AgentEngine:
         # ---- capacity reserved: now allocate ----
         self._content_active += 1
         try:
-            frozen = self._scoped_view(context.model_copy(deep=True), agent)
+            frozen = context.model_copy(deep=True)
+            # H3: the frozen view carries only VALIDATED answers — the same validator
+            # the live turn applies (session, open question, present matching
+            # principal) — and only then the per-agent visibility filter. Invalid
+            # events surface as diagnostics on the result; the host list is untouched.
+            validated, answer_issues = validate_answers(
+                list(frozen.insight_answers), list(frozen.insight_reference_context.prior_insights),
+                frozen.session_id, frozen.principal_id)
+            frozen.insight_answers = validated
+            frozen = self._scoped_view(frozen, agent)
             frozen.content_execution_context = declaration
             frozen.insight_content_requests = requests
             runner = clone()
-            task = asyncio.get_running_loop().create_task(self._run_content_task(handle, runner, frozen))
+            carried = [diag(i.code, i.classification, i.field_path) for i in answer_issues]
+            task = asyncio.get_running_loop().create_task(self._run_content_task(handle, runner, frozen, carried))
         except BaseException:
             self._content_active -= 1
             raise
@@ -1087,7 +1097,8 @@ class AgentEngine:
         return len(handles)
 
     async def _run_content_task(self, handle: "ContentTaskHandle", agent: Optional[BaseAgent],
-                                frozen: AgentContext) -> ContentResult:
+                                frozen: AgentContext,
+                                carried: Optional[List[InsightDiagnostic]] = None) -> ContentResult:
         def diag(code: str, path: str, classification: Optional[str] = None) -> InsightDiagnostic:
             return InsightDiagnostic(execution_id=handle.request_id, agent_id=handle.agent_id, code=code,
                                      field_path=path, classification=classification)
@@ -1096,7 +1107,7 @@ class AgentEngine:
             return ContentResult(request_id=handle.request_id, source_snapshot_id=handle.source_snapshot_id,
                                  session_id=handle.session_id, agent_id=handle.agent_id,
                                  snapshot_turn=handle.snapshot_turn, status=status, insight=insight,
-                                 diagnostics=list(diagnostics), usage=usage)
+                                 diagnostics=list(carried or []) + list(diagnostics), usage=usage)
 
         # Admission (contract, isolatable agent, negotiated content, capacity) was
         # decided at the entrypoint; capacity is released by the done-callback.
@@ -1379,6 +1390,17 @@ class AgentEngine:
                 fatal.append(diag(issue.code, f"{path}.{field}" if field != "insight" else path, issue.classification))
             if typed is not None:
                 validated.append((insight, typed, staged))
+            # H3: the negotiated content policy is re-applied to the object that
+            # would commit — a callback can replace an accepted body after staging,
+            # and the generic validator checks shape, not the frozen ceilings.
+            limits = ((staged.get("content") or {}).get("limits")) if staged else None
+            if limits and typed is not None:
+                if len(typed.content) > limits["max_content_chars"]:
+                    fatal.append(diag("content_too_large", f"{path}.content", f"max_{limits['max_content_chars']}"))
+                if insight.preview is not None and len(insight.preview) > limits["max_preview_chars"]:
+                    fatal.append(diag("preview_too_large", f"{path}.preview", f"max_{limits['max_preview_chars']}"))
+                if (insight.content_format or "plain_text") not in limits["formats"]:
+                    fatal.append(diag("unsupported_content_format", f"{path}.content_format", bounded(insight.content_format)))
         # §10.1 (G3 part 2): correction targets — validated here, at the ONE
         # boundary both DynamicAgent and custom agents pass through, under the
         # FROZEN principal (H1 / XA-03: a missing identity rejects).

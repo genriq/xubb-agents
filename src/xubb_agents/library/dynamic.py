@@ -1108,7 +1108,11 @@ class DynamicAgent(BaseAgent):
                 staged["content"] = {"content_contract": CONTENT_CONTRACT,
                                      "response_depth": content_outcome.get("effective_depth"),
                                      "content_request_id": content_outcome.get("content_request_id"),
-                                     "source_snapshot_id": content_outcome.get("source_snapshot_id")}
+                                     "source_snapshot_id": content_outcome.get("source_snapshot_id"),
+                                     # H3: the frozen policy the engine re-applies to the FINAL body
+                                     "limits": {"max_content_chars": content_outcome["effective_max_content_chars"],
+                                                "max_preview_chars": content_outcome["effective_max_preview_chars"],
+                                                "formats": list(content_plan["formats"])}}
             insight._staged = staged
             # id / turn / contract_version / provenance / content stamps are
             # ENGINE-minted at acceptance (§8.1 step 8)
