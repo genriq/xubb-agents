@@ -358,7 +358,9 @@ class TestEngineStrictTransport:
         assert [e.name for e in final.events] == ["approval_missing"] and final.events[0].payload == {"owner": None}
         rf = comp.calls[0]["response_format"]
         assert rf["type"] == "json_schema"
-        assert rf["json_schema"]["schema"]["$defs"]["candidate"]["properties"]["type"]["enum"] == list(IMPLEMENTED_TYPED_TYPES)
+        # default insight_config.allowed_types = the six ordinary purposes
+        assert rf["json_schema"]["schema"]["$defs"]["candidate"]["properties"]["type"]["enum"] == \
+            ["fact", "observation", "suggestion", "warning", "opportunity", "praise"]
 
     def test_malformed_map_encoding_rejects_whole_response(self):
         bad = deepcopy(STRICT_ENVELOPE)

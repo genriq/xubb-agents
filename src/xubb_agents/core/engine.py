@@ -31,7 +31,7 @@ import uuid
 from .insight_validation import (
     LEGACY_HUMAN_TYPES, RESERVED_VAR_PREFIX, LEGACY_MEMORY_PREFIX, bounded,
     INSIGHT_CONTRACTS, DEFAULT_INSIGHT_CONTRACT, EffectiveTypes, effective_types_for_run,
-    HUMAN_WIRE_VALUES, MISSING, resolve_urgency,
+    HUMAN_WIRE_VALUES, MISSING, resolve_urgency, validate_answers,
 )
 from .provider_schema import STRUCTURED_OUTPUT_MODES, DEFAULT_STRUCTURED_OUTPUTS
 from .agent import BaseAgent
@@ -673,6 +673,14 @@ class AgentEngine:
         # memory read-path (memory_<id> keys DynamicAgent reads from; INV-14).
         self._sync_state_to_legacy(context)
 
+        # XUBB-ITC-1 §11.2 (G3): validate the host's answer events ONCE per turn
+        # against the retained question records. Invalid events are dropped with
+        # an engine-level diagnostic; agents only ever see the validated subset
+        # (phase copies). The host's own list is never mutated.
+        self._validated_answers, answer_issues = validate_answers(
+            list(context.insight_answers), list(context.insight_reference_context.prior_insights),
+            context.session_id, context.principal_id)
+
         # Build execution metadata for condition evaluation
         meta = {
             "turn_count": context.turn_count,
@@ -690,6 +698,11 @@ class AgentEngine:
         
         # Initialize aggregated response
         final_response = AgentResponse()
+        turn_execution_id = uuid.uuid4().hex
+        for issue in answer_issues:
+            final_response.diagnostics.append(InsightDiagnostic(
+                execution_id=turn_execution_id, agent_id="engine", code=issue.code,
+                field_path=issue.field_path, classification=issue.classification))
         all_events: List[Event] = []
         
         # =====================================================================
@@ -868,6 +881,8 @@ class AgentEngine:
             principal_id=context.principal_id,
             insight_capabilities=context.insight_capabilities.model_copy(deep=True),
             insight_reference_context=context.insight_reference_context.model_copy(deep=True),
+            # only the VALIDATED answers reach agents (§11.2)
+            insight_answers=[a.model_copy(deep=True) for a in getattr(self, "_validated_answers", [])],
         )
         
         # Run all agents in parallel

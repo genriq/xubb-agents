@@ -103,6 +103,7 @@ HUMAN_WIRE_VALUES: Tuple[str, ...] = (
 # and host-correlation paths.
 IMPLEMENTED_TYPED_TYPES: Tuple[str, ...] = (
     "fact", "observation", "suggestion", "warning", "opportunity", "praise",
+    "reply", "question",   # G3 part 1: permissioned drafts and correlated questions
 )
 
 # Reasons that are RUN-SPECIFIC (a capability the run lacks) map to the
@@ -337,6 +338,66 @@ class ReferenceContext:
         if key in self.foreign:
             return Issue("cross_session_reference", field_path, bounded(self.foreign[key])), None
         return Issue("unknown_reference", field_path, bounded(ref.get("ref_id"))), None
+
+
+# ---------------------------------------------------------------------------
+# Answer events for emitted questions (spec §11.2–§11.3, G3)
+# ---------------------------------------------------------------------------
+
+def validate_answers(answers: List[Any], prior_insights: List[Any], session_id: str,
+                     principal_id: Optional[str]) -> Tuple[List[Any], List[Issue]]:
+    """Validate a batch of host-supplied answer events against the retained
+    question records. Returns ``(valid answers, issues)``; invalid events are
+    dropped with a diagnostic, valid ones pass. Rules:
+
+    * the target must be a retained record of type ``question`` in THIS session,
+      still ``active``, and (when principals are known) for the same principal;
+    * ``answered`` needs non-blank text; ``dismissed`` must carry none;
+    * within one batch an ``event_id`` is accepted once — a repeat with identical
+      content is a duplicate, a repeat with different content a conflict; both
+      are rejected (the host owns durable idempotency across batches).
+    """
+    records = {getattr(r, "id", None): r for r in prior_insights}
+    valid: List[Any] = []
+    issues: List[Issue] = []
+    seen: Dict[str, Any] = {}
+    for i, ans in enumerate(answers):
+        path = f"insight_answers[{i}]"
+        eid = getattr(ans, "event_id", None)
+        if eid in seen:
+            same = seen[eid] == ans
+            issues.append(Issue("invalid_input_reference", path,
+                                "duplicate_event_id" if same else "conflicting_event_id"))
+            continue
+        seen[eid] = ans
+        target = records.get(getattr(ans, "question_insight_id", None))
+        if target is None:
+            issues.append(Issue("invalid_input_reference", path, "unknown_question"))
+            continue
+        if getattr(target, "type", None) != "question":
+            issues.append(Issue("invalid_input_reference", path, "target_not_a_question"))
+            continue
+        if getattr(target, "session_id", None) != session_id:
+            issues.append(Issue("cross_session_reference", path, bounded(getattr(target, "session_id", None))))
+            continue
+        if getattr(target, "status", "active") != "active":
+            issues.append(Issue("invalid_input_reference", path, f"question_{getattr(target, 'status', '?')}"))
+            continue
+        target_principal = getattr(target, "principal_id", None)
+        expected_principal = target_principal or principal_id
+        if expected_principal is not None and getattr(ans, "principal_id", None) != expected_principal:
+            issues.append(Issue("invalid_input_reference", path, "principal_mismatch"))
+            continue
+        status = getattr(ans, "status", None)
+        text = getattr(ans, "text", None)
+        if status == "answered" and not _nonblank(text):
+            issues.append(Issue("invalid_question_contract", path, "answered_without_text"))
+            continue
+        if status == "dismissed" and text is not None:
+            issues.append(Issue("invalid_question_contract", path, "dismissed_with_text"))
+            continue
+        valid.append(ans)
+    return valid, issues
 
 
 # ---------------------------------------------------------------------------

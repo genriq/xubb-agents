@@ -251,6 +251,7 @@ class TestTypedTypeValues:
                                             ("error", "unknown_type"), ("reply", "type_not_allowed"),
                                             ("question", "type_not_allowed"), ("correction", "type_not_allowed")])
     def test_label_rejects_whole_response(self, label, code):
+        # reply/question: not in the default insight_config.allowed_types → type_not_allowed
         agent = tagent(envelope(cand(type=label), facts=[FACT]))
         final, ctx = turn(tengine(agent))
         assert final.insights == [] and code in codes(final)
@@ -258,7 +259,9 @@ class TestTypedTypeValues:
         assert not ctx.blackboard.has_fact("budget", "primary")
 
     def test_implemented_types_are_accepted_and_stamped(self):
-        for value in IMPLEMENTED_TYPED_TYPES:
+        # the six ordinary purposes are in the default allowed set; reply/question
+        # need explicit permission (tests/test_reply_question_g3.py)
+        for value in ("fact", "observation", "suggestion", "warning", "opportunity", "praise"):
             agent = tagent(envelope(cand(type=value, urgency="soon")))
             final, _ = turn(tengine(agent))
             assert [i.type.value for i in final.insights] == [value], value
@@ -307,8 +310,9 @@ class TestCapabilityIntersection:
         assert final.acceptance_by_agent[agent.config.id] == "accepted"
 
     def test_unimplemented_interactive_type_stays_unavailable_even_when_permitted(self):
-        agent = tagent(envelope(cand(type="reply")),
-                       insight_config={"allowed_types": ["fact", "reply"], "allow_reply": True})
+        """correction awaits its lifecycle (G3 part 2); reply/question landed in G3 part 1."""
+        agent = tagent(envelope(cand(type="correction", correction={"target_insight_id": "i1", "operation": "replace", "reason": "r"})),
+                       insight_config={"allowed_types": ["fact", "correction"], "allow_correction": True})
         final, _ = turn(tengine(agent))
         d = next(d for d in final.diagnostics if d.code == "type_not_allowed")
         assert d.classification == "not_implemented_in_this_release"

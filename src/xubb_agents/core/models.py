@@ -209,6 +209,9 @@ class HostInsightCapabilities(BaseModel):
         default_factory=lambda: ["suggestion", "warning", "opportunity", "fact", "praise"])
     reply_drafts: bool = False
     text_questions: bool = False
+    # §11.3: validated answers are exposed only to the originating agent unless
+    # the host explicitly authorises sharing them with every agent in the run.
+    answers_shared: bool = False
     corrections: bool = False
     correction_agent_policy: Literal["own_only", "allowlisted"] = "own_only"
     correction_agent_ids: List[str] = Field(default_factory=list)
@@ -268,6 +271,20 @@ class InsightReferenceContext(BaseModel):
     prior_insights: List[PriorInsightRecord] = Field(default_factory=list)
 
 
+class InsightAnswer(BaseModel):
+    """A host-owned input event answering (or dismissing) an emitted QUESTION
+    (§11.2). The engine-assigned question insight id is the correlation key; the
+    host owns durable idempotency (each logical answer supplied once). Answer
+    text is untrusted data — it never changes permissions or identity, and a
+    dismissal is never consent."""
+    model_config = ConfigDict(extra="forbid")
+    event_id: str = Field(..., min_length=1)
+    question_insight_id: str = Field(..., min_length=1)
+    principal_id: str = Field(..., min_length=1)
+    status: Literal["answered", "dismissed"]
+    text: Optional[str] = None
+
+
 class EvidenceSnapshot(BaseModel):
     """The immutable invocation view an agent's references point into. Returned
     on the per-agent response so a host that wants durable cross-turn references
@@ -321,6 +338,11 @@ class AgentContext(BaseModel):
     # snapshot catalog on top at run time; hosts need not populate this for
     # ordinary observations.
     insight_reference_context: InsightReferenceContext = Field(default_factory=InsightReferenceContext)
+    # Host-supplied answer/dismissal events for emitted questions (§11.2). The
+    # engine validates them against the retained question records at turn start;
+    # agents only ever see the VALIDATED subset (phase copies), and by default
+    # only the originating agent sees its own answers.
+    insight_answers: List[InsightAnswer] = Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
