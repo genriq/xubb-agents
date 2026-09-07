@@ -1,8 +1,13 @@
 import json
 import os
 import logging
-from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from dataclasses import dataclass, replace as _dc_replace
+from typing import Optional, Dict, Any, List
+
+from .provider_schema import (
+    STRUCTURED_OUTPUT_MODES, DEFAULT_STRUCTURED_OUTPUTS, SCHEMA_VERSION, FEATURE_JSON_SCHEMA,
+    CapabilityCache, allow_schema_fallback, response_format_for,
+)
 
 # Try to import openai, but don't crash if not present (graceful degradation or mocking)
 try:
@@ -65,6 +70,24 @@ FRAMEWORK_OWNED_PARAMS = frozenset({
     "timeout", "reasoning_effort",
 })
 
+# XUBB-ITC-1 §13.3 (G2): the adapter identity a fallback signature must match
+# EXACTLY. The version is the installed SDK's major.minor; a different SDK is a
+# different adapter for signature purposes.
+ADAPTER_ID = "openai-chat-completions"
+ENDPOINT_FAMILY = "chat.completions"
+
+
+def _adapter_version() -> str:
+    try:
+        import openai as _openai  # type: ignore
+        parts = str(getattr(_openai, "__version__", "0")).split(".")
+        return ".".join(parts[:2])
+    except Exception:  # pragma: no cover - SDK absent
+        return "unknown"
+
+
+ADAPTER_VERSION = _adapter_version()
+
 
 @dataclass(frozen=True)
 class LLMResult:
@@ -86,6 +109,13 @@ class LLMResult:
     error_category: Optional[str] = None
     usage: Optional[Dict[str, int]] = None
     finish_reason: Optional[str] = None
+    # G2 (§13.3): which transport the response came back on ("json_schema" |
+    # "json_object"), whether a recognised downgrade happened on this call, and
+    # the sanitized adapter failure record a fallback signature is matched
+    # against (never message text).
+    transport: Optional[str] = None
+    downgraded: bool = False
+    failure: Optional[Dict[str, Any]] = None
 
 
 class LLMClient:
@@ -105,7 +135,9 @@ class LLMClient:
                  max_retries: int = DEFAULT_MAX_RETRIES,
                  max_tokens: int = DEFAULT_MAX_TOKENS,
                  wire_max_tokens_param: str = DEFAULT_WIRE_MAX_TOKENS_PARAM,
-                 base_url: Optional[str] = None):
+                 base_url: Optional[str] = None,
+                 structured_outputs: str = DEFAULT_STRUCTURED_OUTPUTS,
+                 fallback_signatures: Optional[List[Dict[str, Any]]] = None):
         # WC-1: validate the wire knob FIRST — loud at load time, regardless of
         # key/SDK availability (the two documented values only).
         if wire_max_tokens_param not in WIRE_MAX_TOKENS_PARAMS:
@@ -113,6 +145,16 @@ class LLMClient:
                 f"wire_max_tokens_param must be one of {WIRE_MAX_TOKENS_PARAMS}, "
                 f"got {wire_max_tokens_param!r}"
             )
+        # G2 / §13.3: transport policy. "strict" never downgrades; "auto" may
+        # downgrade ONCE per capability key on an exact enabled signature;
+        # "json_object" never sends a schema. The shipped registry enables no
+        # production signature; an operator supplies evidence-backed ones here.
+        if structured_outputs not in STRUCTURED_OUTPUT_MODES:
+            raise ValueError(
+                f"structured_outputs must be one of {STRUCTURED_OUTPUT_MODES}, got {structured_outputs!r}")
+        self.structured_outputs = structured_outputs
+        self.fallback_registry: Dict[str, Any] = {"enabled_signatures": list(fallback_signatures or [])}
+        self.capability_cache = CapabilityCache()
         self.client = None
         self.timeout = timeout
         self.max_retries = max_retries
@@ -154,7 +196,9 @@ class LLMClient:
     def _finish(self, parsed: Optional[Dict[str, Any]] = None,
                 error_category: Optional[str] = None,
                 usage: Optional[Dict[str, int]] = None,
-                finish_reason: Optional[str] = None) -> "LLMResult":
+                finish_reason: Optional[str] = None,
+                transport: Optional[str] = None,
+                failure: Optional[Dict[str, Any]] = None) -> "LLMResult":
         """Build the per-call result and write the deprecated mirror.
 
         OB-2 / INV-17: ``generate()`` assigns ``last_error_category`` exactly
@@ -163,7 +207,8 @@ class LLMClient:
         """
         self.last_error_category = error_category
         return LLMResult(parsed=parsed, error_category=error_category,
-                         usage=usage, finish_reason=finish_reason)
+                         usage=usage, finish_reason=finish_reason,
+                         transport=transport, failure=failure)
 
     @staticmethod
     def _extract_usage(response: Any) -> Optional[Dict[str, int]]:
@@ -215,7 +260,10 @@ class LLMClient:
                        max_tokens: Optional[int] = None,
                        timeout: Optional[float] = None,
                        reasoning_effort: Optional[str] = None,
-                       extra_params: Optional[Dict[str, Any]] = None
+                       extra_params: Optional[Dict[str, Any]] = None,
+                       response_schema: Optional[Dict[str, Any]] = None,
+                       schema_version: str = SCHEMA_VERSION,
+                       schema_lint_passed: bool = True,
                        ) -> "LLMResult":
         """Run one structured-JSON LLM call and return the per-call result.
 
@@ -224,11 +272,52 @@ class LLMClient:
         and transparently retried with backoff on transient failures by the SDK.
         Never raises into the turn; every outcome — success, typed failure,
         truncated, malformed — comes back as an :class:`LLMResult` (INV-17).
+
+        G2 (§13.3): with ``response_schema`` the transport follows the client's
+        ``structured_outputs`` policy — ``json_schema`` (strict) unless the mode
+        is ``json_object`` or the capability cache already recorded a downgrade
+        for this endpoint/model/adapter/schema-version key. Under ``auto`` a
+        4xx that the adapter classifies as an unsupported-capability failure
+        AND that exactly matches an enabled, evidence-backed signature triggers
+        ONE recorded downgrade and one JSON-object retry with the same prompt.
+        Anything else fails closed. Local validation is untouched either way.
         """
         if not self.client:
             logger.error("LLM Client not initialized (missing key or package).")
             return self._finish(error_category="not_initialized")
 
+        transport = "json_object"
+        key = None
+        if response_schema is not None and self.structured_outputs != "json_object":
+            key = CapabilityCache.key(self.base_url, model, ADAPTER_ID, ADAPTER_VERSION, schema_version)
+            if not self.capability_cache.is_downgraded(key):
+                transport = "json_schema"
+
+        result = await self._call_once(model, messages, max_tokens, timeout, reasoning_effort,
+                                       extra_params, transport, response_schema)
+        if (transport == "json_schema" and result.failure is not None and key is not None
+                and self.structured_outputs == "auto"):
+            attempted = self.capability_cache.attempted.get(key, 0) > 0
+            if allow_schema_fallback(result.failure, self.fallback_registry, mode="auto",
+                                     schema_lint_passed=schema_lint_passed, fallback_attempted=attempted):
+                self.capability_cache.record_attempt(key)
+                self.capability_cache.record_downgrade(key, result.failure)
+                logger.warning(
+                    "Structured outputs unsupported [adapter=%s/%s status=%s code=%s param=%s evidence=%s]; "
+                    "recorded downgrade to json_object for model=%s (once per capability key).",
+                    ADAPTER_ID, ADAPTER_VERSION, result.failure.get("http_status"),
+                    result.failure.get("code"), result.failure.get("param"),
+                    result.failure.get("evidence_id"), model)
+                retry = await self._call_once(model, messages, max_tokens, timeout, reasoning_effort,
+                                              extra_params, "json_object", None)
+                return _dc_replace(retry, downgraded=True)
+        return result
+
+    async def _call_once(self, model: str, messages: list, max_tokens: Optional[int],
+                         timeout: Optional[float], reasoning_effort: Optional[str],
+                         extra_params: Optional[Dict[str, Any]], transport: str,
+                         response_schema: Optional[Dict[str, Any]]) -> "LLMResult":
+        """One request on one transport; every outcome as an LLMResult."""
         effective_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
         # RC-2 / INV-15: passthrough params go in FIRST so the framework-owned
         # keys below always win — an unvalidated dict can never overwrite the
@@ -239,7 +328,8 @@ class LLMClient:
         call_kwargs.update(
             model=model,
             messages=messages,
-            response_format={"type": "json_object"},
+            response_format=(response_format_for(response_schema) if transport == "json_schema"
+                             else {"type": "json_object"}),
             timeout=timeout if timeout is not None else self.timeout,
         )
         # WC-1: token cap under the configured wire name (max_completion_tokens
@@ -259,13 +349,15 @@ class LLMClient:
             response = await self.client.chat.completions.create(**call_kwargs)
         except APITimeoutError as e:
             logger.error(f"LLM call failed [category=timeout]: {e}")
-            return self._finish(error_category="timeout")
+            return self._finish(error_category="timeout", transport=transport)
         except RateLimitError as e:
             logger.error(f"LLM call failed [category=rate_limit]: {e}")
-            return self._finish(error_category="rate_limit")
+            return self._finish(error_category="rate_limit", transport=transport,
+                                failure=self._failure_record(e, 429, transport))
         except AuthenticationError as e:
             logger.error(f"LLM call failed [category=auth]: {e}")
-            return self._finish(error_category="auth")
+            return self._finish(error_category="auth", transport=transport,
+                                failure=self._failure_record(e, 401, transport))
         except APIStatusError as e:
             # Non-2xx that isn't already a more specific subclass (401/429 raise
             # their own subclasses and never reach here). OB-1 / INV-16: a 4xx
@@ -276,21 +368,22 @@ class LLMClient:
             status = getattr(e, "status_code", None)
             if isinstance(status, int) and status < 500:
                 logger.error(f"LLM call failed [category=misconfig status={status}]: {e}")
-                return self._finish(error_category="misconfig")
+                return self._finish(error_category="misconfig", transport=transport,
+                                    failure=self._failure_record(e, status, transport))
             logger.error(
                 f"LLM call failed [category=server status={status if status is not None else '?'}]: {e}"
             )
-            return self._finish(error_category="server")
+            return self._finish(error_category="server", transport=transport)
         except APIError as e:
             # Catch-all for remaining SDK-level transport/protocol errors
             # (connection errors, etc.) that aren't APIStatusError.
             logger.error(f"LLM call failed [category=server]: {e}")
-            return self._finish(error_category="server")
+            return self._finish(error_category="server", transport=transport)
         except Exception as e:
             # Defensive: anything not classified above must still not raise into
             # the turn (preserves the never-raise contract).
             logger.error(f"LLM call failed [category=unknown]: {e}")
-            return self._finish(error_category="unknown")
+            return self._finish(error_category="unknown", transport=transport)
 
         # A response object arrived: usage is billable and reportable even when
         # the content below turns out to be truncated/malformed (OB-2).
@@ -301,9 +394,15 @@ class LLMClient:
             if not response.choices:
                 logger.warning("LLM call failed [category=malformed]: empty choices "
                                "(content may have been filtered)")
-                return self._finish(error_category="malformed", usage=usage)
+                return self._finish(error_category="malformed", usage=usage, transport=transport)
             choice = response.choices[0]
             finish_reason = getattr(choice, "finish_reason", None)
+            # G2 / §13.3: a structured-output REFUSAL is its own outcome — billed,
+            # not malformed, and never evidence that the schema is unsupported.
+            if getattr(getattr(choice, "message", None), "refusal", None):
+                logger.warning("LLM call failed [category=refusal]: model refused the structured request")
+                return self._finish(error_category="refusal", usage=usage,
+                                    finish_reason=finish_reason, transport=transport)
             # OB-1 / INV-16: length-stopped output is checked BEFORE the
             # null-content/parse branches — starved reasoning output arrives as
             # finish_reason="length" with null/partial content and must not be
@@ -316,15 +415,37 @@ class LLMClient:
                     f"(output hit the token cap; configured cap={effective_max_tokens})"
                 )
                 return self._finish(error_category="truncated", usage=usage,
-                                    finish_reason=finish_reason)
+                                    finish_reason=finish_reason, transport=transport)
             content = choice.message.content
             if content is None:
                 logger.warning("LLM call failed [category=malformed]: null message content")
                 return self._finish(error_category="malformed", usage=usage,
-                                    finish_reason=finish_reason)
+                                    finish_reason=finish_reason, transport=transport)
             parsed = json.loads(content)
         except (json.JSONDecodeError, AttributeError, TypeError, IndexError) as e:
             logger.warning(f"LLM call failed [category=malformed]: {e}")
-            return self._finish(error_category="malformed", usage=usage)
+            return self._finish(error_category="malformed", usage=usage, transport=transport)
 
-        return self._finish(parsed=parsed, usage=usage, finish_reason=finish_reason)
+        return self._finish(parsed=parsed, usage=usage, finish_reason=finish_reason, transport=transport)
+
+    @staticmethod
+    def _failure_record(exc: Any, status: Optional[int], transport: str) -> Dict[str, Any]:
+        """The sanitized, adapter-classified failure a fallback signature is
+        matched against (§13.3). Structured fields only — never message text.
+        ``unsupported_capability`` is claimed ONLY for a 400 on a json_schema
+        request whose rejected parameter is under ``response_format``."""
+        code = getattr(exc, "code", None)
+        param = getattr(exc, "param", None)
+        unsupported = (transport == "json_schema" and status == 400
+                       and isinstance(param, str) and param.startswith("response_format"))
+        return {
+            "origin": "trusted_adapter",
+            "adapter_id": ADAPTER_ID,
+            "adapter_version": ADAPTER_VERSION,
+            "endpoint_family": ENDPOINT_FAMILY,
+            "http_status": status,
+            "code": code if isinstance(code, str) else None,
+            "param": param if isinstance(param, str) else None,
+            "feature": FEATURE_JSON_SCHEMA if transport == "json_schema" else None,
+            "category": "unsupported_capability" if unsupported else "misconfig",
+        }

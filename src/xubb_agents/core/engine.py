@@ -33,6 +33,7 @@ from .insight_validation import (
     INSIGHT_CONTRACTS, DEFAULT_INSIGHT_CONTRACT, EffectiveTypes, effective_types_for_run,
     HUMAN_WIRE_VALUES, MISSING, resolve_urgency,
 )
+from .provider_schema import STRUCTURED_OUTPUT_MODES, DEFAULT_STRUCTURED_OUTPUTS
 from .agent import BaseAgent
 from .llm import LLMClient, FRAMEWORK_OWNED_PARAMS
 from .callbacks import AgentCallbackHandler
@@ -114,7 +115,9 @@ class AgentEngine:
                  llm_base_url: Optional[str] = None,
                  llm_wire_max_tokens_param: Optional[str] = None,
                  strict_reasoning_config: bool = True,
-                 insight_contract: str = DEFAULT_INSIGHT_CONTRACT):
+                 insight_contract: str = DEFAULT_INSIGHT_CONTRACT,
+                 structured_outputs: str = DEFAULT_STRUCTURED_OUTPUTS,
+                 fallback_signatures: Optional[List[Dict[str, Any]]] = None):
         """Initialize the AgentEngine.
 
         Args:
@@ -146,6 +149,13 @@ class AgentEngine:
             raise ValueError(
                 f"insight_contract must be one of {INSIGHT_CONTRACTS}, got {insight_contract!r}")
         self.insight_contract = insight_contract
+        # G2 / §13.3: transport policy is a separate control from the contract
+        # (structured_outputs: strict | auto | json_object) and lives on the
+        # LLMClient, keyed per endpoint/model/adapter/schema version.
+        if structured_outputs not in STRUCTURED_OUTPUT_MODES:
+            raise ValueError(
+                f"structured_outputs must be one of {STRUCTURED_OUTPUT_MODES}, got {structured_outputs!r}")
+        self.structured_outputs = structured_outputs
         # EN-1 / INV-18: only-when-set, so LLMClient defaults keep applying
         # otherwise; update_api_key rebuilds from THIS dict, never bare.
         self._llm_config: Dict[str, Any] = {}
@@ -153,7 +163,11 @@ class AgentEngine:
                            ("max_retries", llm_max_retries),
                            ("max_tokens", llm_max_tokens),
                            ("base_url", llm_base_url),
-                           ("wire_max_tokens_param", llm_wire_max_tokens_param)):
+                           ("wire_max_tokens_param", llm_wire_max_tokens_param),
+                           # only-when-set: the client's own default ("auto") is not recorded
+                           ("structured_outputs",
+                            structured_outputs if structured_outputs != DEFAULT_STRUCTURED_OUTPUTS else None),
+                           ("fallback_signatures", fallback_signatures)):
             if value is not None:
                 self._llm_config[key] = value
 
@@ -308,6 +322,13 @@ class AgentEngine:
                 f"'{self.insight_contract}' (declares {supported_contracts}). Typed adapters: "
                 f"insight_v1, default_v2, v2_raw.")
             return violations
+        if self.insight_contract == "typed_v1" and self.structured_outputs == "strict" \
+                and "json_schema" not in (descriptor.get("supported_transports") or []):
+            violations.append(
+                f"Agent '{agent_id}': structured_outputs='strict' requires a schema adapter with "
+                f"json_schema transport; '{schema}' declares "
+                f"{descriptor.get('supported_transports') or ['json_object']}. Use insight_v1, or "
+                f"structured_outputs='auto'/'json_object'.")
         if self.insight_contract == "typed_v1" and cfg is not None:
             fields = set(descriptor.get("supported_insight_fields") or [])
             needed = set()

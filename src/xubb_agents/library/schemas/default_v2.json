@@ -37,6 +37,7 @@
       "legacy_v2",
       "typed_v1"
     ],
+    "supported_transports": ["json_object"],
     "supported_content_contracts": []
   }
 }
