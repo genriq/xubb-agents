@@ -861,12 +861,83 @@ contracts:
     test_rotation: "tests/test_provider_schema_g2.py::TestEngineStrictTransport::test_engine_knobs_reach_the_client_and_survive_key_rotation"
     status: covered   # G2 part 2. Actual provider acceptance is a separate integration test, not claimed.
 
+  # ---- XUBB-ITC-1 — G3 part 1: reply drafts and correlated questions (§9, §11) ----
+
+  - id: ITC-17.FW-reply-is-a-permissioned-draft
+    statement: >
+      A REPLY is emitted only with allow_reply, its membership in allowed_types, host
+      reply_drafts, an explicit principal and the typed contract; otherwise it is
+      type_not_allowed (static) or capability_unavailable (missing principal). It is a
+      draft: the engine emits the insight and invokes nothing — no event, queue, sidecar
+      or state write results from it, and the generated instruction states the draft
+      rule. Legacy mode cannot produce a reply.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §7.2, §9"
+      - "src/xubb_agents/core/insight_validation.py: effective_insight_types"
+    invariant: ITC-17.FW
+    test: "tests/test_reply_question_g3.py::TestReplyDrafts::test_reply_accepted_with_all_prerequisites_as_a_draft"
+    test_no_flag: "tests/test_reply_question_g3.py::TestReplyDrafts::test_reply_without_agent_permission_is_not_allowed"
+    test_no_host: "tests/test_reply_question_g3.py::TestReplyDrafts::test_reply_without_host_draft_support_is_not_allowed"
+    test_no_principal: "tests/test_reply_question_g3.py::TestReplyDrafts::test_reply_without_principal_is_capability_unavailable"
+    test_legacy: "tests/test_reply_question_g3.py::TestReplyDrafts::test_reply_requires_typed_contract"
+    test_prompt: "tests/test_reply_question_g3.py::TestReplyDrafts::test_prompt_states_the_draft_rule"
+    status: covered   # G3 part 1. Host-side draft distinction (ITC-17.HOST) is a conformance run, not claimed.
+
+  - id: ITC-21.FW-question-requires-input-path-and-correlates
+    statement: >
+      A QUESTION is emitted only with allow_question, its membership in allowed_types,
+      host text_questions, an explicit principal, the typed contract and a
+      question.reason; its engine-assigned id is the answer correlation key. Host answer
+      events are validated at turn start against the retained question records (same
+      session, active, same principal, answered ⇒ text, dismissed ⇒ no text); invalid
+      events are dropped with an engine diagnostic and never shown. Validated answers
+      reach only the originating agent (prompt section and {{ insight_answers }}) unless
+      the host sets answers_shared; a dismissal is presented as not an answer and not
+      consent; answers are data and change no permission or identity; receiving an answer
+      schedules nothing; the host's list is never mutated and the validated subset
+      reaches both phases.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §11.1–§11.3"
+      - "src/xubb_agents/core/insight_validation.py: validate_answers"
+      - "src/xubb_agents/core/engine.py: _process_turn_inner / _run_phase"
+      - "src/xubb_agents/library/dynamic.py: answers_for_me"
+    invariant: ITC-21.FW
+    test: "tests/test_reply_question_g3.py::TestQuestions::test_validated_answer_reaches_only_the_originating_agent"
+    test_payload: "tests/test_reply_question_g3.py::TestQuestions::test_question_accepted_with_payload"
+    test_prerequisites: "tests/test_reply_question_g3.py::TestQuestions::test_question_without_reason_or_input_path_or_principal_rejects"
+    test_shared: "tests/test_reply_question_g3.py::TestQuestions::test_host_may_share_answers_explicitly"
+    test_dismissal: "tests/test_reply_question_g3.py::TestQuestions::test_dismissal_is_shown_as_not_consent"
+    test_jinja: "tests/test_reply_question_g3.py::TestQuestions::test_answers_are_available_in_jinja"
+    test_invalid: "tests/test_reply_question_g3.py::TestQuestions::test_invalid_answers_are_dropped_with_an_engine_diagnostic"
+    test_closed: "tests/test_reply_question_g3.py::TestQuestions::test_closed_question_and_non_question_targets_reject"
+    test_cross_session: "tests/test_reply_question_g3.py::TestQuestions::test_cross_session_question_rejects"
+    test_data_only: "tests/test_reply_question_g3.py::TestQuestions::test_answer_text_cannot_change_permissions_or_identity"
+    test_no_scheduling: "tests/test_reply_question_g3.py::TestQuestions::test_receipt_of_an_answer_schedules_nothing"
+    test_propagation: "tests/test_reply_question_g3.py::TestQuestions::test_host_list_is_never_mutated_and_validated_answers_reach_both_phases"
+    status: covered   # G3 part 1. Host input UI and open/closed tracking (ITC-21.HOST) are conformance runs, not claimed.
+
+  - id: ITC-22.FW-input-batch-idempotency
+    statement: >
+      Within one input batch an answer event_id is accepted once: a repeat with identical
+      content is rejected as duplicate_event_id and a repeat with different content as
+      conflicting_event_id (invalid_input_reference), while valid events still pass. The
+      host owns durable idempotency across batches; the engine does not claim cross-process
+      exactly-once delivery.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §11.2"
+      - "src/xubb_agents/core/insight_validation.py: validate_answers"
+    invariant: ITC-22.FW
+    test: "tests/test_reply_question_g3.py::TestBatchIdempotency::test_duplicate_and_conflicting_event_ids_reject_valid_ones_pass"
+    test_engine: "tests/test_reply_question_g3.py::TestBatchIdempotency::test_engine_reports_batch_conflicts"
+    test_shape: "tests/test_reply_question_g3.py::TestBatchIdempotency::test_model_rejects_unknown_fields_on_answers"
+    status: covered   # G3 part 1. ITC-22.HOST (durable dedup) is a conformance run, not claimed.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       54   (every contract & invariant names a passing, rule-asserting test)
+# covered:       57   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         54
+# total:         57
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

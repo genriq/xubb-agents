@@ -13,6 +13,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — G3 part 1: reply drafts and correlated questions (XUBB-ITC-1 §9, §11)
+
+Two of the three interactive purposes become available under `typed_v1`, each behind
+its permission intersection. The correction lifecycle is G3 part 2.
+
+- **REPLY** is emitted as a draft when `allow_reply` + `reply` in `allowed_types` +
+  host `reply_drafts` + an explicit `principal_id` all hold; anything less is
+  `type_not_allowed` / `capability_unavailable`. The engine invokes nothing for a draft;
+  the generated instruction states the draft rule and the no-invented-commitments rule.
+- **QUESTION** needs `allow_question` + membership + host `text_questions` + principal +
+  a `question.reason`; the engine-assigned insight id is the answer correlation key.
+- **Answer channel.** `AgentContext.insight_answers` (`InsightAnswer`: event id,
+  question id, principal, `answered` with text or `dismissed` without) is validated
+  once per turn against the retained question records (same session, active, same
+  principal); invalid events are dropped with engine diagnostics; duplicate or
+  conflicting event ids within a batch reject. Validated answers reach only the
+  originating agent — an `[ANSWERS FROM THE PRINCIPAL]` prompt section and
+  `{{ insight_answers }}` — unless the host sets `HostInsightCapabilities.answers_shared`.
+  A dismissal is presented as not an answer and not consent. Answers are data: they
+  change no permission or identity, and receiving one schedules nothing.
+- Contracts: ITC-17.FW, ITC-21.FW, ITC-22.FW. Host leaves (draft distinction, input
+  UI, open/closed tracking, durable idempotency) are conformance runs, not claimed.
+
 ### Added — G2 part 2: provider structured outputs (XUBB-ITC-1 §13.3, SO-1)
 
 Typed runs on the `insight_v1` schema can now ask the provider to enforce the

@@ -236,8 +236,9 @@ class TestEffectiveTypes:
                     host_supported=list(HUMAN_WIRE_VALUES), host_reply_drafts=True, host_text_questions=True,
                     host_corrections=True, principal_present=True)
         e = effective_insight_types(**base)
-        assert e.types == IMPLEMENTED_TYPED_TYPES == ("fact", "observation", "suggestion", "warning", "opportunity", "praise")
-        assert {e.unavailable[v] for v in ("reply", "correction", "question")} == {"not_implemented_in_this_release"}
+        assert e.types == IMPLEMENTED_TYPED_TYPES == ("fact", "observation", "suggestion", "warning", "opportunity",
+                                                      "praise", "reply", "question")
+        assert e.unavailable["correction"] == "not_implemented_in_this_release"   # G3 part 2
 
     def test_intersection_with_schema_and_host(self):
         e = eff(schema_supported=["fact", "warning", "reply"], host_supported=["fact", "reply"])
