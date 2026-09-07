@@ -72,7 +72,7 @@ packages = ["xubb_agents", "xubb_agents.core", "xubb_agents.library", "xubb_agen
 # wheels shipped WITHOUT them — caught by the public-release audit and locked by
 # tests/test_packaging.py.
 "xubb_agents" = ["py.typed"]
-"xubb_agents.library" = ["schemas/*.json"]
+"xubb_agents.library" = ["schemas/*.json", "contract/*.json"]
 
 
 [tool.pytest.ini_options]

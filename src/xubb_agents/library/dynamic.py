@@ -23,6 +23,7 @@ from ..core.insight_validation import (
 from ..core.models import (
     EvidenceCatalogEntry, EvidenceSnapshot, EvidenceRef, CorrectionPayload, QuestionPayload,
 )
+from ..core.provider_schema import compile_schema, schema_issues, decode_response
 
 logger = logging.getLogger(__name__)
 
@@ -571,14 +572,42 @@ class DynamicAgent(BaseAgent):
         if self.config.model_params:
             llm_kwargs["extra_params"] = self.config.model_params
 
+        # G2 / §13.3: provider structured outputs. Only an adapter declaring the
+        # json_schema transport (insight_v1) gets a compiled projection, derived
+        # from the authoritative contract and restricted to the run's effective
+        # set. The projection is LINTED before any call; a failing schema never
+        # reaches the wire (fail closed, provider_schema_error).
+        response_schema = None
+        if typed and "json_schema" in (self.descriptor.get("supported_transports") or []):
+            response_schema = compile_schema(full=True, content_extension=False,
+                                             allowed_types=list(self._effective_types(context).types))
+            lint = schema_issues(response_schema)
+            if lint:
+                response = AgentResponse(execution_id=execution_id, acceptance_status="rejected")
+                response.debug_info = {"prompt_messages": messages, "model": self.model, "llm_output": None,
+                                       "schema_lint": lint}
+                response.diagnostics.append(self._diagnostic(
+                    execution_id, "provider_schema_error", "$", classification=lint[0][:64]))
+                self.logger.error(f"{self.config.name}: provider schema failed lint; no call made: {lint[0]}")
+                return response
+
         llm_usage = None
+        llm_transport = None
+        llm_downgraded = False
+        llm_failure = None
         try:
             gen = getattr(self.llm, "generate", None)
             if callable(gen):
+                if response_schema is not None:
+                    llm_kwargs["response_schema"] = response_schema
                 llm_result = await gen(model=self.model, messages=messages, **llm_kwargs)
                 result = llm_result.parsed
                 llm_usage = llm_result.usage
+                llm_transport = getattr(llm_result, "transport", None)
+                llm_downgraded = bool(getattr(llm_result, "downgraded", False))
+                llm_failure = getattr(llm_result, "failure", None)
             else:
+                # Duck-typed fakes without generate(): plain JSON-object path.
                 result = await self.llm.generate_json(model=self.model, messages=messages,
                                                       **llm_kwargs)
         except Exception as e:
@@ -599,11 +628,24 @@ class DynamicAgent(BaseAgent):
             response.usage = llm_usage
             response.debug_info["usage"] = llm_usage
 
+        # G2: transport outcome is observable on the response.
+        if llm_downgraded:
+            response.diagnostics.append(self._diagnostic(
+                execution_id, "unsupported_structured_output", "$",
+                classification=f"downgraded:{(llm_failure or {}).get('code')}:{(llm_failure or {}).get('param')}"[:64]))
+        elif llm_transport == "json_schema" and llm_failure is not None \
+                and llm_failure.get("category") == "unsupported_capability":
+            # Fail closed: the provider rejected the schema request and no
+            # enabled signature authorised a downgrade (§13.3).
+            response.diagnostics.append(self._diagnostic(
+                execution_id, "unsupported_structured_output", "$",
+                classification=f"fail_closed:{llm_failure.get('code')}:{llm_failure.get('param')}"[:64]))
+
         if not isinstance(result, dict):
             # No JSON object arrived: the LLM client already logged its failure
-            # category (timeout / malformed / truncated / ...), or the body was
-            # not an object. Unparseable envelope ⇒ whole response rejected
-            # (D-LR). Usage and the diagnostic survive; nothing is staged.
+            # category (timeout / malformed / truncated / refusal / ...), or the
+            # body was not an object. Unparseable envelope ⇒ whole response
+            # rejected (D-LR). Usage and the diagnostic survive; nothing is staged.
             self.logger.warning(f"{self.config.name} received no JSON object from LLM")
             response.acceptance_status = "rejected"
             response.diagnostics.append(self._diagnostic(
@@ -611,6 +653,18 @@ class DynamicAgent(BaseAgent):
                 classification="none" if result is None else type(result).__name__,
             ))
             return response
+
+        if llm_transport == "json_schema":
+            # The strict envelope carries maps as map_entries_v1; decode losslessly
+            # BEFORE local validation. A malformed encoding is a fatal
+            # invalid_domain_payload — nothing is silently dropped or coerced.
+            try:
+                result = decode_response(result, full=True)
+            except ValueError as e:
+                response.acceptance_status = "rejected"
+                response.diagnostics.append(self._diagnostic(
+                    execution_id, "invalid_domain_payload", "$", classification=str(e)[:64]))
+                return response
 
         if typed:
             self._stage_typed(result, context, working_memory, execution_id, response, reference)

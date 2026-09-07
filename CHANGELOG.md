@@ -13,6 +13,42 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — G2 part 2: provider structured outputs (XUBB-ITC-1 §13.3, SO-1)
+
+Typed runs on the `insight_v1` schema can now ask the provider to enforce the
+contract on the wire. Local validation is unchanged and still mandatory.
+
+- **`AgentEngine(structured_outputs="strict" | "auto" | "json_object")`** (default
+  `auto`), an independent transport control passed to the `LLMClient` and preserved
+  across key rotation (EN-1/INV-18). `fallback_signatures=[...]` lets an operator enable
+  evidence-backed downgrade signatures; the shipped registry
+  (`library/contract/provider_capability_registry.json`) enables none.
+- **Derived provider projection** (`core/provider_schema.py`): compiled per run from the
+  shipped authoritative contract, restricted to the effective type set, closed objects,
+  every property required, optionals nullable, content-extension keys omitted until
+  negotiated; linted before any call (a failing schema is `provider_schema_error`, no
+  call made). Equals the packaged projections.
+- **`map_entries_v1` codec** for open-ended dictionaries in the full domain envelope
+  (`metadata`, `variable_updates`, `queue_pushes`, `memory_updates`, `state_updates`,
+  `data`, fact values, event payloads); decoded losslessly before local validation; a
+  malformed encoding is a fatal `invalid_domain_payload`.
+- **Wire (INV-24).** A strict request carries `response_format.type == "json_schema"`,
+  `strict: true` and the effective enum; `json_object` mode never sends a schema.
+- **Fail-closed fallback (A2-4).** `strict` never downgrades. `auto` downgrades once per
+  capability key (endpoint, model, adapter, adapter version, schema version) only on a
+  400 the adapter classifies as unsupported-capability for the `json_schema` feature
+  that exactly matches an enabled signature with an evidence id; recorded on the client
+  and reported as an `unsupported_structured_output` diagnostic. Otherwise the response
+  is rejected with that diagnostic. Message text never matches.
+- **Refusals** are their own `refusal` category (billed, not malformed, never evidence
+  of unsupported schemas).
+- Typed adapters declare `supported_transports`: `insight_v1` supports `json_schema`;
+  `default_v2` / `v2_raw` stay on `json_object`. `strict` with a `json_object`-only
+  adapter fails at registration.
+- Contracts: PROVIDER-SCHEMA-DERIVATION, MAP-ENTRIES-CODEC, STRUCTURED-OUTPUT-FALLBACK.
+  Contract artifacts ship in `xubb_agents/library/contract/` (package-data added).
+  **Not claimed:** live provider acceptance of the generated schema (integration test).
+
 ### Added — G2 part 1: per-agent snapshot evidence catalog (XUBB-ITC-1 §6.3–§6.4)
 
 Under `typed_v1` evidence references now resolve, which unlocks consulting hypotheses

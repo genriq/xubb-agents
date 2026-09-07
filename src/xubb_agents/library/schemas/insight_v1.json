@@ -38,6 +38,7 @@
       "rationale", "validation_step", "assumptions", "correction", "question", "metadata"
     ],
     "supported_contracts": ["typed_v1"],
+    "supported_transports": ["json_schema", "json_object"],
     "supported_content_contracts": []
   }
 }

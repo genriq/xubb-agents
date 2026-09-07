@@ -26,6 +26,17 @@ REQUIRED_SCHEMAS = [
     "v2_raw.json",
     "ui_control.json",
     "widget_control.json",
+    "insight_v1.json",      # XUBB-ITC-1 typed-only normalized envelope (G1)
+]
+
+# The authoritative contract artifacts core/provider_schema.py compiles the
+# provider projection from at runtime (XUBB-ITC-1 §13.3, G2). Same trap as the
+# schemas: contract/ is not a package, so it needs its own package-data glob.
+CONTRACT_DIR = PACKAGE_DIR / "library" / "contract"
+REQUIRED_CONTRACT_FILES = [
+    "normalized_insight.schema.json",
+    "provider_response_contract.json",
+    "provider_capability_registry.json",
 ]
 
 
@@ -34,6 +45,10 @@ class TestSchemaPackaging:
         for name in REQUIRED_SCHEMAS:
             assert (SCHEMAS_DIR / name).is_file(), f"library/schemas/{name} missing"
 
+    def test_contract_files_exist_on_disk(self):
+        for name in REQUIRED_CONTRACT_FILES:
+            assert (CONTRACT_DIR / name).is_file(), f"library/contract/{name} missing"
+
     def test_pyproject_ships_the_schemas(self):
         """package-data must include the explicit schemas glob for the library
         package — the bare '"*" = [...*.json...]' glob does NOT reach into
@@ -41,6 +56,9 @@ class TestSchemaPackaging:
         assert re.search(
             r'"xubb_agents\.library"\s*=\s*\[[^\]]*"schemas/\*\.json"', PYPROJECT
         ), 'pyproject.toml must declare "xubb_agents.library" = ["schemas/*.json"] package-data'
+        assert re.search(
+            r'"xubb_agents\.library"\s*=\s*\[[^\]]*"contract/\*\.json"', PYPROJECT
+        ), 'pyproject.toml must also declare "contract/*.json" package-data (provider projection source)'
 
     def test_version_is_consistent(self):
         """pyproject version and __init__.__version__ must agree (release identity)."""

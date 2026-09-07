@@ -784,12 +784,89 @@ contracts:
     test_flags_no_expand: "tests/test_insight_vocabulary_g1.py::TestEffectiveTypes::test_flags_never_expand_allowed_types"
     status: covered   # G1 part 1.
 
+  # ---- XUBB-ITC-1 — G2 part 2: provider structured outputs (SO-1, §13.3) ----
+
+  - id: PROVIDER-SCHEMA-DERIVATION
+    statement: >
+      The provider projection is compiled at runtime from the shipped authoritative
+      contract (library/contract/normalized_insight.schema.json + the domain-envelope
+      descriptor), never from a hand-maintained list: it equals the packaged projections,
+      passes the conservative-subset lint (closed objects, every property required, no
+      local-only keywords), carries the run's exact effective type enum with no
+      engine-owned or un-negotiated content-extension keys, and an empty effective set
+      compiles to a silence-only envelope — never an empty enum. The shipped fallback
+      registry enables no production signature.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §7.3, §13.3"
+      - "src/xubb_agents/core/provider_schema.py: compile_schema / schema_issues"
+    invariant: SO-1
+    test: "tests/test_provider_schema_g2.py::TestProjection::test_compiled_projections_equal_the_packaged_ones"
+    test_lint: "tests/test_provider_schema_g2.py::TestProjection::test_projections_pass_the_subset_lint"
+    test_enum: "tests/test_provider_schema_g2.py::TestProjection::test_enum_is_exactly_the_effective_set_and_engine_owned_keys_absent"
+    test_empty: "tests/test_provider_schema_g2.py::TestProjection::test_empty_effective_set_is_silence_only_never_an_empty_enum"
+    test_lint_negative: "tests/test_provider_schema_g2.py::TestProjection::test_lint_detects_open_objects_and_local_keywords"
+    test_registry: "tests/test_provider_schema_g2.py::TestProjection::test_shipped_registry_enables_no_production_signature"
+    status: covered   # G2 part 2.
+
+  - id: MAP-ENTRIES-CODEC
+    statement: >
+      Open-ended dictionaries cross the strict provider schema as map_entries_v1
+      ({"entries": [{"key", "value"}...]}, nested maps recursing) and decode losslessly —
+      scalars, arrays, nulls and nested maps preserved; duplicate keys, non-finite
+      numbers, malformed envelopes and excessive depth reject with a codec code, which
+      the typed path reports as a fatal invalid_domain_payload. No domain update is
+      silently dropped to satisfy a closed schema.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §13.3"
+      - "src/xubb_agents/core/provider_schema.py: encode_value / decode_value"
+    test: "tests/test_provider_schema_g2.py::TestCodec::test_round_trip_preserves_scalars_arrays_nulls_and_nested_maps"
+    test_malformed: "tests/test_provider_schema_g2.py::TestCodec::test_malformed_encodings_reject"
+    test_nonfinite_depth: "tests/test_provider_schema_g2.py::TestCodec::test_non_finite_and_depth_reject"
+    test_packaged_roundtrips: "tests/test_provider_schema_g2.py::TestCodec::test_packaged_positive_examples_round_trip_through_both_projections"
+    test_engine_decode_fatal: "tests/test_provider_schema_g2.py::TestEngineStrictTransport::test_malformed_map_encoding_rejects_whole_response"
+    test_engine_decode_staged: "tests/test_provider_schema_g2.py::TestEngineStrictTransport::test_strict_envelope_is_decoded_and_staged"
+    status: covered   # G2 part 2.
+
+  - id: STRUCTURED-OUTPUT-FALLBACK
+    statement: >
+      structured_outputs is an independent transport control (strict | auto |
+      json_object; default auto) on the LLM client, preserved across key rotation.
+      A strict request carries response_format.type == "json_schema", strict: true and
+      the effective enum (INV-24); json_object never sends a schema. "strict" never
+      downgrades. "auto" downgrades ONCE per capability key (endpoint, model, adapter,
+      adapter version, schema version) and only when the adapter classifies a 400 on a
+      json_schema request as unsupported_capability AND it exactly matches an enabled,
+      evidence-backed signature; the downgrade is recorded on the client and reported on
+      the response. Schema-invalid, auth, rate-limit, unknown-model, wrong-parameter,
+      lint-failed and refusal outcomes never downgrade; with the shipped (empty) registry
+      auto fails closed. Under typed_v1, strict mode requires a schema adapter declaring
+      json_schema transport at registration.
+    source:
+      - "docs/SPEC_INSIGHT_TYPES.md: §13.3 (A2-4)"
+      - "src/xubb_agents/core/llm.py: LLMClient.generate / _failure_record"
+      - "src/xubb_agents/core/provider_schema.py: allow_schema_fallback / CapabilityCache"
+    invariant: INV-24
+    test: "tests/test_provider_schema_g2.py::TestClientTransport::test_auto_with_enabled_signature_downgrades_once_and_caches"
+    test_wire_strict: "tests/test_provider_schema_g2.py::TestClientTransport::test_strict_request_carries_json_schema_with_closed_enum"
+    test_wire_json_object: "tests/test_provider_schema_g2.py::TestClientTransport::test_json_object_mode_never_sends_a_schema"
+    test_fail_closed: "tests/test_provider_schema_g2.py::TestClientTransport::test_auto_with_empty_registry_fails_closed"
+    test_strict_never: "tests/test_provider_schema_g2.py::TestClientTransport::test_strict_never_downgrades_even_with_enabled_signature"
+    test_other_failures: "tests/test_provider_schema_g2.py::TestClientTransport::test_other_failures_never_downgrade"
+    test_lint_blocks: "tests/test_provider_schema_g2.py::TestClientTransport::test_lint_failure_blocks_fallback"
+    test_refusal: "tests/test_provider_schema_g2.py::TestClientTransport::test_refusal_is_its_own_category_with_usage"
+    test_fixtures: "tests/test_provider_schema_g2.py::TestFallbackPolicy::test_packaged_fallback_fixtures_reproduce"
+    test_engine_observable: "tests/test_provider_schema_g2.py::TestEngineStrictTransport::test_auto_fail_closed_is_observable_on_the_response"
+    test_engine_downgrade: "tests/test_provider_schema_g2.py::TestEngineStrictTransport::test_auto_downgrade_is_recorded_on_the_response_and_reused"
+    test_registration: "tests/test_provider_schema_g2.py::TestEngineStrictTransport::test_strict_mode_requires_a_json_schema_adapter_at_registration"
+    test_rotation: "tests/test_provider_schema_g2.py::TestEngineStrictTransport::test_engine_knobs_reach_the_client_and_survive_key_rotation"
+    status: covered   # G2 part 2. Actual provider acceptance is a separate integration test, not claimed.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       51   (every contract & invariant names a passing, rule-asserting test)
+# covered:       54   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         51
+# total:         54
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

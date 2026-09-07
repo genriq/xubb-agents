@@ -1,0 +1,476 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "fact",
+        "observation",
+        "suggestion",
+        "warning",
+        "opportunity",
+        "praise",
+        "reply",
+        "correction",
+        "question"
+      ]
+    },
+    "content": {
+      "type": "string",
+      "minLength": 2,
+      "pattern": "\\S",
+      "description": "Complete canonical body. No global size cap here; runtime must enforce negotiated decoded-character and transport-byte limits."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "urgency": {
+      "type": "string",
+      "enum": [
+        "now",
+        "soon",
+        "whenever"
+      ]
+    },
+    "observation_kind": {
+      "enum": [
+        "hypothesis",
+        "implication",
+        null
+      ]
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "segment",
+              "document",
+              "fact",
+              "insight"
+            ]
+          },
+          "ref_id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "ref_id",
+          "revision"
+        ]
+      }
+    },
+    "rationale": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "validation_step": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      }
+    },
+    "correction": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "target_insight_id": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "operation": {
+              "type": "string",
+              "enum": [
+                "replace",
+                "withdraw"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            }
+          },
+          "required": [
+            "target_insight_id",
+            "operation",
+            "reason"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "question": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "response_format": {
+              "const": "text"
+            }
+          },
+          "required": [
+            "reason",
+            "response_format"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "preview": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional plain-text preview. Does not replace content; negotiated limits and semantic fidelity are separate checks."
+    },
+    "content_format": {
+      "type": "string",
+      "enum": [
+        "plain_text",
+        "markdown"
+      ],
+      "default": "plain_text",
+      "description": "Format of canonical content, allowed only when the content contract is enabled. Not an insight type."
+    },
+    "confidence_provided": {
+      "type": "boolean"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "turn": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "contract_version": {
+      "const": "typed_v1"
+    },
+    "content_contract": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "long_form_v1",
+        null
+      ]
+    },
+    "response_depth": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "brief",
+        "standard",
+        "detailed",
+        null
+      ]
+    },
+    "content_request_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_snapshot_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "type",
+    "content",
+    "confidence",
+    "urgency",
+    "observation_kind",
+    "evidence_refs",
+    "rationale",
+    "validation_step",
+    "assumptions",
+    "correction",
+    "question",
+    "metadata",
+    "confidence_provided",
+    "id",
+    "turn",
+    "contract_version"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "observation"
+          }
+        }
+      },
+      "then": {
+        "properties": {}
+      },
+      "else": {
+        "properties": {
+          "observation_kind": {
+            "type": "null"
+          },
+          "validation_step": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "observation_kind": {
+            "const": "hypothesis"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "type": {
+            "const": "observation"
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "validation_step": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "observation_kind": {
+            "const": "implication"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "type": {
+            "const": "observation"
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "validation_step": {
+            "type": "null"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "observation_kind": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "validation_step": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "correction"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "correction": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "target_insight_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "operation": {
+                "type": "string",
+                "enum": [
+                  "replace",
+                  "withdraw"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "target_insight_id",
+              "operation",
+              "reason"
+            ]
+          },
+          "evidence_refs": {
+            "minItems": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "correction": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "question"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "question": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "response_format": {
+                "const": "text"
+              }
+            },
+            "required": [
+              "reason",
+              "response_format"
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "question": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "confidence_provided": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "confidence": {
+            "const": 1.0
+          }
+        }
+      }
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reference emitted insight shape 1.2.0 — authority/negotiation checked separately"
+}
