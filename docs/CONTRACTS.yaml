@@ -1345,12 +1345,54 @@ contracts:
     test_ci: "tests/test_wheel_smoke_script.py::test_ci_runs_the_clean_wheel_job"
     status: covered   # H2. Distribution evidence; provider/host acceptance remain unclaimed.
 
+  # ---- H3 — reassessment of 0f3cc32: the two residual boundary cases ----
+
+  - id: CONTENT-VIEW-ANSWERS-VALIDATED
+    statement: >
+      The frozen view of an isolated content task carries only answers that pass the
+      SAME validator the live turn applies — this session, a retained OPEN question,
+      a present current principal equal to both the question's and the answer's —
+      before the per-agent visibility filter. Invalid events surface as diagnostics on
+      the ContentResult; the host's list is never mutated; the live and isolated views
+      of one context expose the same answers to the same agent.
+    source:
+      - "src/xubb_agents/core/engine.py: start_content_request (validate_answers → _scoped_view)"
+    invariant: INV-47
+    test: "tests/test_boundary_residuals_h3.py::TestIsolatedViewAnswers::test_wrong_principal_answer_for_own_question_is_excluded_with_a_diagnostic"
+    test_control: "tests/test_boundary_residuals_h3.py::TestIsolatedViewAnswers::test_control_valid_own_answer_is_visible"
+    test_current: "tests/test_boundary_residuals_h3.py::TestIsolatedViewAnswers::test_current_context_for_another_principal_sees_nothing"
+    test_open: "tests/test_boundary_residuals_h3.py::TestIsolatedViewAnswers::test_open_question_in_this_session_is_required"
+    test_missing: "tests/test_boundary_residuals_h3.py::TestIsolatedViewAnswers::test_missing_current_principal_disables_answers_on_the_isolated_path"
+    test_agree: "tests/test_boundary_residuals_h3.py::TestIsolatedViewAnswers::test_live_and_isolated_paths_agree"
+    status: covered   # H3. Closes reassessment residual 1.
+
+  - id: NEGOTIATED-LIMITS-AT-BOUNDARY
+    statement: >
+      For a long_form_v1 emission, staging hands the EFFECTIVE negotiated ceilings (body
+      characters, preview characters, formats) to the engine with the other content
+      values, and the boundary re-applies them to the object that would commit — body,
+      preview and format as they are at final acceptance — so a callback that replaces
+      an accepted body after staging cannot exceed the frozen policy
+      (content_too_large / preview_too_large / unsupported_content_format reject the
+      whole response). Holds on the live and the isolated path.
+    source:
+      - "src/xubb_agents/library/dynamic.py: _stage_typed (limits hand-over)"
+      - "src/xubb_agents/core/engine.py: _enforce_typed (limits re-check)"
+    invariant: INV-48
+    test: "tests/test_boundary_residuals_h3.py::TestNegotiatedLimitsAtBoundary::test_callback_grown_body_is_rejected_against_the_frozen_ceiling"
+    test_control: "tests/test_boundary_residuals_h3.py::TestNegotiatedLimitsAtBoundary::test_control_untouched_brief_body_is_accepted_with_its_stamps"
+    test_preview: "tests/test_boundary_residuals_h3.py::TestNegotiatedLimitsAtBoundary::test_callback_grown_preview_is_rejected"
+    test_format: "tests/test_boundary_residuals_h3.py::TestNegotiatedLimitsAtBoundary::test_callback_switched_format_is_rejected"
+    test_within: "tests/test_boundary_residuals_h3.py::TestNegotiatedLimitsAtBoundary::test_callback_body_within_the_ceiling_still_passes"
+    test_isolated: "tests/test_boundary_residuals_h3.py::TestNegotiatedLimitsAtBoundary::test_isolated_result_is_also_held_to_the_frozen_ceiling"
+    status: covered   # H3. Closes reassessment residual 2.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       77   (every contract & invariant names a passing, rule-asserting test)
+# covered:       79   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         77
+# total:         79
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

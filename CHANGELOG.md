@@ -13,6 +13,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — H3: two residual boundary cases (reassessment of `0f3cc32`)
+
+- **Isolated content views carry validated answers only.** `start_content_request`
+  now runs the same answer validator as the live turn (this session, open question,
+  present matching principal) on the frozen view before the per-agent visibility
+  filter; invalid events surface as diagnostics on the `ContentResult`. Previously an
+  invalid answer for the agent's own question could reach an isolated prompt.
+- **Negotiated limits are re-applied at final acceptance.** Staging hands the effective
+  `long_form_v1` ceilings (body chars, preview chars, formats) to the engine with the
+  other content values; the boundary re-checks the body, preview and format of the
+  object that would commit. A finish callback can no longer grow an accepted body past
+  the frozen policy. Contracts: CONTENT-VIEW-ANSWERS-VALIDATED, NEGOTIATED-LIMITS-AT-BOUNDARY
+  (INV-47/48).
+
 ### Fixed — H2: content path and assurance (independent audit of `e3dfaf1`, findings XA-04/05/06/08)
 
 - **Admission at the content entrypoint (XA-04).** `start_content_request` now refuses,

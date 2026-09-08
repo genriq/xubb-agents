@@ -54,7 +54,7 @@ Behind them: the engine cannot gate an LLM call on anything it can see in the tr
 |---|---|
 | Workstreams | 6 (A–F) |
 | Items | 29 here (SO-1, LH-1, UR-1, CF-1, LC-1…5, DL-1…6, TP-1…4, SS-1…5, EV-1…4) plus the type contract's 35 ITC contracts |
-| New invariants | INV-20 … INV-46 (27; INV-38…46 added by the H1/H2 hardening) |
+| New invariants | INV-20 … INV-48 (29; INV-38…48 added by the H1/H2/H3 hardening) |
 | New models | `Urgency`, `AnchorRef`, `InsightOutcome`, `TurnEvent`, `SessionBudget` |
 | New public API | `stream_turn`, `record_outcome`, `InsightPolicy`, `SessionRecorder`, `replay` |
 | Gates | G0, A, B1, B2, C, L, D — dependency-ordered, versions chosen per gate (§13) |
@@ -152,6 +152,8 @@ Registered in `CONTRACTS.yaml` with rule-asserting tests and negative controls, 
 | **INV-44** | **Prompt fields come from the enabled contract.** No generated rule forbids a requested field; citable evidence is exposed whenever an enabled type needs it. (H2, audit XA-06) | — |
 | **INV-45** | **Content-policy primitives are strict at construction.** Numeric strings, booleans and non-finite numbers never reach a policy checker coerced. (H2, audit XA-08) | — |
 | **INV-46** | **The delivery artifact is exercised.** CI runs the installed wheel from outside the checkout. (H2) | — |
+| **INV-47** | **Isolated views carry validated answers only.** The content task's frozen view passes the live turn's answer validator before scoping. (H3) | — |
+| **INV-48** | **Negotiated limits hold at final acceptance.** Body, preview and format are re-checked against the frozen long-form ceilings on the object that commits. (H3) | — |
 
 ---
 
