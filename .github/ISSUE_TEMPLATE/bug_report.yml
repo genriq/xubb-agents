@@ -13,7 +13,7 @@ body:
     attributes:
       label: xubb-agents version
       description: "`python -c \"import xubb_agents; print(xubb_agents.__version__)\"`"
-      placeholder: "2.6.0"
+      placeholder: "2.7.0"
     validations:
       required: true
   - type: input

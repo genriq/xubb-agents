@@ -1,6 +1,6 @@
 # Xubb Agents — Overview
 
-**Version:** 2.6.0
+**Version:** 2.7.0
 
 A developer-facing overview of what the framework does and how it is put together. For
 the deep design guide see [PLAYBOOK.md](PLAYBOOK.md); for the API and data models see
@@ -181,4 +181,4 @@ For a complete, runnable example (including a no-key offline variant), see the
 
 ---
 
-**Version:** 2.6.0 · **Status:** Beta, production-hardened (see the contract registry) · **License:** MIT
+**Version:** 2.7.0 · **Status:** Beta, production-hardened (see the contract registry) · **License:** MIT

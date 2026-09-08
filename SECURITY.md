@@ -15,8 +15,8 @@ is triaged; coordinated disclosure within **90 days** of triage is the default.
 
 | Version | Supported |
 |---------|-----------|
-| 2.6.x   | ✅ |
-| < 2.6   | ❌ |
+| 2.7.x   | ✅ |
+| < 2.7   | ❌ |
 
 ## Security model and trust boundaries
 
