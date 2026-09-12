@@ -2,7 +2,7 @@
 
 **Version:** 3.2
 **Last Updated:** July 13, 2026
-**Status:** Production (xubb_agents v2.8.0)
+**Status:** Production (xubb_agents v2.8.1)
 
 This guide is the **definitive reference** for writing effective prompts for the Xubb Agents framework. It covers system prompt design, Jinja2 templating, output schemas, trigger configuration, and agent coordination patterns.
 
