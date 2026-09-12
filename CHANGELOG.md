@@ -13,6 +13,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.8.1] - 2026-09-12
+
+One diagnostic detail a host counting runs per agent needs. Cut from a green main after the
+fix merged: 943 tests, contract gate 89/89 strict, clean-wheel smoke (CI).
+
 ### Fixed — the envelope failure category is host-visible (ENVELOPE-FAILURE-CATEGORY, INV-56)
 
 - When no JSON object arrives from the model client, the agent's `invalid_envelope`

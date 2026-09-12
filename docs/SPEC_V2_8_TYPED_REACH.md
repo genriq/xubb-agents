@@ -1,8 +1,8 @@
 # Xubb Agents Framework v2.8
 ## Typed Reach Specification (typed-reach)
 
-**Version:** 2.8.0
-**Status:** IMPLEMENTED — merged as PR #37 (2026-09-12), released as 2.8.0. Spec-first per [PROCESS.md](PROCESS.md): every item landed with a registered contract (`CONTRACTS.yaml`), a rule-asserting test and its negative control, in one change; suite 930, contract gate 88/88 strict, clean-wheel smoke.
+**Version:** 2.8.0 (2.8.1: the envelope failure category, §5)
+**Status:** IMPLEMENTED — merged as PR #37 (2026-09-12), released as 2.8.0, then 2.8.1 with `ENVELOPE-FAILURE-CATEGORY` (INV-56). Spec-first per [PROCESS.md](PROCESS.md): every item landed with a registered contract (`CONTRACTS.yaml`), a rule-asserting test and its negative control, in one change; suite 930, contract gate 88/88 strict, clean-wheel smoke.
 **Date:** September 12, 2026
 **Scope:** Make the typed contract (`insight_contract="typed_v1"`, XUBB-ITC-1 1.2.0) reachable for a host's *existing* schema catalog without changing that catalog, and give a host what it needs to ground, sequence and attribute typed output: adapters for every shipped schema, evidence coordinates, a result-only instruction on the isolated path, urgency provenance, a documented content-slot ordering, correctable-target control, and per-agent sidecar attribution.
 **Compatibility:** Additive. The `legacy_v2` contract, every legacy instruction and every legacy parse path are untouched; new public keys are nullable and absent from `model_dump_legacy()`. One registration outcome changes under `typed_v1` only: `custom1` fails registration with a named message instead of the generic one (it failed before too). See [§5 Migration](#5-compatibility-and-migration).
