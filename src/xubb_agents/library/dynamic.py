@@ -747,11 +747,18 @@ class DynamicAgent(BaseAgent):
             # category (timeout / malformed / truncated / refusal / ...), or the
             # body was not an object. Unparseable envelope ⇒ whole response
             # rejected (D-LR). Usage and the diagnostic survive; nothing is staged.
+            # v2.8.1: the diagnostic's classification IS the client's failure
+            # category when it reported one (a sanitized word, never model text),
+            # so a host can tell a provider timeout from a refusal per execution
+            # and per agent from the diagnostics alone; "none" only when no
+            # category was reported (a duck-typed client without generate()).
             self.logger.warning(f"{self.config.name} received no JSON object from LLM")
             response.acceptance_status = "rejected"
+            category = llm_telemetry.get("error_category")
             response.diagnostics.append(self._diagnostic(
                 execution_id, "invalid_envelope", "$",
-                classification="none" if result is None else type(result).__name__,
+                classification=((str(category)[:64] if category else "none")
+                                if result is None else type(result).__name__),
             ))
             if content_plan is not None and llm_telemetry.get("error_category") == "truncated":
                 # §14.7: a length-stopped extended generation is incomplete, billed,

@@ -163,6 +163,7 @@ Every entry is `covered` in the same change; `debt_baseline` stays 0; `tools/che
 - **Registration under `typed_v1`:** a batch containing `default`, `ui_control` or `widget_control` agents now registers; a batch containing `custom1` still fails, now with the named message. The all-or-nothing rule is unchanged.
 - **Prompts under `typed_v1`:** `root_v2` schemas with a sidecar gain the sidecar block; the isolated path loses the channel invitations and the scratchpad section; `evidence_citations=True` adds the citation material to every typed run. Hosts pinning byte-stable typed prompts should expect these diffs; legacy prompts do not change.
 - **Reference package:** `docs/reference/insight_types_1.2.0/` is the 1.2.0 contract artifact and is not modified; the engine-owned key lists in code are the authority for `urgency_provided` and `source_index`.
+- **2.8.1 amendment (2026-09-12, ENVELOPE-FAILURE-CATEGORY, INV-56):** the `invalid_envelope` diagnostic's classification is the model client's failure category (`timeout`, `rate_limit`, `server`, `refusal`, `malformed`, `truncated`, `auth`, `misconfig`, `not_initialized`, `unknown`) when the client reported one, `none` otherwise; a non-object body keeps its type name. A host reading `code:classification` per execution and agent can exclude transport failures and still count refusals. Additive: one classification string.
 
 ---
 
