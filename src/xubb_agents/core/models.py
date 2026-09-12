@@ -291,6 +291,11 @@ class HostInsightCapabilities(BaseModel):
     # the host explicitly authorises sharing them with every agent in the run.
     answers_shared: bool = False
     corrections: bool = False
+    # v2.8 (typed-reach EC-1): the host resolves and presents citations, so
+    # EVERY typed run exposes the citation markers, the reference contract and
+    # the citable host ids to the model — not only the consulting profile or
+    # a permitted correction. Off by default (v2.7 behaviour).
+    evidence_citations: bool = False
     correction_agent_policy: Literal["own_only", "allowlisted"] = "own_only"
     correction_agent_ids: List[str] = Field(default_factory=list)
     expanded_reading: bool = False
@@ -324,6 +329,12 @@ class EvidenceCatalogEntry(BaseModel):
     revision: Optional[str] = None
     session_id: Optional[str] = Field(default=None, description="Owning session; None = current")
     excerpt: Optional[str] = Field(default=None, max_length=4000, description="Bounded source excerpt (untrusted)")
+    # v2.8 (EC-1): framework-built SEGMENT entries carry the coordinate of the
+    # segment in the ``recent_segments`` list the host passed for the execution
+    # (before trimming) and the segment's own session-relative timestamp; host
+    # entries leave both None.
+    source_index: Optional[int] = Field(default=None, ge=0)
+    timestamp: Optional[float] = None
 
 
 class PriorInsightRecord(BaseModel):
@@ -338,6 +349,10 @@ class PriorInsightRecord(BaseModel):
     content: str
     turn: int
     status: Literal["active", "superseded", "withdrawn"] = "active"
+    # v2.8 (CT-1): host-set. False removes the record from the offered correction
+    # targets and rejects a correction naming it (target_not_correctable);
+    # answers keep validating against the record.
+    correctable: bool = True
 
 
 class InsightReferenceContext(BaseModel):
@@ -436,6 +451,10 @@ class EvidenceRef(BaseModel):
     kind: Literal["segment", "document", "fact", "insight"]
     ref_id: str = Field(..., min_length=1)
     revision: Optional[str] = None
+    # v2.8 (EC-1): engine-stamped for a segment reference resolved through the
+    # run's snapshot — the segment's position in the host's recent_segments
+    # list for that execution; None for every other kind. Never model-authored.
+    source_index: Optional[int] = Field(default=None, ge=0)
 
     def model_post_init(self, __context: Any) -> None:
         if not self.ref_id.strip():
@@ -464,7 +483,7 @@ Urgency = Literal["now", "soon", "whenever"]
 # Keys of AgentInsight that only the ENGINE may set (§6.2 "engine-owned fields").
 # A candidate carrying any of these — at its root or inside metadata — is rejected.
 ENGINE_OWNED_INSIGHT_FIELDS = (
-    "id", "turn", "contract_version", "confidence_provided", "content_contract",
+    "id", "turn", "contract_version", "confidence_provided", "urgency_provided", "content_contract",
     "response_depth", "content_request_id", "source_snapshot_id", "acceptance_status",
     "origin", "agent_id", "agent_name",
 )
@@ -499,6 +518,10 @@ class AgentInsight(BaseModel):
         default=None,
         description="Runtime-derived: True = model estimate; False = numeric placeholder (not certainty); None = unknown provenance (legacy)",
     )
+    # v2.8 (UP-1): runtime-derived like confidence_provided. True = the accepted
+    # candidate carried a valid explicit urgency; False = resolved from the agent
+    # default or the per-type fallback, or unknown provenance; None = legacy.
+    urgency_provided: Optional[bool] = Field(default=None, description="Runtime-derived urgency provenance (typed_v1)")
     observation_kind: Optional[Literal["hypothesis", "implication"]] = None
     evidence_refs: List[EvidenceRef] = Field(default_factory=list)
     rationale: Optional[str] = None
@@ -604,6 +627,11 @@ class AgentResponse(BaseModel):
         default=None, description="typed_v1: the immutable invocation view this agent's references point into")
     evidence_snapshots_by_agent: Dict[str, EvidenceSnapshot] = Field(
         default_factory=dict, description="Aggregated responses only: agent_id → evidence snapshot")
+    # v2.8 (DS-1): aggregated responses only — which agent contributed which
+    # sidecar (a copy of the agent's committed ``data``); the merged ``data``
+    # keeps its shape.
+    data_by_agent: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict, description="Aggregated responses only: agent_id → committed data sidecar (copy)")
     # Updates to the shared memory (v1 compatibility)
     state_updates: Dict[str, Any] = Field(default_factory=dict)
     

@@ -1387,12 +1387,183 @@ contracts:
     test_isolated: "tests/test_boundary_residuals_h3.py::TestNegotiatedLimitsAtBoundary::test_isolated_result_is_also_held_to_the_frozen_ceiling"
     status: covered   # H3. Closes reassessment residual 2.
 
+  # ---- v2.8 typed reach (docs/SPEC_V2_8_TYPED_REACH.md; INV-49…INV-55) ----
+  - id: TYPED-ADAPTER-FLAT-V1
+    statement: >
+      The `default` schema registers under typed_v1 through the flat_v1 adapter: the
+      generated instruction offers the candidate at the root plus the schema's memory
+      channel and nothing else; the flat normalization applies (placeholders under a
+      false gate discarded); the legacy instruction and parse path are unchanged.
+    source:
+      - "src/xubb_agents/library/schemas/default.json: descriptor"
+      - "src/xubb_agents/library/dynamic.py: _typed_instruction / _normalize_typed (flat_v1)"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.1"
+    invariant: INV-49
+    test: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_accepted_flat_result_is_a_typed_insight_and_memory_commits"
+    test_instruction: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_default_registers_and_instruction_is_candidate_plus_memory"
+    test_silence: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_false_gate_with_placeholders_is_silence_and_memory_still_commits"
+    test_state_only: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_state_only_default_agent_gets_the_silence_envelope_with_memory"
+    test_legacy_unchanged: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_legacy_path_for_default_is_unchanged"
+    test_control: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_control_typed_declaration_without_an_adapter_is_refused"
+    status: covered   # v2.8 TA-1
+
+  - id: TYPED-ADAPTER-ROOT-V2-SIDECAR
+    statement: >
+      ui_control and widget_control register under typed_v1 through root_v2: the
+      generated instruction names the state block by the mapping's variable_updates_field
+      and the sidecar block by its data_field with the descriptor's sidecar_instruction;
+      an accepted result stages insight, state and sidecar; silence may still act; v2_raw
+      renders no sidecar. The block is generated from the descriptor, never assumed.
+    source:
+      - "src/xubb_agents/library/schemas/ui_control.json: descriptor"
+      - "src/xubb_agents/library/schemas/widget_control.json: descriptor"
+      - "src/xubb_agents/library/dynamic.py: _typed_instruction (root_v2)"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.2"
+    invariant: INV-49
+    test: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_accepted_result_stages_the_insight_state_and_sidecar"
+    test_instruction: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_registers_and_instruction_names_state_and_sidecar_from_the_mapping"
+    test_silence_acts: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_silence_with_actions_commits_the_sidecar"
+    test_silence_envelope: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_silence_only_envelope_keeps_the_sidecar"
+    test_v2_raw: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_v2_raw_instruction_carries_no_sidecar"
+    test_control: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_control_without_a_sidecar_instruction_no_sidecar_block"
+    status: covered   # v2.8 TA-2
+
+  - id: TYPED-UNSUPPORTED-SCHEMA-NAMED
+    statement: >
+      custom1 fails registration under typed_v1 with a message naming the schema, its
+      typed_unsupported_reason and the six typed adapters; nothing registers; the schema
+      still registers under legacy_v2; every other shipped schema registers under
+      typed_v1; a typed declaration without a typed_adapter is a distinct refusal.
+    source:
+      - "src/xubb_agents/library/schemas/custom1.json: descriptor.typed_unsupported_reason"
+      - "src/xubb_agents/core/engine.py: _validate_insight_config"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.3"
+    invariant: INV-49
+    test: "tests/test_typed_reach_2_8.py::TestUnsupportedSchema::test_custom1_is_refused_by_name_with_the_reason_and_the_alternatives"
+    test_legacy: "tests/test_typed_reach_2_8.py::TestUnsupportedSchema::test_custom1_still_registers_under_legacy"
+    test_reach: "tests/test_typed_reach_2_8.py::TestUnsupportedSchema::test_every_other_shipped_schema_registers_under_typed"
+    test_control: "tests/test_typed_reach_2_8.py::TestUnsupportedSchema::test_control_adapterless_typed_declaration_is_the_generic_refusal"
+    status: covered   # v2.8 TA-3
+
+  - id: EVIDENCE-COORDINATES-AND-CITATIONS
+    statement: >
+      A framework-built segment reference resolves to the segment's position in the
+      recent_segments list the host passed for the execution (recorded before trimming);
+      the engine stamps source_index on accepted segment references (null for other
+      kinds) and on the snapshot entries with their timestamps; a model-authored
+      source_index rejects; a producer-set one is rejected at the boundary; an unexposed
+      ordinal still rejects; HostInsightCapabilities.evidence_citations exposes the
+      citation markers and the reference contract on every typed run.
+    source:
+      - "src/xubb_agents/core/insight_validation.py: snapshot_catalog, ReferenceContext.coordinates, validate_typed_candidate"
+      - "src/xubb_agents/library/dynamic.py: evaluate (cite, first_index), _build_reference_context"
+      - "src/xubb_agents/core/engine.py: _enforce_typed, _candidate_projection, _boundary_reference_context"
+      - "src/xubb_agents/core/models.py: EvidenceRef.source_index, EvidenceCatalogEntry, HostInsightCapabilities.evidence_citations"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.4"
+    invariant: INV-50
+    test: "tests/test_typed_reach_2_8.py::TestEvidenceCoordinates::test_segment_references_are_stamped_with_the_host_list_position"
+    test_full_window: "tests/test_typed_reach_2_8.py::TestEvidenceCoordinates::test_full_window_starts_at_zero_and_documents_carry_no_coordinate"
+    test_capability: "tests/test_typed_reach_2_8.py::TestEvidenceCoordinates::test_evidence_citations_capability_exposes_the_markers_on_a_general_run"
+    test_control_unexposed: "tests/test_typed_reach_2_8.py::TestEvidenceCoordinates::test_control_unexposed_ordinal_still_rejects"
+    test_control_authored: "tests/test_typed_reach_2_8.py::TestEvidenceCoordinates::test_control_model_authored_source_index_rejects_the_response"
+    test_control_producer: "tests/test_typed_reach_2_8.py::TestEvidenceCoordinates::test_control_custom_producer_cannot_stamp_a_coordinate"
+    status: covered   # v2.8 EC-1
+
+  - id: ISOLATED-INSTRUCTION-RESULT-ONLY
+    statement: >
+      On the isolated content path the generated instruction offers the insight
+      envelope only — no domain channel, no sidecar, no scratchpad section — and states
+      the request is result-only; the live-turn instruction keeps its channels. The
+      result-only guard rejects effects returned anyway, independently of the prompt.
+    source:
+      - "src/xubb_agents/library/dynamic.py: evaluate (isolated), _typed_instruction"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.5"
+    invariant: INV-51
+    test: "tests/test_typed_reach_2_8.py::TestIsolatedInstruction::test_isolated_prompt_offers_the_envelope_only_and_no_scratchpad"
+    test_control: "tests/test_typed_reach_2_8.py::TestIsolatedInstruction::test_control_channels_returned_anyway_still_reject_the_result"
+    status: covered   # v2.8 IC-1
+
+  - id: URGENCY-PROVENANCE
+    statement: >
+      urgency_provided is true only when the accepted candidate carried a valid explicit
+      urgency; the agent default and the per-type fallback yield false; a candidate or a
+      producer carrying the flag is rejected as engine-owned; a producer without trusted
+      staging has unknown provenance (false); the legacy projection and legacy emissions
+      carry no flag; an invalid explicit urgency still rejects.
+    source:
+      - "src/xubb_agents/core/insight_validation.py: validate_typed_candidate (urgency_provided)"
+      - "src/xubb_agents/library/dynamic.py: _stage_typed (staged hand-over)"
+      - "src/xubb_agents/core/engine.py: _enforce_typed (stamp), ENGINE_OWNED_PUBLIC_FIELDS"
+      - "src/xubb_agents/core/models.py: AgentInsight.urgency_provided"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.6"
+    invariant: INV-52
+    test: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_explicit_urgency_is_provided"
+    test_default: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_agent_default_is_not_provided"
+    test_fallback: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_type_fallback_is_not_provided"
+    test_candidate_flag: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_candidate_carrying_the_flag_rejects"
+    test_producer_flag: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_custom_producer_cannot_set_the_flag"
+    test_unknown_provenance: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_custom_producer_without_staging_has_unknown_provenance"
+    test_legacy: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_legacy_projection_and_legacy_emission_carry_no_flag"
+    test_control: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_control_invalid_explicit_urgency_still_rejects"
+    status: covered   # v2.8 UP-1
+
+  - id: CONTENT-RESULT-AFTER-RELEASE
+    statement: >
+      await handle.result() returns only after the content task's capacity slot has been
+      released (completion, cancellation, refusal alike), so a replacement admits at
+      once; handle.released is the same point as an awaitable. Without the release
+      signal, result() would not return (negative control).
+    source:
+      - "src/xubb_agents/core/engine.py: ContentTaskHandle.result / released, _release_content_task, start_content_request (refuse)"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.7"
+    invariant: INV-53
+    test: "tests/test_typed_reach_2_8.py::TestContentSlotOrdering::test_result_returns_only_after_the_slot_is_released_so_a_replacement_admits_at_once"
+    test_released: "tests/test_typed_reach_2_8.py::TestContentSlotOrdering::test_released_alone_marks_the_same_point"
+    test_exits: "tests/test_typed_reach_2_8.py::TestContentSlotOrdering::test_completed_task_and_refused_handle_release"
+    test_control: "tests/test_typed_reach_2_8.py::TestContentSlotOrdering::test_control_without_the_release_signal_result_would_not_return"
+    status: covered   # v2.8 CS-1
+
+  - id: CORRECTABLE-TARGETS
+    statement: >
+      A retained record with correctable=false is never offered as a correction target and
+      a correction naming it is rejected (invalid_correction_target / target_not_correctable);
+      the same record with correctable=true is offered and corrected; answers keep
+      validating against a non-correctable question; an unknown target is still unknown.
+    source:
+      - "src/xubb_agents/core/models.py: PriorInsightRecord.correctable"
+      - "src/xubb_agents/core/insight_validation.py: validate_correction_target"
+      - "src/xubb_agents/library/dynamic.py: evaluate (offered records)"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.8"
+    invariant: INV-54
+    test: "tests/test_typed_reach_2_8.py::TestCorrectableTargets::test_correction_naming_a_non_correctable_record_is_rejected"
+    test_not_offered: "tests/test_typed_reach_2_8.py::TestCorrectableTargets::test_non_correctable_record_is_not_offered"
+    test_offered: "tests/test_typed_reach_2_8.py::TestCorrectableTargets::test_correctable_record_is_offered_and_corrected"
+    test_answers: "tests/test_typed_reach_2_8.py::TestCorrectableTargets::test_answers_still_validate_against_a_non_correctable_question"
+    test_control: "tests/test_typed_reach_2_8.py::TestCorrectableTargets::test_control_unknown_target_is_still_unknown"
+    status: covered   # v2.8 CT-1
+
+  - id: DATA-BY-AGENT
+    statement: >
+      On an aggregated response data_by_agent attributes every committed sidecar to the
+      agent that produced it (a copy, never an alias); the merged data keeps its shape; a
+      rejected agent contributes to neither; per-agent responses leave it empty.
+    source:
+      - "src/xubb_agents/core/engine.py: _merge (data_by_agent)"
+      - "src/xubb_agents/core/models.py: AgentResponse.data_by_agent"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.9"
+    invariant: INV-55
+    test: "tests/test_typed_reach_2_8.py::TestDataByAgent::test_each_agents_sidecar_is_attributed_and_the_merge_keeps_its_shape"
+    test_rejected: "tests/test_typed_reach_2_8.py::TestDataByAgent::test_rejected_agent_contributes_to_neither"
+    test_per_agent: "tests/test_typed_reach_2_8.py::TestDataByAgent::test_per_agent_responses_leave_it_empty"
+    test_control: "tests/test_typed_reach_2_8.py::TestDataByAgent::test_control_attribution_is_a_copy_not_an_alias"
+    status: covered   # v2.8 DS-1
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       79   (every contract & invariant names a passing, rule-asserting test)
+# covered:       88   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         79
+# total:         88
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

@@ -484,10 +484,16 @@ class DynamicAgent(BaseAgent):
         # catalog itself is built for every typed run from the material ACTUALLY
         # exposed (after trimming).
         eff_types = self._effective_types(context) if typed else None
+        # v2.8 (EC-1): a host that resolves citations gets the markers on EVERY typed run.
         cite = typed and (self.config.insight_config.analysis_profile == "consulting"
-                          or "correction" in eff_types)
+                          or "correction" in eff_types
+                          or bool(context.insight_capabilities.evidence_citations))
         exposed_docs = list(context.rag_docs) if (self.include_context and context.rag_docs) else []
-        reference = self._build_reference_context(context, execution_id, target_segments, exposed_docs) if typed else None
+        # EC-1: the exposed window is a suffix of the host's list; the position of
+        # its first segment in that list is the coordinate origin.
+        first_index = len(context.recent_segments) - len(target_segments)
+        reference = self._build_reference_context(context, execution_id, target_segments, exposed_docs,
+                                                  first_index=first_index) if typed else None
         # C1 / §14.6.1: negotiate long_form_v1 and run ADMISSION before generation;
         # the plan also shapes the generated instruction and the provider schema.
         content_plan = self._content_plan(context) if typed else None
@@ -501,6 +507,12 @@ class DynamicAgent(BaseAgent):
             self.logger.warning(f"{self.config.name}: long-form content not admitted "
                                 f"({content_plan['codes']}); no call made")
             return response
+
+        # v2.8 (IC-1): on the isolated content path the request is result-only —
+        # the instruction offers the envelope alone and the scratchpad is not
+        # invited (memory writes are rejected there, §14.6.1).
+        isolated = bool(content_plan is not None and
+                        (content_plan.get("execution_context") or {}).get("execution_path") == "isolated_content")
 
         for i, seg in enumerate(target_segments):
             prefix = f"[{snapshot_ref(execution_id, 'segment', i)}] " if cite else ""
@@ -597,7 +609,8 @@ class DynamicAgent(BaseAgent):
         if language_section:
             parts.append(language_section)
         parts.append(rendered_system_prompt)
-        parts.append(f"[YOUR MEMORY / SCRATCHPAD]\n{current_memory}")
+        if not isolated:
+            parts.append(f"[YOUR MEMORY / SCRATCHPAD]\n{current_memory}")
         if answers_section:
             parts.append(answers_section)
         if rag_section:
@@ -613,9 +626,10 @@ class DynamicAgent(BaseAgent):
                             "shared": context.insight_capabilities.correction_agent_policy == "allowlisted"
                             and self.config.id in context.insight_capabilities.correction_agent_ids}
                            for r in context.insight_reference_context.prior_insights
-                           if r.status == "active" and r.turn < context.turn_count]
+                           if r.status == "active" and r.turn < context.turn_count
+                           and getattr(r, "correctable", True)]          # v2.8 (CT-1)
             parts.append(self._typed_instruction(eff_types, reference if cite else None,
-                                                 own_records, content_plan))
+                                                 own_records, content_plan, isolated=isolated))
         elif self.json_instruction:
             parts.append(self.json_instruction)
 
@@ -769,7 +783,7 @@ class DynamicAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _build_reference_context(self, context: AgentContext, snapshot_id: str,
-                                 exposed_segments, exposed_docs) -> "ReferenceContext":
+                                 exposed_segments, exposed_docs, first_index: int = 0) -> "ReferenceContext":
         """Everything this run's references may resolve against: the framework's
         snapshot of what was ACTUALLY exposed (built after trimming; one ordinal
         per occurrence, never deduplicated) plus the host's records. Also records
@@ -777,11 +791,12 @@ class DynamicAgent(BaseAgent):
         ref = ReferenceContext(session_id=context.session_id, snapshot_id=snapshot_id)
         entries: List[EvidenceCatalogEntry] = []
         for row in snapshot_catalog([{"speaker": s.speaker, "text": s.text, "timestamp": s.timestamp}
-                                     for s in exposed_segments], snapshot_id):
-            ref.add("segment", row["ref_id"], row["revision"])
+                                     for s in exposed_segments], snapshot_id, first_index):
+            ref.add("segment", row["ref_id"], row["revision"], source_index=row["source_index"])
             src = row["source"]
             entries.append(EvidenceCatalogEntry(kind="segment", ref_id=row["ref_id"], revision=row["revision"],
-                                                excerpt=f"{src['speaker']}: {src['text']}"[:4000]))
+                                                excerpt=f"{src['speaker']}: {src['text']}"[:4000],
+                                                source_index=row["source_index"], timestamp=src.get("timestamp")))
         for i, doc in enumerate(exposed_docs):
             rid = snapshot_ref(snapshot_id, "document", i)
             ref.add("document", rid, snapshot_id)
@@ -816,7 +831,7 @@ class DynamicAgent(BaseAgent):
 
     def _typed_instruction(self, eff: EffectiveTypes, reference: Optional["ReferenceContext"] = None,
                            reference_records: Optional[List[Dict[str, Any]]] = None,
-                           content_plan: Optional[Dict[str, Any]] = None) -> str:
+                           content_plan: Optional[Dict[str, Any]] = None, isolated: bool = False) -> str:
         """The exact allowed-value instruction for this run (§13.1, §13.4).
         ``reference`` (consulting profile) adds the citation contract and the
         host-supplied evidence ids the model may cite; ``reference_records`` lists
@@ -824,17 +839,48 @@ class DynamicAgent(BaseAgent):
         adapter = self.descriptor.get("typed_adapter", "insight_v1")
         cfg = self.config.insight_config
         types = list(eff.types)
+        # v2.8 (TA-1 / TA-2 / IC-1): the channels a body offers come from the
+        # schema's mapping and descriptor, never from an assumption; the isolated
+        # path offers none (result-only).
+        state_key = self.mapping.get("variable_updates_field") or "state_snapshot"
+        memory_key = self.mapping.get("state_field") or "memory_updates"
+        data_key = self.mapping.get("data_field")
+        sidecar = self.descriptor.get("sidecar_instruction") if data_key else None
+        if isolated:
+            flat_channels = ""
+            root_extra = ""
+        elif adapter == "flat_v1":
+            flat_channels = f'  "{memory_key}": {{ "key": "value" }}'
+            root_extra = ""
+        else:
+            flat_channels = ('  "events": [ {"name": "event_name", "payload": {}} ],\n'
+                             '  "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}')
+            root_extra = f',\n  "{state_key}": {{ "key": "value" }}'
+            if data_key and sidecar:
+                root_extra += f',\n  "{data_key}": [ ... ]'
         if not types:
             # §7.3: never an empty enum — a silence-only envelope.
             if adapter == "root_v2":
-                body = '{\n  "state_snapshot": { "key": "value" }\n}'
+                silent_root = "" if isolated else (f'  "{state_key}": {{ "key": "value" }}'
+                                                 + (f',\n  "{data_key}": []' if data_key and sidecar else ""))
+                body = "{\n" + silent_root + "\n}" if silent_root else "{\n}"
                 rule = 'Do NOT include an "insight" object: no human-facing message is permitted for this agent in this run.'
             else:
-                body = '{\n  "has_insight": false,\n  "insight": null' + (
-                    ',\n  "events": [], "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}\n}'
-                    if adapter == "insight_v1" else ',\n  "events": [], "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}\n}')
+                if isolated:
+                    silent_channels = ""
+                elif adapter == "flat_v1":
+                    silent_channels = f'  "{memory_key}": {{}}'
+                else:
+                    silent_channels = '  "events": [], "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}'
+                head = '{\n  "has_insight": false' + (',\n  "insight": null' if adapter != "flat_v1" else '')
+                body = head + (',\n' + silent_channels if silent_channels else '') + '\n}'
                 rule = '"has_insight" MUST be the JSON boolean false: no human-facing message is permitted for this agent in this run. You may still return state updates.'
-            return f"IMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n{body}\n\nRULES:\n- {rule}"
+            silent_rules = [rule]
+            if isolated:
+                silent_rules.append("This is a result-only request: return no events, state, facts, queue pushes, memory updates or actions.")
+            elif data_key and sidecar:
+                silent_rules.append(f'"{data_key}": {sidecar}')
+            return "IMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n" + body + "\n\nRULES:\n" + "\n".join(f"- {r}" for r in silent_rules)
 
         enum = " | ".join(f'"{t}"' for t in types)
         consulting = cfg.analysis_profile == "consulting" and "observation" in types
@@ -853,14 +899,14 @@ class DynamicAgent(BaseAgent):
             fields.append('"preview": null | "a short plain-text summary or faithful excerpt of content",')
             fields.append('"content_format": ' + " | ".join(f'"{f}"' for f in content_plan["formats"]))
         candidate = "\n".join("    " + f for f in fields)
-        channels = ('  "events": [ {"name": "event_name", "payload": {}} ],\n'
-                    '  "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}')
+        channels = flat_channels
         if adapter == "insight_v1":
-            body = f'{{\n  "has_insight": true | false,\n  "insight": null | {{\n{candidate}\n  }},\n{channels}\n}}'
-        elif adapter == "flat_v2":
-            body = f'{{\n  "has_insight": true | false,\n{candidate}\n{channels}\n}}'
+            body = (f'{{\n  "has_insight": true | false,\n  "insight": null | {{\n{candidate}\n  }}'
+                    + (f',\n{channels}' if channels else '') + '\n}')
+        elif adapter in ("flat_v2", "flat_v1"):
+            body = f'{{\n  "has_insight": true | false,\n{candidate}' + (f'\n{channels}' if channels else '') + '\n}'
         else:  # root_v2
-            body = f'{{\n  "insight": {{\n{candidate}\n  }},\n  "state_snapshot": {{ "key": "value" }}\n}}'
+            body = f'{{\n  "insight": {{\n{candidate}\n  }}{root_extra}\n}}'
         rules = [
             f"\"type\" must be EXACTLY one of: {', '.join(types)} — lowercase, no other value.",
             "Choose the type by PRIMARY PURPOSE: repairing your own earlier message → correction; asking the principal for input → question; "
@@ -868,7 +914,7 @@ class DynamicAgent(BaseAgent):
             "a recommended action → suggestion; reinforcing effective behaviour → praise; an interpretation or synthesis of evidence → observation; "
             "relevant information without any of the above → fact (\"fact\" is the wire spelling of information).",
             ("Speak only when you have something worth the principal's attention; otherwise set \"has_insight\" to the JSON boolean false"
-             + (" and \"insight\" to null." if adapter != "flat_v2" else ".")) if adapter != "root_v2"
+             + (" and \"insight\" to null." if adapter not in ("flat_v2", "flat_v1") else ".")) if adapter != "root_v2"
             else "Omit the \"insight\" object entirely when you have nothing worth the principal's attention.",
             "\"has_insight\" must be a JSON boolean (true/false), never a string or number." if adapter != "root_v2" else
             "\"insight\", when present, must be a non-empty object.",
@@ -878,6 +924,13 @@ class DynamicAgent(BaseAgent):
             "Never include fields you were not asked for (no "
             + ", ".join(self._forbidden_output_fields(content_plan)) + ").",
         ]
+        if isolated:
+            # v2.8 (IC-1)
+            rules.append("This is a result-only request: return the insight only — no events, state, facts, "
+                         "queue pushes, memory updates or actions.")
+        elif data_key and sidecar:
+            # v2.8 (TA-2): the schema's own sidecar contract, from its descriptor
+            rules.append(f'"{data_key}": {sidecar}')
         if "reply" in types:
             rules.append('A "reply" is optional wording for the principal to say or send to the counterpart — a DRAFT they may use, '
                          'never something already said. Do not put approvals, authority, prices, deadlines or commitments in it '
@@ -904,10 +957,11 @@ class DynamicAgent(BaseAgent):
         if consulting:
             rules.append("A hypothesis needs evidence_refs, a rationale and a validation_step; an implication needs evidence_refs and a rationale. "
                          "Evidence references must name items you were actually given.")
-        if consulting or "correction" in types:
+        if consulting or "correction" in types or reference is not None:
             # H2 (XA-06): whenever an enabled type needs an evidence basis, the
             # citation contract and the citable ids are exposed — not only for
-            # the consulting profile.
+            # the consulting profile. v2.8 (EC-1): also whenever the host asked
+            # for citations (a reference context is exposed to the run).
             rules.append('An evidence reference is {"kind": "segment" | "document" | "fact" | "insight", "ref_id": "<id>", "revision": null}. '
                          'Cite the ids shown in [brackets] before transcript lines and documents; never invent an id.')
             if reference is not None:
@@ -922,7 +976,8 @@ class DynamicAgent(BaseAgent):
         """Engine-owned and un-negotiated fields the model must not emit, derived
         from the effective descriptor of THIS run (H2 / XA-06)."""
         forbidden = ["id", "turn", "contract_version", "confidence_provided", "origin",
-                     "content_contract", "response_depth", "content_request_id", "source_snapshot_id"]
+                     "content_contract", "response_depth", "content_request_id", "source_snapshot_id",
+                     "urgency_provided"]
         if content_plan is None:
             forbidden[5:5] = ["preview", "content_format"]
         return forbidden
@@ -943,7 +998,7 @@ class DynamicAgent(BaseAgent):
         adapter = self.descriptor.get("typed_adapter", "insight_v1")
         if adapter == "insight_v1":
             return "boolean", result.get("has_insight", MISSING), result.get("insight", None)
-        if adapter == "flat_v2":
+        if adapter in ("flat_v2", "flat_v1"):
             gate = result.get("has_insight", MISSING)
             domain = self._domain_keys()
             candidate = {k: v for k, v in result.items() if k not in domain}
@@ -1099,6 +1154,7 @@ class DynamicAgent(BaseAgent):
             # producer — or a callback — could set). The engine revalidates the
             # candidate and stamps them at the boundary.
             staged: Dict[str, Any] = {"confidence_provided": typed.confidence_provided,
+                                      "urgency_provided": typed.urgency_provided,        # v2.8 (UP-1)
                                       "content_extension": bool(content_plan is not None and content_plan["accepted"]),
                                       "content": None}
             if content_outcome is not None and content_outcome.get("mode") == CONTENT_CONTRACT:

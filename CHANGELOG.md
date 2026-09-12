@@ -13,7 +13,55 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added — typed reach (docs/SPEC_V2_8_TYPED_REACH.md; contracts TYPED-ADAPTER-FLAT-V1,
+TYPED-ADAPTER-ROOT-V2-SIDECAR, TYPED-UNSUPPORTED-SCHEMA-NAMED, EVIDENCE-COORDINATES-AND-CITATIONS,
+ISOLATED-INSTRUCTION-RESULT-ONLY, URGENCY-PROVENANCE, CONTENT-RESULT-AFTER-RELEASE,
+CORRECTABLE-TARGETS, DATA-BY-AGENT; INV-49…INV-55)
+
+- **Every shipped schema either registers under `typed_v1` or says why not (TA-1…TA-3).**
+  `default` gains the `flat_v1` typed adapter (candidate at the root plus its
+  `memory_updates` channel); `ui_control` and `widget_control` gain `root_v2` with the
+  sidecar — the state block is named by the mapping's `variable_updates_field`, the
+  `ui_actions` block and its rule by the descriptor's new `sidecar_instruction`; the
+  silence-only envelope of a sidecar-bearing schema keeps the sidecar (a widget
+  controller may act without speaking). `custom1` stays legacy-only and fails typed
+  registration with its `typed_unsupported_reason` and the six adapters named; declaring
+  `typed_v1` without a `typed_adapter` is now a registration error. Legacy instructions
+  and parse paths are byte-identical.
+- **Evidence coordinates and citations on demand (EC-1).** Framework-built segment
+  entries carry `source_index` (the position in the `recent_segments` list the host
+  passed, before trimming) and the segment's `timestamp`; accepted segment references are
+  stamped with `EvidenceRef.source_index` (engine-owned: a model- or producer-authored
+  value rejects). `HostInsightCapabilities.evidence_citations=True` exposes the citation
+  markers, the reference contract and the citable host ids on every typed run.
+- **Result-only instruction on the isolated path (IC-1).** An isolated content task's
+  prompt offers the insight envelope only — no domain channels, no sidecar, no
+  scratchpad section — and says so; live turns are unchanged.
+- **`AgentInsight.urgency_provided` (UP-1).** Engine-owned and staged like
+  `confidence_provided`: true only for a valid explicit urgency; false for the agent
+  default, the per-type fallback and unknown provenance; `None` on legacy emissions.
+- **`await handle.result()` returns after the slot is released (CS-1).**
+  `ContentTaskHandle.released` is the same point as an awaitable; a refused handle is
+  released already. A host sequencing replacement can admit the next task the moment
+  `result()` returns.
+- **`PriorInsightRecord.correctable` (CT-1).** Host-set, default true; false removes the
+  record from the offered targets and rejects a correction naming it
+  (`target_not_correctable`); answers still validate against it.
+- **`AgentResponse.data_by_agent` (DS-1).** Aggregated responses attribute each committed
+  sidecar to its agent (copies); the merged `data` keeps its v2.7 shape.
+- The clean-wheel smoke now also registers a `default`-schema agent under `typed_v1` and
+  checks a widget sidecar's attribution from the installed wheel.
+
+### Migration notes (unreleased)
+
+Additive. New nullable keys — `AgentInsight.urgency_provided`, `EvidenceRef.source_index`,
+`EvidenceCatalogEntry.source_index` / `timestamp`, `AgentResponse.data_by_agent`,
+`HostInsightCapabilities.evidence_citations` (default off), `PriorInsightRecord.correctable`
+(default true), `ContentTaskHandle.released` — none in `model_dump_legacy()`. Typed
+prompts differ for `root_v2` schemas with a sidecar, on the isolated path, and when
+`evidence_citations` is on; legacy prompts do not change. A typed batch containing
+`default`, `ui_control` or `widget_control` agents now registers; one containing
+`custom1` still fails, now by name.
 
 ## [2.7.0] - 2026-09-07
 

@@ -22,6 +22,7 @@
     "supported_contracts": [
       "legacy_v2"
     ],
+    "typed_unsupported_reason": "custom1 has no typed projection: its content_presence gate over sales_tip and its risk_category / confidence_score / blackboard mapping cannot carry the normalized candidate. Use a typed adapter, or declare allowed_types: [] on one for state-only work.",
     "supported_content_contracts": []
   }
 }
