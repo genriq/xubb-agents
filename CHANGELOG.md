@@ -13,7 +13,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed — the envelope failure category is host-visible (ENVELOPE-FAILURE-CATEGORY, INV-56)
+
+- When no JSON object arrives from the model client, the agent's `invalid_envelope`
+  diagnostic now carries the client's failure category as its classification
+  (`timeout`, `rate_limit`, `server`, `refusal`, `malformed`, `truncated`, …) instead of
+  `none`. The category is the sanitized word the client already logged, never model text;
+  `none` remains for a client that reported no category, and a non-object body keeps its
+  type name. A host that counts runs per agent can now exclude a provider transport
+  failure and still see a refusal or a malformed body for what it is, from the
+  diagnostics alone. Additive: only the classification string of one diagnostic changes.
 
 ## [2.8.0] - 2026-09-12
 

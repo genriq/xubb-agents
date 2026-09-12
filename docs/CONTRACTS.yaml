@@ -1558,12 +1558,31 @@ contracts:
     test_control: "tests/test_typed_reach_2_8.py::TestDataByAgent::test_control_attribution_is_a_copy_not_an_alias"
     status: covered   # v2.8 DS-1
 
+  - id: ENVELOPE-FAILURE-CATEGORY
+    statement: >
+      When no JSON object arrives from the model client, the agent's invalid_envelope
+      diagnostic carries the client's failure category as its classification (timeout,
+      rate_limit, server, refusal, malformed, truncated, ...) — a sanitized word, never model
+      text — so a host can distinguish a provider transport failure from a refusal or a
+      malformed body per execution and per agent from the diagnostics alone; "none" only when
+      the client reported no category; a non-object body keeps its type name.
+    source:
+      - "src/xubb_agents/library/dynamic.py: evaluate (invalid_envelope)"
+      - "src/xubb_agents/core/llm.py: LLMResult.error_category (INV-17 categories)"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §5 (2.8.1 amendment)"
+    invariant: INV-56
+    test: "tests/test_envelope_failure_category.py::TestEnvelopeFailureCategory::test_each_client_category_is_the_diagnostic_classification"
+    test_typed: "tests/test_envelope_failure_category.py::TestEnvelopeFailureCategory::test_typed_contract_carries_it_to_the_merged_response"
+    test_no_category: "tests/test_envelope_failure_category.py::TestEnvelopeFailureCategory::test_no_reported_category_is_none"
+    test_control: "tests/test_envelope_failure_category.py::TestEnvelopeFailureCategory::test_control_non_object_body_keeps_its_type_name"
+    status: covered   # v2.8.1
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       88   (every contract & invariant names a passing, rule-asserting test)
+# covered:       89   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         88
+# total:         89
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6
