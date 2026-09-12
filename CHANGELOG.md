@@ -13,6 +13,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.8.0] - 2026-09-12
+
+Typed reach ([docs/SPEC_V2_8_TYPED_REACH.md](docs/SPEC_V2_8_TYPED_REACH.md)): every shipped schema
+registers under `typed_v1` or says why, evidence coordinates, the result-only isolated
+instruction, urgency provenance, content-slot ordering, correctable targets, per-agent
+sidecars (INV-49…INV-55). Cut from a green main: 930 tests, contract gate 88/88 strict,
+clean-wheel smoke.
+
+**Verification reported per layer.** *Framework:* every v2.8 leaf is implemented, registered
+and tested with its negative control. *Distribution:* the installed wheel is exercised outside
+the checkout by CI, and was run the same way locally before the feature merge (#37). *Provider:*
+live acceptance of any generated schema is **not** claimed. *Host / end-to-end:* a host's use of
+`source_index`, `evidence_citations`, `released`, `correctable` and `data_by_agent` needs a
+version-identified conformance run; **none is claimed**.
+
 ### Added — typed reach (docs/SPEC_V2_8_TYPED_REACH.md; contracts TYPED-ADAPTER-FLAT-V1,
 TYPED-ADAPTER-ROOT-V2-SIDECAR, TYPED-UNSUPPORTED-SCHEMA-NAMED, EVIDENCE-COORDINATES-AND-CITATIONS,
 ISOLATED-INSTRUCTION-RESULT-ONLY, URGENCY-PROVENANCE, CONTENT-RESULT-AFTER-RELEASE,
@@ -52,7 +69,7 @@ CORRECTABLE-TARGETS, DATA-BY-AGENT; INV-49…INV-55)
 - The clean-wheel smoke now also registers a `default`-schema agent under `typed_v1` and
   checks a widget sidecar's attribution from the installed wheel.
 
-### Migration notes (unreleased)
+### Migration notes (2.7 → 2.8)
 
 Additive. New nullable keys — `AgentInsight.urgency_provided`, `EvidenceRef.source_index`,
 `EvidenceCatalogEntry.source_index` / `timestamp`, `AgentResponse.data_by_agent`,
