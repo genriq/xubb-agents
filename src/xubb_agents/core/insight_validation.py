@@ -230,6 +230,10 @@ def validate_correction_target(payload: Dict[str, Any], *, prior_insights: List[
         return Issue("invalid_correction_target", field_path, "same_turn_deferred")
     if getattr(record, "status", "active") != "active":
         return Issue("invalid_correction_target", field_path, f"target_{record.status}")
+    if not getattr(record, "correctable", True):
+        # v2.8 (CT-1): the host retained the record but does not offer it for
+        # repair — an ineligible target, whoever asks.
+        return Issue("invalid_correction_target", field_path, "target_not_correctable")
     # H1 (XA-03): the current principal must be present and match the target's;
     # a missing identity on either side rejects — never a wildcard.
     if principal_id is None:
@@ -338,16 +342,19 @@ def snapshot_ref(snapshot_id: str, kind: str, ordinal: int) -> str:
     return f"snap:{snapshot_id}:{kind}:{ordinal}"
 
 
-def snapshot_catalog(exposed_segments: List[Dict[str, Any]], snapshot_id: str) -> List[Dict[str, Any]]:
+def snapshot_catalog(exposed_segments: List[Dict[str, Any]], snapshot_id: str,
+                     first_index: int = 0) -> List[Dict[str, Any]]:
     """Reference-compatible: catalog entries for the segments ACTUALLY exposed to
     the agent (build it after context trimming). Each occurrence gets its own
     ordinal — two identical segments are two references. Sources are copied so
-    later mutation of the live transcript cannot change the snapshot."""
+    later mutation of the live transcript cannot change the snapshot.
+    v2.8 (EC-1): ``source_index`` is the entry's position in the host's full
+    ``recent_segments`` list — ``first_index`` is where the exposed suffix starts."""
     if not isinstance(snapshot_id, str) or not snapshot_id.strip():
         raise ValueError("invalid_snapshot_id")
     from copy import deepcopy
     return [{"kind": "segment", "ref_id": snapshot_ref(snapshot_id, "segment", i),
-             "revision": snapshot_id, "source": deepcopy(segment)}
+             "revision": snapshot_id, "source": deepcopy(segment), "source_index": first_index + i}
             for i, segment in enumerate(exposed_segments)]
 
 
@@ -361,13 +368,17 @@ class ReferenceContext:
     snapshot_id: str
     entries: Dict[Tuple[str, str], Optional[str]] = field(default_factory=dict)   # (kind, ref_id) → revision
     foreign: Dict[Tuple[str, str], str] = field(default_factory=dict)             # (kind, ref_id) → other session
+    coordinates: Dict[Tuple[str, str], int] = field(default_factory=dict)         # (kind, ref_id) → source_index (v2.8 EC-1)
 
-    def add(self, kind: str, ref_id: str, revision: Optional[str], session_id: Optional[str] = None) -> None:
+    def add(self, kind: str, ref_id: str, revision: Optional[str], session_id: Optional[str] = None,
+            source_index: Optional[int] = None) -> None:
         key = (kind, ref_id)
         if session_id is not None and session_id != self.session_id:
             self.foreign[key] = session_id
         else:
             self.entries[key] = revision
+            if source_index is not None:
+                self.coordinates[key] = source_index
 
     def resolve(self, ref: Dict[str, Any], field_path: str) -> Tuple[Optional[Issue], Optional[str]]:
         """→ (issue, resolved revision). A null revision resolves to the catalog's
@@ -467,7 +478,7 @@ TYPED_CANDIDATE_FIELDS: Tuple[str, ...] = (
 )
 CONTENT_EXTENSION_FIELDS: Tuple[str, ...] = ("preview", "content_format")
 ENGINE_OWNED_CANDIDATE_KEYS: Tuple[str, ...] = (
-    "id", "turn", "contract_version", "confidence_provided", "content_contract",
+    "id", "turn", "contract_version", "confidence_provided", "urgency_provided", "content_contract",
     "response_depth", "content_request_id", "source_snapshot_id", "acceptance_status",
     "origin", "agent_id", "agent_name",
 )
@@ -483,6 +494,7 @@ class TypedCandidate:
     confidence: float
     confidence_provided: bool
     urgency: str
+    urgency_provided: bool = False       # v2.8 (UP-1): a valid EXPLICIT urgency was given
     observation_kind: Optional[str] = None
     evidence_refs: List[Dict[str, Any]] = field(default_factory=list)
     rationale: Optional[str] = None
@@ -587,10 +599,12 @@ def validate_typed_candidate(candidate: Any, *, effective: EffectiveTypes,
 
     # 5. Urgency (explicit valid → agent override → type fallback; invalid rejects)
     urgency: Optional[str] = None
+    urgency_provided = False
     if type_value is not None:
         explicit = candidate["urgency"] if "urgency" in candidate else MISSING
         try:
             urgency = resolve_urgency(type_value, explicit, default_urgency)
+            urgency_provided = explicit is not MISSING     # v2.8 (UP-1): valid and explicit
         except ValueError as e:
             issues.append(Issue("invalid_urgency", "insight.urgency", bounded(candidate.get("urgency")) if str(e) == "invalid_urgency" else str(e)))
 
@@ -635,6 +649,10 @@ def validate_typed_candidate(candidate: Any, *, effective: EffectiveTypes,
     else:
         for i, ref in enumerate(refs):
             path = f"insight.evidence_refs[{i}]"
+            if isinstance(ref, dict) and "source_index" in ref:
+                # v2.8 (EC-1): the coordinate is engine-stamped, never model-authored.
+                issues.append(Issue("invalid_field", f"{path}.source_index", "engine_owned"))
+                continue
             ok = (isinstance(ref, dict) and set(ref) <= {"kind", "ref_id", "revision"}
                   and ref.get("kind") in ("segment", "document", "fact", "insight")
                   and _nonblank(ref.get("ref_id")) and _optional_nonblank(ref.get("revision")))
@@ -645,7 +663,9 @@ def validate_typed_candidate(candidate: Any, *, effective: EffectiveTypes,
                 if issue:
                     issues.append(issue)
                 else:
-                    resolved_refs.append({"kind": ref["kind"], "ref_id": ref["ref_id"], "revision": revision})
+                    resolved_refs.append({"kind": ref["kind"], "ref_id": ref["ref_id"], "revision": revision,
+                                          # v2.8 (EC-1): the run's coordinate, when the catalog has one
+                                          "source_index": reference_context.coordinates.get((ref["kind"], ref["ref_id"]))})
             elif not reference_context_available:
                 # No catalog can vouch for this reference in this run. Never
                 # accept a reference nothing exposed.
@@ -706,7 +726,7 @@ def validate_typed_candidate(candidate: Any, *, effective: EffectiveTypes,
     return TypedCandidate(
         type_value=type_value, content=content,
         confidence=conf["confidence"], confidence_provided=conf["confidence_provided"],
-        urgency=urgency, observation_kind=kind, evidence_refs=list(refs),
+        urgency=urgency, urgency_provided=urgency_provided, observation_kind=kind, evidence_refs=list(refs),
         rationale=rationale, validation_step=validation_step, assumptions=list(assumptions),
         correction=correction, question=question, metadata=dict(metadata),
     ), []

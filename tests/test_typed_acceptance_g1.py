@@ -113,7 +113,7 @@ class TestTypedRegistration:
         engine = tengine(agent)
         assert engine.insight_contract == "typed_v1" and agent.insight_contract == "typed_v1"
 
-    @pytest.mark.parametrize("schema", ["default", "custom1", "ui_control", "widget_control"])
+    @pytest.mark.parametrize("schema", ["custom1"])     # v2.8: default / ui_control / widget_control now register
     def test_schema_without_typed_adapter_fails_at_registration(self, schema):
         engine = AgentEngine(api_key="k", insight_contract="typed_v1")
         with pytest.raises(AgentConfigurationError, match="does not support insight_contract='typed_v1'"):
@@ -125,7 +125,7 @@ class TestTypedRegistration:
         with pytest.raises(AgentConfigurationError, match="does not support insight_contract='legacy_v2'"):
             engine.register_agent(tagent(envelope(), output_format="insight_v1"))
 
-    @pytest.mark.parametrize("schema", ["insight_v1", "default_v2", "v2_raw"])
+    @pytest.mark.parametrize("schema", ["insight_v1", "default_v2", "v2_raw", "default", "ui_control", "widget_control"])
     def test_typed_adapters_register(self, schema):
         engine = tengine(tagent(envelope(), output_format=schema))
         assert len(engine.agents) == 1

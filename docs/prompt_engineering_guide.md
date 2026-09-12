@@ -182,6 +182,8 @@ Located in `library/schemas/`:
 | `v2_raw` | Full v2 structured response (insight nested under an `insight` root key) | `content` | ✅ via `state_snapshot` |
 | `widget_control` | Background state agents | — | `ui_actions`, `state_snapshot` |
 
+> **Typed contract (v2.8):** every built-in schema except `custom1` also registers under `insight_contract="typed_v1"` through a declared adapter (`insight_v1`; `flat_v2` for `default_v2`; `flat_v1` for `default`; `root_v2` for `v2_raw`, `ui_control` and `widget_control`, the last two with their `ui_actions` sidecar). Under the typed contract the engine generates the output instruction per run from the agent's effective purposes, so the legacy `instruction` text of the schema is not sent.
+
 > **Pick `default_v2` for new agents.** It is the richest insight schema and the one this guide's examples use. The older `default` schema maps the insight text to `message` (not `content`) and parses *only* the insight — see the note after the example.
 
 ### The `default_v2` Schema (recommended)

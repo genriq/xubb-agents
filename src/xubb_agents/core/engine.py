@@ -106,9 +106,35 @@ def _on_close_task_done(task: "asyncio.Task") -> None:
         logger.warning(f"Failed to close previous LLM client: {exc}")
 
 
+class _ReleaseSignal:
+    """Awaitable, re-awaitable signal that a content task's capacity slot has
+    been released (v2.8, CS-1). ``await handle.released`` resolves at the same
+    point ``await handle.result()`` returns; ``is_set()`` for synchronous checks."""
+
+    def __init__(self):
+        self._event = asyncio.Event()
+
+    def set(self) -> None:
+        self._event.set()
+
+    def is_set(self) -> bool:
+        return self._event.is_set()
+
+    def __await__(self):
+        return self._event.wait().__await__()
+
+
+def _strip_coordinate(ref: Any) -> Any:
+    """v2.8 (EC-1): the coordinate is engine-owned — it never enters the
+    producer-controlled projection the validator re-checks."""
+    return {k: v for k, v in ref.items() if k != "source_index"} if isinstance(ref, dict) else ref
+
+
 class ContentTaskHandle:
     """Ownership handle of one isolated content task (C2). ``cancel()`` revokes
-    publication and cancels the task; ``result()`` awaits the ContentResult."""
+    publication and cancels the task; ``result()`` awaits the ContentResult and
+    (v2.8, CS-1) returns only after the task's capacity slot has been released —
+    ``released`` is the same point as an awaitable."""
 
     def __init__(self, request_id: str, source_snapshot_id: str, session_id: str,
                  agent_id: str, snapshot_turn: int):
@@ -119,6 +145,7 @@ class ContentTaskHandle:
         self.snapshot_turn = snapshot_turn
         self.publishable = True
         self.task: Optional["asyncio.Task"] = None
+        self.released = _ReleaseSignal()
 
         # H2 (XA-04): a request refused at the entrypoint carries its result here
         # and never owns a task.
@@ -130,18 +157,25 @@ class ContentTaskHandle:
             self.task.cancel()
 
     async def result(self) -> ContentResult:
+        """The task's ContentResult. v2.8 (CS-1): returns only once the task's
+        capacity slot has been released, so the caller may admit another content
+        task the moment this returns — on every exit (completion, rejection,
+        cancellation, exception). A refused, task-less handle is released already."""
         if self.task is None:
             assert self._result is not None
+            await self.released
             return self._result
         try:
-            return await self.task
+            outcome = await self.task
         except asyncio.CancelledError:
-            return ContentResult(request_id=self.request_id, source_snapshot_id=self.source_snapshot_id,
-                                 session_id=self.session_id, agent_id=self.agent_id,
-                                 snapshot_turn=self.snapshot_turn, status="cancelled",
-                                 diagnostics=[InsightDiagnostic(execution_id=self.request_id, agent_id=self.agent_id,
-                                                                code="content_execution_not_allowed", field_path="$",
-                                                                classification="cancelled")])
+            outcome = ContentResult(request_id=self.request_id, source_snapshot_id=self.source_snapshot_id,
+                                    session_id=self.session_id, agent_id=self.agent_id,
+                                    snapshot_turn=self.snapshot_turn, status="cancelled",
+                                    diagnostics=[InsightDiagnostic(execution_id=self.request_id, agent_id=self.agent_id,
+                                                                   code="content_execution_not_allowed", field_path="$",
+                                                                   classification="cancelled")])
+        await self.released
+        return outcome
 
 
 class AgentEngine:
@@ -183,9 +217,11 @@ class AgentEngine:
                 enforcement, whole-response atomic rejection (§8.4), engine-
                 minted identity, runtime-derived confidence provenance and
                 urgency precedence. Only schemas with a declared typed adapter
-                (``insight_v1``, ``default_v2``, ``v2_raw``) may be registered
-                under it; anything else fails at registration. Any other value
-                is a ``ValueError``.
+                (``insight_v1``, ``default_v2``, ``v2_raw``, and since v2.8
+                ``default``, ``ui_control``, ``widget_control``) may be registered
+                under it; anything else — ``custom1`` included — fails at
+                registration with a message naming the alternatives. Any other
+                value is a ``ValueError``.
         """
         if insight_contract not in INSIGHT_CONTRACTS:
             raise ValueError(
@@ -378,11 +414,21 @@ class AgentEngine:
             return violations                      # custom BaseAgent: no schema to check
         schema = getattr(agent.config, "output_format", "?")
         supported_contracts = descriptor.get("supported_contracts") or ["legacy_v2"]
+        adapters = "Typed adapters: insight_v1, default_v2, v2_raw, default, ui_control, widget_control."
         if self.insight_contract not in supported_contracts:
+            # v2.8 (TA-3): a schema may say WHY it has no typed projection.
+            reason = descriptor.get("typed_unsupported_reason") if self.insight_contract == "typed_v1" else None
             violations.append(
                 f"Agent '{agent_id}': schema '{schema}' does not support insight_contract="
-                f"'{self.insight_contract}' (declares {supported_contracts}). Typed adapters: "
-                f"insight_v1, default_v2, v2_raw.")
+                f"'{self.insight_contract}' (declares {supported_contracts})."
+                + (f" {reason}" if reason else "") + " " + adapters)
+            return violations
+        if self.insight_contract == "typed_v1" and not descriptor.get("typed_adapter"):
+            # v2.8 (INV-49): declaring the contract without naming the adapter is a
+            # descriptor defect, never a silent default.
+            violations.append(
+                f"Agent '{agent_id}': schema '{schema}' declares insight_contract='typed_v1' without a "
+                f"typed_adapter. " + adapters)
             return violations
         if self.insight_contract == "typed_v1" and self.structured_outputs == "strict" \
                 and "json_schema" not in (descriptor.get("supported_transports") or []):
@@ -1009,6 +1055,7 @@ class AgentEngine:
 
         def refuse(diagnostics: List[InsightDiagnostic]) -> "ContentTaskHandle":
             handle.publishable = False
+            handle.released.set()          # v2.8 (CS-1): nothing was reserved
             handle._result = ContentResult(request_id=request_id, source_snapshot_id=snapshot_id,
                                            session_id=context.session_id, agent_id=agent_id,
                                            snapshot_turn=context.turn_count, status="rejected",
@@ -1087,6 +1134,7 @@ class AgentEngine:
                 pass
             if not pending:
                 self._content_tasks.pop(session_id, None)
+        handle.released.set()              # v2.8 (CS-1): the slot is free — awaiters may proceed
 
     def close_session_content(self, session_id: str) -> int:
         """Session closure revokes publication for every pending content task of
@@ -1180,7 +1228,7 @@ class AgentEngine:
         ref = ReferenceContext(session_id=context.session_id, snapshot_id=snap.snapshot_id if snap else "")
         if snap is not None:
             for e in snap.entries:
-                ref.add(e.kind, e.ref_id, e.revision)
+                ref.add(e.kind, e.ref_id, e.revision, source_index=e.source_index)
         host = context.insight_reference_context
         for e in host.evidence:
             ref.add(e.kind, e.ref_id, e.revision, e.session_id)
@@ -1201,7 +1249,8 @@ class AgentEngine:
             "content": insight.content,
             "confidence": insight.confidence,
             "observation_kind": insight.observation_kind,
-            "evidence_refs": [dump(r) for r in insight.evidence_refs] if isinstance(insight.evidence_refs, list) else insight.evidence_refs,
+            "evidence_refs": ([_strip_coordinate(dump(r)) for r in insight.evidence_refs]
+                              if isinstance(insight.evidence_refs, list) else insight.evidence_refs),
             "rationale": insight.rationale,
             "validation_step": insight.validation_step,
             "assumptions": insight.assumptions,
@@ -1328,7 +1377,8 @@ class AgentEngine:
     # Public fields only the engine may set (§14.2). A producer — or a callback
     # touching the response after staging — leaves them None; trusted staging
     # hands its runtime-derived values over privately (AgentInsight._staged).
-    ENGINE_OWNED_PUBLIC_FIELDS = ("id", "turn", "contract_version", "confidence_provided", "content_contract",
+    ENGINE_OWNED_PUBLIC_FIELDS = ("id", "turn", "contract_version", "confidence_provided", "urgency_provided",
+                                  "content_contract",
                                   "response_depth", "content_request_id", "source_snapshot_id")
 
     def _enforce_typed(self, agent: BaseAgent, response: AgentResponse,
@@ -1379,6 +1429,13 @@ class AgentEngine:
                 if getattr(insight, owned) is not None:
                     fatal.append(diag("invalid_field", f"{path}.{owned}", "engine_owned"))
             staged = getattr(insight, "_staged", None)
+            if staged is None and isinstance(insight.evidence_refs, list):
+                # v2.8 (EC-1): the coordinate is stamped by trusted staging; a producer
+                # that wrote one is claiming an engine-owned value.
+                for j, ref in enumerate(insight.evidence_refs):
+                    coord = ref.get("source_index") if isinstance(ref, dict) else getattr(ref, "source_index", None)
+                    if coord is not None:
+                        fatal.append(diag("invalid_field", f"{path}.evidence_refs[{j}].source_index", "engine_owned"))
             extension = bool(staged and staged.get("content_extension"))
             typed, issues = validate_typed_candidate(
                 self._candidate_projection(insight), effective=eff, analysis_profile=profile,
@@ -1443,6 +1500,8 @@ class AgentEngine:
             # provenance is runtime-derived by trusted staging; a producer that
             # bypassed staging has unknown provenance — never certainty
             insight.confidence_provided = bool(staged["confidence_provided"]) if staged else False
+            # v2.8 (UP-1): same rule — trusted staging or unknown provenance (False)
+            insight.urgency_provided = bool(staged.get("urgency_provided")) if staged else False
             content = staged.get("content") if staged else None
             if content:
                 insight.content_contract = content["content_contract"]
@@ -1581,6 +1640,11 @@ class AgentEngine:
                 insight._merge_order = (phase, index, ordinal)
             final_response.insights.extend(resp.insights)
             
+            # v2.8 (DS-1): per-agent attribution of the committed sidecar — a copy
+            # taken BEFORE the merge below, which aliases and extends lists.
+            if resp.data:
+                final_response.data_by_agent[agent_id] = deepcopy(resp.data)
+
             # Merge data sidecar
             for key, value in resp.data.items():
                 if key not in final_response.data:

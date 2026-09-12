@@ -371,14 +371,19 @@ class TestDescriptorInstructionAgreement:
         assert "error" not in data["descriptor"]["supported_insight_types"]
 
     def test_shipped_descriptors_declare_their_contracts_honestly(self):
-        """Typed adapters exist for exactly insight_v1 (typed-only), default_v2 and
-        v2_raw; every other shipped schema is legacy-only. Legacy offerings never
-        exceed the five legacy values; typed offerings are the nine purposes."""
-        typed = {"insight_v1": ["typed_v1"], "default_v2": ["legacy_v2", "typed_v1"], "v2_raw": ["legacy_v2", "typed_v1"]}
+        """Typed adapters exist for exactly insight_v1 (typed-only), default_v2, v2_raw
+        and — since v2.8 (typed reach) — default, ui_control and widget_control; the one
+        remaining shipped schema, custom1, is legacy-only and says why. Legacy offerings
+        never exceed the five legacy values; typed offerings are the nine purposes."""
+        both = ["legacy_v2", "typed_v1"]
+        typed = {"insight_v1": ["typed_v1"], "default_v2": both, "v2_raw": both,
+                 "default": both, "ui_control": both, "widget_control": both}
         for path in self.SCHEMAS.glob("*.json"):
             d = json.loads(path.read_text(encoding="utf-8"))["descriptor"]
             assert d["supported_contracts"] == typed.get(path.stem, ["legacy_v2"]), path.name
             assert set(d["supported_insight_types"]) <= set(LEGACY_HUMAN_TYPES), path.name
             if path.stem in typed:
                 assert tuple(d["typed_supported_insight_types"]) == HUMAN_WIRE_VALUES, path.name
-                assert d["typed_adapter"] in ("insight_v1", "flat_v2", "root_v2"), path.name
+                assert d["typed_adapter"] in ("insight_v1", "flat_v2", "flat_v1", "root_v2"), path.name
+            else:
+                assert path.stem == "custom1" and d["typed_unsupported_reason"], path.name

@@ -16,14 +16,26 @@
   "descriptor": {
     "schema_version": "legacy_v2",
     "gate_mode": "root_presence",
+    "typed_adapter": "root_v2",
     "supported_insight_types": [
       "suggestion",
       "warning",
       "fact"
     ],
-    "supported_contracts": [
-      "legacy_v2"
+    "typed_supported_insight_types": [
+      "fact", "observation", "suggestion", "warning", "opportunity", "praise",
+      "reply", "correction", "question"
     ],
-    "supported_content_contracts": []
+    "supported_insight_fields": [
+      "type", "content", "confidence", "urgency", "observation_kind", "evidence_refs",
+      "rationale", "validation_step", "assumptions", "correction", "question", "metadata"
+    ],
+    "supported_contracts": [
+      "legacy_v2",
+      "typed_v1"
+    ],
+    "supported_transports": ["json_object"],
+    "supported_content_contracts": [],
+    "sidecar_instruction": "an array of UI actions, each {\"target_widget\": \"goals_widget\" | \"sentiment_meter\" | \"flash_zone\", \"action\": \"update\" | \"set\" | \"flash\", \"payload\": { ... }}; return [] when no widget should change."
   }
 }

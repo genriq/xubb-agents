@@ -152,7 +152,9 @@ class TestReferencesResolveOnlyToExposedEvidence:
         ins = final.insights[0]
         sid = snapshot_id_from(final, "consult")
         assert ins.observation_kind == "hypothesis"
-        assert [r.model_dump() for r in ins.evidence_refs] == [{"kind": "segment", "ref_id": f"snap:{sid}:segment:0", "revision": sid}]
+        # v2.8 (EC-1): the engine stamps the segment's position in the host's list (a full window here)
+        assert [r.model_dump() for r in ins.evidence_refs] == [{"kind": "segment", "ref_id": f"snap:{sid}:segment:0",
+                                                                 "revision": sid, "source_index": 0}]
 
     def test_reference_outside_the_trimmed_window_is_unknown(self):
         """NEGATIVE CONTROL: the agent sees the last 2 segments; segment 3 of the

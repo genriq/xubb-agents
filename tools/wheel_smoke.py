@@ -97,6 +97,35 @@ def main() -> int:
     if ctx.blackboard.get_var("sys.turn_count") != 1:
         print("FAIL: content task touched the live board")
         return 6
+    # 5. v2.8 typed reach: the legacy `default` schema registers under typed_v1
+    #    through its flat_v1 adapter, and a widget controller's sidecar is
+    #    attributed per agent on the aggregated response.
+    flat = DynamicAgent({"id": "flat", "name": "flat", "text": "t", "output_format": "default",
+                         "trigger_config": {"cooldown": 0}, "insight_config": {"allowed_types": ["warning", "suggestion"]}})
+    flat.llm = Fake({"has_insight": True, "type": "suggestion", "content": "Confirm the approval owner.", "confidence": 0.6,
+                     "memory_updates": {"seen": 1}})
+    widget = DynamicAgent({"id": "widget", "name": "widget", "text": "t", "output_format": "widget_control",
+                           "trigger_config": {"cooldown": 0}, "insight_config": {"allowed_types": ["fact"]}})
+    widget.llm = Fake({"ui_actions": [{"target_widget": "goals_widget", "action": "update", "payload": {"done": 1}}],
+                       "state_snapshot": {"phase": "closing"}})
+    reach = AgentEngine(api_key="not-a-real-key", insight_contract="typed_v1", structured_outputs="json_object")
+    for a in (flat, widget):
+        keep = a.llm
+        reach.register_agent(a)
+        a.llm = keep
+    ctx2 = AgentContext(session_id="s2", turn_count=1, blackboard=Blackboard(), principal_id="p",
+                        insight_capabilities=HostInsightCapabilities(supported_types=["warning", "suggestion", "fact"]),
+                        recent_segments=[TranscriptSegment(speaker="CLIENT", text="Who owns the approval?", timestamp=1.0)])
+    final2 = asyncio.run(reach.process_turn(ctx2))
+    kinds = [(i.agent_id, i.type) for i in final2.insights]
+    if kinds != [("flat", InsightType.SUGGESTION)] or final2.insights[0].urgency_provided is not False \
+            or ctx2.blackboard.get_memory("flat") != {"seen": 1}:
+        print(f"FAIL: typed-reach live turn produced {kinds} / {final2.acceptance_by_agent}")
+        return 7
+    if final2.data_by_agent.get("widget", {}).get("ui_actions") != final2.data.get("ui_actions") \
+            or final2.acceptance_by_agent.get("widget") != "accepted_silent":
+        print(f"FAIL: widget sidecar attribution {final2.data_by_agent} / {final2.acceptance_by_agent}")
+        return 8
     print(f"wheel smoke OK — xubb_agents {getattr(xubb_agents, '__version__', '?')} from {location}")
     return 0
 

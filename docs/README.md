@@ -7,7 +7,8 @@
 | [PLAYBOOK.md](PLAYBOOK.md) | The deep guide: how to design and compose agents well — doctrine, patterns, anti-patterns, and a golden-path build. |
 | [technical_spec_agents.md](technical_spec_agents.md) | Data models and implementation reference. |
 | [prompt_engineering_guide.md](prompt_engineering_guide.md) | Writing effective agent prompts. |
-| [SPEC_LLM_MODERN_MODELS.md](SPEC_LLM_MODERN_MODELS.md) | The current release spec (v2.5/v2.6 modern-model compatibility; invariants INV-15…INV-19). |
+| [SPEC_V2_8_TYPED_REACH.md](SPEC_V2_8_TYPED_REACH.md) | The v2.8 typed-reach spec: adapters for every shipped schema, evidence coordinates and citations on demand, the result-only isolated-path instruction, urgency provenance, content-slot ordering, correctable targets, per-agent sidecars (invariants INV-49…INV-55). |
+| [SPEC_LLM_MODERN_MODELS.md](SPEC_LLM_MODERN_MODELS.md) | The v2.5/v2.6 modern-model compatibility spec (invariants INV-15…INV-19). |
 | [SPEC_V2_2_HARDENING.md](SPEC_V2_2_HARDENING.md) | The v2.2 hardening spec (invariants INV-1…INV-14). |
 | [PROCESS.md](PROCESS.md) | How every documented contract stays true: the CI-enforced contract-accuracy gate. |
 | [CONTRACTS.yaml](CONTRACTS.yaml) | The machine-checked contract registry the gate reads. |
