@@ -58,7 +58,7 @@ def agent(body_, gate=None, agent_id="lf", allowed=("fact", "suggestion", "warni
 
 
 def engine(*agents, limits=OPERATOR, **kw):
-    e = AgentEngine(api_key="k", insight_contract="typed_v1", content_limits=limits, **kw)
+    e = AgentEngine(api_key="k", content_limits=limits, **kw)
     for a in agents:
         llm = a.llm
         e.register_agent(a)
@@ -147,7 +147,7 @@ class TestIsolatedPath:
         q["content_format"] = "plain_text"
         a = agent(envelope(q), allowed=("fact", "question"))
         a.config.insight_config.allow_question = True
-        e = AgentEngine(api_key="k", insight_contract="typed_v1", content_limits=OPERATOR)
+        e = AgentEngine(api_key="k", content_limits=OPERATOR)
         llm = a.llm; e.register_agent(a); a.llm = llm
         c = live_ctx(); c.insight_capabilities.text_questions = True
         result = run_content(e, c)
@@ -161,7 +161,7 @@ class TestIsolatedPath:
                 super().__init__(AgentConfig(name="custom", cooldown=0, trigger_types=[TriggerType.TURN_BASED]))
             async def evaluate(self, context):
                 return AgentResponse()
-        e = AgentEngine(api_key="k", insight_contract="typed_v1", content_limits=OPERATOR)
+        e = AgentEngine(api_key="k", content_limits=OPERATOR)
         e.register_agent(Custom())
         result = run_content(e, live_ctx(), "custom")
         assert result.status == "rejected" and result.diagnostics[0].classification == "agent_not_isolatable"

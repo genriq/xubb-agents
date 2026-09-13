@@ -27,7 +27,7 @@ from xubb_agents.core.models import (
 )
 
 from tests.test_dynamic_agent import FakeLLM, run
-from tests.test_legacy_acceptance_g0 import Recording
+from tests.test_engine_boundary_g0 import Recording
 from tests.test_typed_acceptance_g1 import envelope, cand, codes
 
 NINE = list(HUMAN_WIRE_VALUES)
@@ -73,7 +73,7 @@ def fixer(result, *, agent_id="fixer", priority=0):
 
 
 def engine(*agents, callbacks=None):
-    e = AgentEngine(api_key="k", insight_contract="typed_v1", callbacks=callbacks or [])
+    e = AgentEngine(api_key="k", callbacks=callbacks or [])
     for a in agents:
         llm = getattr(a, "llm", None)
         e.register_agent(a)
@@ -119,7 +119,7 @@ class Corrector(BaseAgent):
 class TestAvailability:
     def test_correction_is_implemented_and_needs_history(self):
         assert "correction" in IMPLEMENTED_TYPED_TYPES
-        base = dict(contract="typed_v1", allowed_types=NINE, allow_reply=True, allow_question=True, allow_correction=True,
+        base = dict(allowed_types=NINE, allow_reply=True, allow_question=True, allow_correction=True,
                     schema_supported=None, host_supported=NINE, host_reply_drafts=True, host_text_questions=True,
                     host_corrections=True, principal_present=True)
         assert "correction" in effective_insight_types(**base)

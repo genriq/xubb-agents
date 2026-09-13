@@ -20,7 +20,6 @@ SCHEMAS_DIR = PACKAGE_DIR / "library" / "schemas"
 
 # The schemas DynamicAgent actually loads at runtime (library/dynamic.py).
 REQUIRED_SCHEMAS = [
-    "custom1.json",
     "default.json",
     "default_v2.json",
     "v2_raw.json",

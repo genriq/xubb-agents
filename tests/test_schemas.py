@@ -53,7 +53,8 @@ V2_STATE_SCHEMAS = [
 ALL_SCHEMA_NAMES = [
     "default",
     "default_v2",
-    "custom1",
+    # custom1 removed in 3.0.0: it declared only the legacy_v2 contract and no
+    # typed adapter, so it could never register once that contract was removed.
     "v2_raw",
     "ui_control",
     "widget_control",

@@ -28,7 +28,7 @@ from xubb_agents import (
 )
 from xubb_agents.core.agent import AgentConfig, BaseAgent
 from xubb_agents.core.insight_validation import (
-    HUMAN_WIRE_VALUES, LEGACY_HUMAN_TYPES, RESERVED_WIRE_VALUES, INSIGHT_CONTRACTS,
+    HUMAN_WIRE_VALUES, HOST_DEFAULT_SUPPORTED_TYPES,
     effective_insight_types,
 )
 from xubb_agents.core.models import (
@@ -53,7 +53,12 @@ class TestVocabulary:
 
     def test_validation_module_mirrors_the_enum(self):
         assert HUMAN_WIRE_VALUES == tuple(t.value for t in HUMAN_INSIGHT_TYPES)
-        assert set(RESERVED_WIRE_VALUES) == ({"error"} | set(HUMAN_WIRE_VALUES)) - set(LEGACY_HUMAN_TYPES)
+        # 3.0.0: `RESERVED_WIRE_VALUES` went with the second contract — no value is
+        # "recognised but reserved for the other regime" any more. What survives is
+        # the rule it protected: `error` is framework-manufactured and is simply not
+        # in the human vocabulary, so a model authoring it can never be in an
+        # effective set.
+        assert "error" not in HUMAN_WIRE_VALUES
 
     def test_no_unrestricted_enum_iteration_in_type_offering_code(self):
         """NEGATIVE CONTROL for 'just iterate the enum': iteration includes ERROR and
@@ -101,22 +106,25 @@ class TestInformationAlias:
 # ---------------------------------------------------------------------------
 
 class TestContractSelection:
-    def test_default_is_legacy_v2(self):
-        assert AgentEngine(api_key="k").insight_contract == "legacy_v2"
-        assert INSIGHT_CONTRACTS == ("legacy_v2", "typed_v1")
+    """3.0.0: there is nothing to select. The class is kept — under its registered
+    id — to assert that the selection mechanism is GONE and cannot come back
+    silently, which is a stronger statement than deleting the tests."""
 
-    def test_typed_v1_is_selectable_and_injected(self):
-        """G1 part 2: typed acceptance exists, so typed_v1 constructs; the engine
-        injects the contract into every registered agent (never silently legacy)."""
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1")
-        assert engine.insight_contract == "typed_v1"
+    def test_there_is_no_contract_to_select(self):
+        engine = AgentEngine(api_key="k")
+        assert not hasattr(engine, "insight_contract")
         agent = dyn()
         engine.register_agent(agent)
-        assert agent.insight_contract == "typed_v1"
+        assert not hasattr(agent, "insight_contract"), "agents no longer carry a contract"
 
-    @pytest.mark.parametrize("value", ["legacy", "typed", "", None, 2])
-    def test_unknown_contract_is_a_value_error(self, value):
-        with pytest.raises(ValueError):
+    @pytest.mark.parametrize("value", ["legacy_v2", "typed_v1", "legacy", "", None, 2])
+    def test_passing_the_removed_argument_fails_loudly(self, value):
+        """The argument is REMOVED, not accepted-and-ignored: silently moving an
+        embedder to a different validation regime would change what their agents
+        may emit without telling them. Even the value that used to be correct
+        fails, because an embedder passing it is running against an API that no
+        longer exists."""
+        with pytest.raises(TypeError, match="insight_contract"):
             AgentEngine(api_key="k", insight_contract=value)
 
 
@@ -144,7 +152,7 @@ class TestInsightConfig:
     def test_empty_allowed_types_is_state_only_not_all(self):
         cfg = InsightConfig(allowed_types=[])
         assert cfg.allowed_types == []
-        eff = effective_insight_types(contract="typed_v1", allowed_types=[], allow_reply=False,
+        eff = effective_insight_types(allowed_types=[], allow_reply=False,
                                       allow_question=False, allow_correction=False, schema_supported=None,
                                       host_supported=list(HUMAN_WIRE_VALUES), host_reply_drafts=True,
                                       host_text_questions=True, host_corrections=True, principal_present=True)
@@ -206,8 +214,7 @@ def eff(**overrides):
     """Pure §7.2 intersection with the release's implementation gate LIFTED
     (implemented=all nine) so the permission semantics are tested on their own;
     the gate itself is pinned in test_release_implementation_gate."""
-    base = dict(contract="typed_v1",
-                allowed_types=list(HUMAN_WIRE_VALUES),
+    base = dict(allowed_types=list(HUMAN_WIRE_VALUES),
                 allow_reply=True, allow_question=True, allow_correction=True,
                 schema_supported=None,
                 host_supported=list(HUMAN_WIRE_VALUES),
@@ -218,10 +225,13 @@ def eff(**overrides):
 
 
 class TestEffectiveTypes:
-    def test_legacy_contract_is_the_host_safe_five(self):
-        e = eff(contract="legacy_v2")
-        assert set(e.types) == set(LEGACY_HUMAN_TYPES)
-        assert e.unavailable["observation"] == "typed_contract_required"
+    def test_an_undeclared_host_is_assumed_to_support_only_the_safe_five(self):
+        """The conservative default survives the contract that shared its tuple:
+        a host declaring no capabilities gets the five that need nothing of it —
+        no principal, no reply surface, no question correlation, no arbitration."""
+        e = eff(host_supported=list(HOST_DEFAULT_SUPPORTED_TYPES))
+        assert set(e.types) == set(HOST_DEFAULT_SUPPORTED_TYPES)
+        assert e.unavailable["observation"] == "not_supported_by_host"
 
     def test_full_permissions_yield_all_nine_in_canonical_order(self):
         assert eff().types == HUMAN_WIRE_VALUES
@@ -231,7 +241,7 @@ class TestEffectiveTypes:
         supporting path exists. The default gate (G1 part 2) implements the six
         ordinary purposes; reply/correction/question wait for G3."""
         from xubb_agents.core.insight_validation import IMPLEMENTED_TYPED_TYPES
-        base = dict(contract="typed_v1", allowed_types=list(HUMAN_WIRE_VALUES),
+        base = dict(allowed_types=list(HUMAN_WIRE_VALUES),
                     allow_reply=True, allow_question=True, allow_correction=True, schema_supported=None,
                     host_supported=list(HUMAN_WIRE_VALUES), host_reply_drafts=True, host_text_questions=True,
                     host_corrections=True, principal_present=True)
@@ -249,7 +259,7 @@ class TestEffectiveTypes:
         assert e.unavailable["suggestion"] == "not_supported_by_schema"
 
     def test_host_without_observation_declaration_does_not_get_it(self):
-        e = eff(host_supported=list(LEGACY_HUMAN_TYPES))
+        e = eff(host_supported=list(HOST_DEFAULT_SUPPORTED_TYPES))
         assert "observation" not in e and e.unavailable["observation"] == "not_supported_by_host"
 
     def test_reply_requires_flag_host_and_principal(self):
@@ -269,15 +279,20 @@ class TestEffectiveTypes:
         e = eff(allowed_types=["fact"], allow_reply=True)
         assert e.types == ("fact",) and e.unavailable["reply"] == "not_in_agent_allowed_types"
 
-    def test_engine_helper_uses_legacy_contract_and_context(self):
+    def test_engine_helper_intersects_agent_schema_host_and_context(self):
         engine = AgentEngine(api_key="k")
         agent = dyn({"allowed_types": ["fact", "reply"], "allow_reply": True})
         engine.register_agent(agent)
         ctx = AgentContext(session_id="s", recent_segments=[], principal_id="p1",
                            insight_capabilities=HostInsightCapabilities(supported_types=list(HUMAN_WIRE_VALUES), reply_drafts=True))
         e = engine.effective_insight_types(agent, ctx)
-        assert set(e.types) == set(LEGACY_HUMAN_TYPES)      # legacy contract wins for now
-        assert engine.effective_insight_types(agent).types == e.types
+        # The agent allows fact and reply; the host declares everything and a
+        # principal is present, so both survive the intersection. Before 3.0.0 the
+        # contract short-circuited this to the safe five regardless.
+        assert set(e.types) == {"fact", "reply"}
+        # Without a context there is no host declaration, so the conservative
+        # default applies and reply — which needs a principal — drops out.
+        assert set(engine.effective_insight_types(agent).types) == {"fact"}
 
 
 # ---------------------------------------------------------------------------
@@ -371,19 +386,19 @@ class TestDescriptorInstructionAgreement:
         assert "error" not in data["descriptor"]["supported_insight_types"]
 
     def test_shipped_descriptors_declare_their_contracts_honestly(self):
-        """Typed adapters exist for exactly insight_v1 (typed-only), default_v2, v2_raw
-        and — since v2.8 (typed reach) — default, ui_control and widget_control; the one
-        remaining shipped schema, custom1, is legacy-only and says why. Legacy offerings
-        never exceed the five legacy values; typed offerings are the nine purposes."""
-        both = ["legacy_v2", "typed_v1"]
-        typed = {"insight_v1": ["typed_v1"], "default_v2": both, "v2_raw": both,
-                 "default": both, "ui_control": both, "widget_control": both}
+        """3.0.0: EVERY shipped schema declares a typed adapter, because a schema
+        without one can no longer be registered at all. `supported_contracts` is
+        gone from the descriptors — there is one contract, so declaring it said
+        nothing — and `custom1`, which declared only the removed one, is gone with
+        it. Typed offerings are the nine purposes."""
+        adapters = {"insight_v1", "flat_v2", "flat_v1", "root_v2"}
+        seen = set()
         for path in self.SCHEMAS.glob("*.json"):
             d = json.loads(path.read_text(encoding="utf-8"))["descriptor"]
-            assert d["supported_contracts"] == typed.get(path.stem, ["legacy_v2"]), path.name
-            assert set(d["supported_insight_types"]) <= set(LEGACY_HUMAN_TYPES), path.name
-            if path.stem in typed:
-                assert tuple(d["typed_supported_insight_types"]) == HUMAN_WIRE_VALUES, path.name
-                assert d["typed_adapter"] in ("insight_v1", "flat_v2", "flat_v1", "root_v2"), path.name
-            else:
-                assert path.stem == "custom1" and d["typed_unsupported_reason"], path.name
+            seen.add(path.stem)
+            assert "supported_contracts" not in d, f"{path.name}: the key went with the second contract"
+            assert d.get("typed_adapter") in adapters, path.name
+            assert tuple(d["typed_supported_insight_types"]) == HUMAN_WIRE_VALUES, path.name
+            assert set(d["supported_insight_types"]) <= set(HUMAN_WIRE_VALUES), path.name
+        assert "custom1" not in seen, "custom1 declared only legacy_v2 and is removed in 3.0.0"
+        assert seen == {"insight_v1", "default", "default_v2", "v2_raw", "ui_control", "widget_control"}

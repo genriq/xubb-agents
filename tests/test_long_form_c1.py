@@ -92,8 +92,8 @@ def agent(body, *, content=CONTENT, schema="insight_v1", agent_id="lf", finish_r
     return a
 
 
-def engine(a, *, limits=OPERATOR, contract="typed_v1"):
-    e = AgentEngine(api_key="k", insight_contract=contract, content_limits=limits)
+def engine(a, *, limits=OPERATOR):
+    e = AgentEngine(api_key="k", content_limits=limits)
     llm = a.llm
     e.register_agent(a)
     a.llm = llm
@@ -169,11 +169,12 @@ class TestPackagedFixtures:
 # ---------------------------------------------------------------------------
 
 class TestNegotiation:
-    def test_content_block_requires_typed_contract_and_a_supporting_schema(self):
-        with pytest.raises(AgentConfigurationError, match="requires insight_contract='typed_v1'"):
-            AgentEngine(api_key="k").register_agent(agent(body(), schema="default_v2"))
+    def test_content_block_requires_a_supporting_schema(self):
+        """3.0.0: the contract half of this rule is moot — there is one contract —
+        so what remains is the half that still discriminates: only a schema
+        declaring long_form_v1 may carry a content block, which is insight_v1."""
         with pytest.raises(AgentConfigurationError, match="does not support content contract"):
-            AgentEngine(api_key="k", insight_contract="typed_v1").register_agent(agent(body(), schema="default_v2"))
+            AgentEngine(api_key="k").register_agent(agent(body(), schema="default_v2"))
 
     def test_host_without_the_contract_makes_no_call(self):
         a = agent(body())

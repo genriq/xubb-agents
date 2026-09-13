@@ -31,8 +31,8 @@ from .models import (
 )
 import uuid
 from .insight_validation import (
-    LEGACY_HUMAN_TYPES, RESERVED_VAR_PREFIX, LEGACY_MEMORY_PREFIX, bounded,
-    INSIGHT_CONTRACTS, DEFAULT_INSIGHT_CONTRACT, EffectiveTypes, effective_types_for_run,
+    RESERVED_VAR_PREFIX, LEGACY_MEMORY_PREFIX, bounded,
+    EffectiveTypes, effective_types_for_run,
     HUMAN_WIRE_VALUES, MISSING, resolve_urgency, validate_answers, validate_correction_target,
     validate_typed_candidate, validate_response_channels, ReferenceContext,
 )
@@ -190,7 +190,6 @@ class AgentEngine:
                  llm_base_url: Optional[str] = None,
                  llm_wire_max_tokens_param: Optional[str] = None,
                  strict_reasoning_config: bool = True,
-                 insight_contract: str = DEFAULT_INSIGHT_CONTRACT,
                  structured_outputs: str = DEFAULT_STRUCTURED_OUTPUTS,
                  fallback_signatures: Optional[List[Dict[str, Any]]] = None,
                  content_limits: Optional[Dict[str, Any]] = None):
@@ -210,23 +209,21 @@ class AgentEngine:
                 (default): registering an agent whose model looks
                 reasoning-capable without an explicit ``reasoning_effort``
                 raises ``AgentConfigurationError``. False: warns instead.
-            insight_contract: XUBB-ITC-1 §7.1 contract selection. ``legacy_v2``
-                (default, the current-major compatibility path: G0 legacy
-                safety, D-LR partial acceptance). ``typed_v1``: strict local
-                validation of the normalized candidate, exact effective-type
-                enforcement, whole-response atomic rejection (§8.4), engine-
-                minted identity, runtime-derived confidence provenance and
-                urgency precedence. Only schemas with a declared typed adapter
-                (``insight_v1``, ``default_v2``, ``v2_raw``, and since v2.8
-                ``default``, ``ui_control``, ``widget_control``) may be registered
-                under it; anything else — ``custom1`` included — fails at
-                registration with a message naming the alternatives. Any other
-                value is a ``ValueError``.
+        Insight handling is the XUBB-ITC-1 typed regime, and is not selectable:
+        strict local validation of the normalized candidate, exact effective-type
+        enforcement, whole-response atomic rejection (§8.4), engine-minted
+        identity, runtime-derived confidence provenance and urgency precedence.
+        Only a schema whose descriptor declares a ``typed_adapter`` may be
+        registered (``insight_v1``, ``default_v2``, ``v2_raw``, ``default``,
+        ``ui_control``, ``widget_control``); anything else fails at registration
+        with a message naming the alternatives.
+
+        The ``insight_contract`` argument was removed in 3.0.0 along with the
+        ``legacy_v2`` regime. It is not accepted-and-ignored: passing it raises
+        ``TypeError``, because silently moving an embedder to a different
+        validation regime would change what their agents may emit without
+        telling them.
         """
-        if insight_contract not in INSIGHT_CONTRACTS:
-            raise ValueError(
-                f"insight_contract must be one of {INSIGHT_CONTRACTS}, got {insight_contract!r}")
-        self.insight_contract = insight_contract
         # G2 / §13.3: transport policy is a separate control from the contract
         # (structured_outputs: strict | auto | json_object) and lives on the
         # LLMClient, keyed per endpoint/model/adapter/schema version.
@@ -399,10 +396,8 @@ class AgentEngine:
         fails; nothing mutated):
 
         * a permission flag and its ``allowed_types`` membership must agree;
-        * under ``typed_v1`` a DynamicAgent's schema must declare a typed adapter
-          (``supported_contracts`` includes ``typed_v1``) and must be able to
-          carry the fields the configuration needs; under ``legacy_v2`` the
-          schema must declare ``legacy_v2`` (``insight_v1`` is typed-only).
+        * a DynamicAgent's schema must declare a ``typed_adapter`` and must be
+          able to carry the fields the configuration needs.
         """
         cfg = getattr(agent.config, "insight_config", None)
         agent_id = getattr(agent.config, "id", "?")
@@ -413,24 +408,17 @@ class AgentEngine:
         if descriptor is None:
             return violations                      # custom BaseAgent: no schema to check
         schema = getattr(agent.config, "output_format", "?")
-        supported_contracts = descriptor.get("supported_contracts") or ["legacy_v2"]
         adapters = "Typed adapters: insight_v1, default_v2, v2_raw, default, ui_control, widget_control."
-        if self.insight_contract not in supported_contracts:
-            # v2.8 (TA-3): a schema may say WHY it has no typed projection.
-            reason = descriptor.get("typed_unsupported_reason") if self.insight_contract == "typed_v1" else None
+        if not descriptor.get("typed_adapter"):
+            # v2.8 (INV-49), 3.0.0: a schema without a typed adapter cannot be
+            # registered at all — there is no second regime to fall back to. A
+            # descriptor may say WHY it has no typed projection (TA-3).
+            reason = descriptor.get("typed_unsupported_reason")
             violations.append(
-                f"Agent '{agent_id}': schema '{schema}' does not support insight_contract="
-                f"'{self.insight_contract}' (declares {supported_contracts})."
-                + (f" {reason}" if reason else "") + " " + adapters)
+                f"Agent '{agent_id}': schema '{schema}' declares no typed_adapter, so it cannot be "
+                f"registered." + (f" {reason}" if reason else "") + " " + adapters)
             return violations
-        if self.insight_contract == "typed_v1" and not descriptor.get("typed_adapter"):
-            # v2.8 (INV-49): declaring the contract without naming the adapter is a
-            # descriptor defect, never a silent default.
-            violations.append(
-                f"Agent '{agent_id}': schema '{schema}' declares insight_contract='typed_v1' without a "
-                f"typed_adapter. " + adapters)
-            return violations
-        if self.insight_contract == "typed_v1" and self.structured_outputs == "strict" \
+        if self.structured_outputs == "strict" \
                 and "json_schema" not in (descriptor.get("supported_transports") or []):
             violations.append(
                 f"Agent '{agent_id}': structured_outputs='strict' requires a schema adapter with "
@@ -440,13 +428,10 @@ class AgentEngine:
         if cfg is not None and cfg.content is not None:
             # C1 / §14.10: the extension needs the typed contract AND a schema
             # adapter that declares it. Never silently inert.
-            if self.insight_contract != "typed_v1":
-                violations.append(
-                    f"Agent '{agent_id}': insight_config.content (long_form_v1) requires insight_contract='typed_v1'.")
-            elif "long_form_v1" not in (descriptor.get("supported_content_contracts") or []):
+            if "long_form_v1" not in (descriptor.get("supported_content_contracts") or []):
                 violations.append(
                     f"Agent '{agent_id}': schema '{schema}' does not support content contract long_form_v1; use insight_v1.")
-        if self.insight_contract == "typed_v1" and cfg is not None:
+        if cfg is not None:
             fields = set(descriptor.get("supported_insight_fields") or [])
             needed = set()
             if cfg.analysis_profile == "consulting":
@@ -466,9 +451,8 @@ class AgentEngine:
                                 context: Optional[AgentContext] = None) -> EffectiveTypes:
         """The run's effective human-facing set for ``agent`` (§7.2): framework
         ∩ agent ∩ schema ∩ host ∩ permission prerequisites ∩ this release's
-        implemented set, with a reason for every absent value. Under
-        ``legacy_v2`` this is the host-safe five."""
-        return effective_types_for_run(contract=self.insight_contract,
+        implemented set, with a reason for every absent value."""
+        return effective_types_for_run(
                                        insight_config=getattr(agent.config, "insight_config", None),
                                        descriptor=getattr(agent, "descriptor", None),
                                        context=context)
@@ -490,9 +474,8 @@ class AgentEngine:
         if violations:
             raise AgentConfigurationError(" | ".join(violations))
 
-        # Inject the LLM client and the engine-selected contract into the agent.
+        # Inject the LLM client and the content limits into the agent.
         agent.llm = self.llm_client
-        agent.insight_contract = self.insight_contract
         agent.content_limits = self.content_limits
 
         with self._agents_lock:
@@ -546,7 +529,6 @@ class AgentEngine:
             new_meta: Dict[str, Tuple[int, int]] = {}
             for index, agent in enumerate(agents):
                 agent.llm = self.llm_client
-                agent.insight_contract = self.insight_contract
                 agent.content_limits = self.content_limits
                 new_index[agent.config.id] = index
                 new_meta[agent.config.id] = (agent.config.priority, index)
@@ -1074,8 +1056,6 @@ class AgentEngine:
         # declaration the task would run with; 4. capacity.
         clone = getattr(agent, "clone_for_isolated_run", None)
         admission = getattr(agent, "content_admission", None)
-        if self.insight_contract != "typed_v1":
-            return refuse([diag("content_contract_unavailable", "typed_contract_required")])
         if clone is None or admission is None:
             return refuse([diag("content_execution_not_allowed", "agent_not_isolatable")])
         declaration = ContentExecutionContext(
@@ -1287,8 +1267,9 @@ class AgentEngine:
         # partial execution result.
         self._enforce_acceptance(agent, response, context)
         if response.acceptance_status in ("partial", "rejected") and response.diagnostics:
-            primary = next((d for d in response.diagnostics
-                            if d.code != "partial_legacy_response"), response.diagnostics[0])
+            # 3.0.0: the first diagnostic IS the primary. The skip-list existed to
+            # step over the legacy partial marker, which is no longer emitted.
+            primary = response.diagnostics[0]
             for cb in self.callbacks:
                 try:
                     await cb.on_insight_validation_error(primary)
@@ -1308,13 +1289,8 @@ class AgentEngine:
         current content is valid, so this runs for every response:
 
         * a proposed write to the reserved ``sys.*`` namespace rejects the
-          whole response (``reserved_state_write``) in both contracts;
-        * ``legacy_v2`` (D-LR): insight types must be in the legacy human-facing
-          set; an ERROR is accepted only with runtime-established framework
-          provenance. Any other insight rejects ALL insights from the result
-          (never relabelled) → ``partial`` if independently valid channels
-          remain, else ``rejected``; on ``partial`` the ``data`` sidecar is withheld;
-        * ``typed_v1`` (§8.4): every insight must be in the run's effective set
+          whole response (``reserved_state_write``);
+        * §8.4: every insight must be in the run's effective set
           and must not carry engine-owned identity; any violation rejects the
           whole response. Accepted insights are then stamped with an engine-
           minted session-unique ``id``, ``turn`` and ``contract_version``, a
@@ -1339,40 +1315,11 @@ class AgentEngine:
                 self._reject_whole(response, fatal)
                 return
 
-        if self.insight_contract == "typed_v1":
-            self._enforce_typed(agent, response, context, diag)
-            return
-
-        # --- insight component: allowed types + ERROR provenance --------------
-        insight_issues: List[InsightDiagnostic] = []
-        for i, insight in enumerate(response.insights):
-            value = insight.type.value if isinstance(insight.type, InsightType) else str(insight.type)
-            if value in LEGACY_HUMAN_TYPES:
-                continue
-            if value == InsightType.ERROR.value and getattr(insight, "_origin", "agent") == "framework":
-                continue
-            insight_issues.append(diag("type_not_allowed", f"insights[{i}].type", bounded(value)))
-
-        if not insight_issues:
-            return  # nothing to change — the producer's status stands
-
-        # Recoverable insight error at the boundary (custom agent path):
-        # drop every insight, keep independently valid channels, report.
-        retained = [name for name, value in (
-            ("events", response.events), ("variable_updates", response.variable_updates),
-            ("queue_pushes", response.queue_pushes), ("facts", response.facts),
-            ("memory_updates", response.memory_updates), ("state_updates", response.state_updates),
-        ) if value]
-        response.insights = []
-        response.diagnostics.extend(insight_issues)
-        if retained:
-            withheld = ["data"] if response.data else []
-            response.data = {}
-            response.acceptance_status = "partial"
-            response.diagnostics.append(diag("partial_legacy_response", "$",
-                                             retained_channels=retained, withheld_channels=withheld))
-        else:
-            self._reject_whole(response, [])
+        # 3.0.0: one regime. Everything below the domain-channel check is the
+        # typed boundary; the legacy acceptance path and its partial-response
+        # diagnostic were removed with the contract they served.
+        self._enforce_typed(agent, response, context, diag)
+        return
 
     # Public fields only the engine may set (§14.2). A producer — or a callback
     # touching the response after staging — leaves them None; trusted staging
@@ -1627,11 +1574,9 @@ class AgentEngine:
             if resp.evidence_snapshot is not None:
                 final_response.evidence_snapshots_by_agent[agent_id] = resp.evidence_snapshot
             if resp.acceptance_status == "rejected":
-                if self.insight_contract != "typed_v1":     # H1 / XA-07: legacy surface only
-                    final_response.insights.extend(
-                        i for i in resp.insights
-                        if i.type == InsightType.ERROR and getattr(i, "_origin", "agent") == "framework"
-                    )
+                # 3.0.0: a rejected response contributes nothing. The legacy-only
+                # ERROR card (H1 / XA-07) that used to survive rejection went with
+                # the contract; a framework error is a diagnostic, not an insight.
                 continue
 
             # Merge insights, stamping the D-CR stable merge order

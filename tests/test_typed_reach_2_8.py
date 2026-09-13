@@ -101,7 +101,7 @@ def content_agent(body, agent_id="lf", content=CONTENT):
 
 
 def content_engine(*agents, limits=None):
-    e = AgentEngine(api_key="k", insight_contract="typed_v1", content_limits=dict(OPERATOR, **(limits or {})))
+    e = AgentEngine(api_key="k", content_limits=dict(OPERATOR, **(limits or {})))
     for a in agents:
         llm = a.llm
         e.register_agent(a)
@@ -153,23 +153,19 @@ class TestFlatV1Adapter:
         assert '"has_insight": false' in fmt and '"memory_updates": {}' in fmt
         assert '"events"' not in fmt and '"insight": null' not in fmt
 
-    def test_legacy_path_for_default_is_unchanged(self):
-        body = {"has_insight": True, "type": "suggestion", "message": "Ask about timing", "memory_updates": {"seen": 1}}
-        agent = tagent(body, output_format="default")
-        engine = legacy_engine(agent)
-        ctx = tctx()
-        final = asyncio.run(engine.process_turn(ctx))
-        assert [i.content for i in final.insights] == ["Ask about timing"]
-        assert final.insights[0].contract_version is None and final.insights[0].urgency_provided is None
-        assert '"message": "Your advice here"' in prompt_of(agent)      # the legacy instruction, byte-identical
-        assert ctx.blackboard.get_memory("typed_agent") == {"seen": 1}
+    # RETIRED in 3.0.0 — test_legacy_path_for_default_is_unchanged:
+    # this pinned the legacy instruction as byte-identical for the `default`
+    # schema. The static instruction is never sent now — the typed builder
+    # generates it per run — so there is no byte-identity left to pin. The flat_v1
+    # adapter itself is unchanged and is covered by the tests around this one.
+
 
     def test_control_typed_declaration_without_an_adapter_is_refused(self):
         """NEGATIVE CONTROL (INV-49): a descriptor may not declare typed_v1 without naming its adapter."""
         agent = tagent(envelope(), output_format="default")
         agent.descriptor = {k: v for k, v in agent.descriptor.items() if k != "typed_adapter"}
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1")
-        with pytest.raises(AgentConfigurationError, match="without a typed_adapter"):
+        engine = AgentEngine(api_key="k")
+        with pytest.raises(AgentConfigurationError, match="declares no typed_adapter"):
             engine.register_agent(agent)
         assert engine.agents == []
 
@@ -241,18 +237,24 @@ class TestRootV2Sidecar:
 class TestUnsupportedSchema:
     ADAPTERS = "Typed adapters: insight_v1, default_v2, v2_raw, default, ui_control, widget_control."
 
-    def test_custom1_is_refused_by_name_with_the_reason_and_the_alternatives(self):
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1")
+    def test_custom1_is_refused_by_name_before_the_schema_fallback(self):
+        """3.0.0: custom1's FILE is deleted, but that alone would not fail an agent
+        configured for it — `_load_schema` falls back to `default.json` for any name
+        it cannot find, so the agent would silently register under a different
+        envelope. It is refused by name, and the refusal happens while the agent is
+        constructed, before an engine ever sees it."""
         with pytest.raises(AgentConfigurationError) as ei:
-            engine.register_agent(tagent(envelope(), output_format="custom1"))
+            tagent(envelope(), output_format="custom1")
         msg = str(ei.value)
-        assert "schema 'custom1'" in msg and "no typed projection" in msg and self.ADAPTERS in msg
-        assert engine.agents == []
+        assert "custom1" in msg and "3.0.0" in msg
+        assert "insight_v1" in msg, "the message names where to go instead"
 
-    def test_custom1_still_registers_under_legacy(self):
+    def test_custom1_cannot_register_under_anything(self):
+        """There is no second contract to fall back to: the refusal is total."""
         engine = AgentEngine(api_key="k")
-        engine.register_agent(tagent(envelope(), output_format="custom1"))
-        assert len(engine.agents) == 1
+        with pytest.raises(AgentConfigurationError):
+            engine.register_agent(tagent(envelope(), output_format="custom1"))
+        assert engine.agents == []
 
     def test_every_other_shipped_schema_registers_under_typed(self):
         for schema in ("insight_v1", "default_v2", "v2_raw", "default", "ui_control", "widget_control"):
@@ -263,8 +265,12 @@ class TestUnsupportedSchema:
         agent = tagent(envelope(), output_format="default")
         agent.descriptor = {k: v for k, v in agent.descriptor.items() if k != "typed_adapter"}
         with pytest.raises(AgentConfigurationError) as ei:
-            AgentEngine(api_key="k", insight_contract="typed_v1").register_agent(agent)
-        assert "without a typed_adapter" in str(ei.value) and "no typed projection" not in str(ei.value)
+            AgentEngine(api_key="k").register_agent(agent)
+        # The contrast this control drew was against custom1's named
+        # typed_unsupported_reason. custom1 is deleted, so what remains to assert
+        # is that the generic refusal names the defect and points at the adapters.
+        assert "declares no typed_adapter" in str(ei.value)
+        assert "insight_v1" in str(ei.value), "the refusal names where to go"
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +371,7 @@ class TestEvidenceCoordinates:
                 ins.evidence_refs = [EvidenceRef(kind="document", ref_id="minutes-3", revision="1", source_index=0)]
                 return AgentResponse(insights=[ins])
 
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1")
+        engine = AgentEngine(api_key="k")
         engine.register_agent(Producer())
         doc = EvidenceCatalogEntry(kind="document", ref_id="minutes-3", revision="1")
         final = asyncio.run(engine.process_turn(ectx(reference=InsightReferenceContext(evidence=[doc]))))
@@ -456,25 +462,32 @@ class TestUrgencyProvenance:
         assert any(d.classification == "engine_owned" and d.field_path.endswith("urgency_provided") for d in final.diagnostics)
 
     def test_custom_producer_cannot_set_the_flag(self):
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1")
+        engine = AgentEngine(api_key="k")
         engine.register_agent(self.producer(urgency="now", urgency_provided=True))
         final = asyncio.run(engine.process_turn(tctx()))
         assert final.insights == []
         assert any(d.field_path.endswith("urgency_provided") and d.classification == "engine_owned" for d in final.diagnostics)
 
     def test_custom_producer_without_staging_has_unknown_provenance(self):
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1")
+        engine = AgentEngine(api_key="k")
         engine.register_agent(self.producer(urgency="now"))
         final = asyncio.run(engine.process_turn(tctx()))
         assert [i.urgency for i in final.insights] == ["now"], codes(final)
         assert final.insights[0].urgency_provided is False
 
-    def test_legacy_projection_and_legacy_emission_carry_no_flag(self):
+    # RETIRED in 3.0.0 — test_legacy_projection_and_legacy_emission_carry_no_flag:
+    # the second half drove a legacy engine to assert that a legacy emission
+    # carries no urgency_provided flag. There is no legacy engine. The first
+    # half — model_dump_legacy() omits the flag — survives as
+    # test_the_legacy_wire_projection_still_omits_the_flag below.
+
+
+    def test_the_legacy_wire_projection_still_omits_the_flag(self):
+        """`model_dump_legacy()` is a WIRE projection for older consumers of the
+        payload shape. It is NOT the removed insight contract and is unchanged:
+        the engine-owned urgency_provided flag stays out of it."""
         final, _ = turn(tengine(tagent(envelope(cand(urgency="now")))))
         assert "urgency_provided" not in final.insights[0].model_dump_legacy()
-        agent = tagent({"has_insight": True, "type": "warning", "content": "Risk.", "confidence": 0.5}, output_format="default_v2")
-        legacy = asyncio.run(legacy_engine(agent).process_turn(tctx()))
-        assert [i.type for i in legacy.insights] == [InsightType.WARNING] and legacy.insights[0].urgency_provided is None
 
     def test_control_invalid_explicit_urgency_still_rejects(self):
         """NEGATIVE CONTROL: an invalid explicit value is never defaulted into 'provided'."""

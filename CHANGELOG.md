@@ -15,6 +15,85 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [3.0.0] - 2026-09-13
+
+### Removed — BREAKING: the `legacy_v2` insight contract
+
+`typed_v1` (XUBB-ITC-1) was added in 2.8.0 **alongside** `legacy_v2` so embedders
+could migrate. That migration is complete, and this release removes the superseded
+regime, the parameter that selected between them, and everything that served only
+the removed path.
+
+**What an embedder does.**
+
+| Before | After |
+|---|---|
+| `AgentEngine(..., insight_contract="typed_v1")` | `AgentEngine(...)` — the argument is **removed**, not ignored |
+| `AgentEngine(...)` defaulting to `legacy_v2` | no default; the typed regime is the only regime |
+| a descriptor declaring `supported_contracts` | the key is gone; `typed_adapter` is required |
+| an agent on `custom1` | **must move** to a schema declaring a `typed_adapter` |
+| a `partial_legacy_response` diagnostic | no longer emitted; there is no `partial` status |
+
+The `insight_contract` argument raises `TypeError` rather than being accepted and
+ignored. Silently moving an embedder to a different validation regime would change
+what their agents may emit without telling them; a loud failure is the honest one.
+
+**`custom1` is removed, and is refused by name.** Deleting the schema file alone
+would NOT have failed an agent still configured for it: `_load_schema` falls back
+to `default.json` for any name it cannot find, so such an agent would have
+silently registered under a different envelope with different channels. The
+identifier is rejected before that fallback, with a message naming where to go
+instead. The fallback is unchanged for every other unrecognised name.
+
+**Dispositions changed, not rules.** The legacy path answered a recoverable
+insight error with `partial` — reject the insight, commit valid channels. The
+typed path rejects the whole response (§8.4). Every rule that survived was
+migrated rather than deleted: a malformed gate, an unknown or disallowed type, a
+reserved `sys.*` write and a fatal domain payload all still reject and still
+report the same diagnostic; what changed is that nothing from the response
+commits.
+
+**Legacy adapter coercions are gone.** Case-folding a type (`"WARNING"`) and
+defaulting an absent type to `"suggestion"` were declared legacy normalisations.
+Typed asks for an exact lowercase value and reports what the model actually wrote,
+rather than guessing what it meant.
+
+**The framework ERROR card is gone from the human channel.** A sanitized ERROR
+insight used to survive rejection on the legacy surface (H1 / XA-07). A framework
+error is a diagnostic everywhere now. The rule that mattered — no exception text
+ever escapes — is unchanged and still asserted.
+
+### Kept, despite the name
+
+- `_sync_state_to_legacy` and the `memory_{agent_id}` variable channel are the
+  E-2/E-3 state bridges, not the insight contract. Unchanged, and deliberately
+  not renamed here: renaming a method embedders may reference is its own breaking
+  change and does not belong in a release whose break is already stated precisely.
+- The five values `fact`, `suggestion`, `warning`, `opportunity`, `praise` are not
+  removed — they are five of the nine in the surviving vocabulary. What went is
+  the regime that offered *only* those five.
+- `HOST_DEFAULT_SUPPORTED_TYPES` (formerly `LEGACY_HUMAN_TYPES`) is the set a host
+  is assumed to support when it declares no capabilities. It was doing two jobs;
+  one of them survived, and it is now named for that one.
+
+### Known gap
+
+`speak_without_gate` — a schema author's opt-in to "content implies speak" — is
+honoured by `resolve_gate_mode`, which only the removed legacy staging called. The
+typed path hard-codes the boolean gate for flat adapters, so the opt-in is
+silently inert. This is **pre-existing**, masked until now because a standalone
+agent constructed itself as `legacy_v2`. Fixing it changes typed behaviour, which
+this release's spec puts out of scope, so it is left failing and visible
+(`xfail(strict=True)`) rather than re-baselined to the broken behaviour.
+
+### Contracts
+
+89 registered, 89 covered, strict gate green. No contract was dropped: the nine
+bound to the removed path were restated under their existing ids, with what was
+retired recorded in each statement, so the registry's history stays readable.
+`INSIGHT-CONTRACT-SELECTION` is inverted rather than deleted — it now asserts that
+the selection mechanism is absent, which is a stronger guarantee than silence.
+
 ## [2.8.1] - 2026-09-12
 
 One diagnostic detail a host counting runs per agent needs. Cut from a green main after the

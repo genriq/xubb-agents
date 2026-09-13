@@ -84,8 +84,8 @@ def agent(body, *, content=CONTENT, gate=None, raise_exc=None, agent_id="lf", al
     return a
 
 
-def engine(*agents, limits=OPERATOR, contract="typed_v1"):
-    e = AgentEngine(api_key="k", insight_contract=contract, content_limits=limits)
+def engine(*agents, limits=OPERATOR):
+    e = AgentEngine(api_key="k", content_limits=limits)
     for a in agents:
         llm = a.llm
         e.register_agent(a)
@@ -121,13 +121,11 @@ class TestEntrypointAdmission:
         assert r.diagnostics[0].code == "content_contract_unavailable"
         assert r.diagnostics[0].classification == "agent_has_no_content_contract"
 
-    def test_legacy_engine_refuses_content_requests(self):
-        a = DynamicAgent({"id": "lf", "name": "lf", "text": "t", "output_format": "default_v2",
-                          "trigger_config": {"mode": "keyword", "keywords": ["zzz"], "cooldown": 0}})
-        a.llm = GatedFake(detailed())
-        e = engine(a, contract="legacy_v2")
-        r = asyncio.run(request(e, live_ctx()))
-        assert r.status == "rejected" and r.diagnostics[0].classification == "typed_contract_required" and a.llm.calls == []
+    # RETIRED in 3.0.0 — test_legacy_engine_refuses_content_requests:
+    # there is no legacy engine to refuse a content request. The surviving
+    # refusals — a host without the reading capability, a schema without the
+    # content contract — are asserted by the tests around this one.
+
 
     def test_host_without_the_contract_or_reading_capability_is_refused(self):
         a = agent(detailed()); e = engine(a)
@@ -154,7 +152,7 @@ class TestEntrypointAdmission:
                 super().__init__(AgentConfig(name="custom", cooldown=0, trigger_types=[TriggerType.TURN_BASED]))
             async def evaluate(self, context):
                 return AgentResponse()
-        e = AgentEngine(api_key="k", insight_contract="typed_v1", content_limits=OPERATOR); e.register_agent(Custom())
+        e = AgentEngine(api_key="k", content_limits=OPERATOR); e.register_agent(Custom())
         r = asyncio.run(request(e, live_ctx(), agent_id="custom"))
         assert r.status == "rejected" and r.diagnostics[0].classification == "agent_not_isolatable"
 

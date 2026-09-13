@@ -112,7 +112,7 @@ def typed_agent(schema="insight_v1", agent_id="typed"):
 
 
 def typed_engine(agent, llm, **kw):
-    engine = AgentEngine(api_key="k", insight_contract="typed_v1", **kw)
+    engine = AgentEngine(api_key="k", **kw)
     engine.register_agent(agent)
     agent.llm = llm
     return engine
@@ -402,13 +402,13 @@ class TestEngineStrictTransport:
         assert comp.calls[0]["response_format"] == {"type": "json_object"}
 
     def test_strict_mode_requires_a_json_schema_adapter_at_registration(self):
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1", structured_outputs="strict")
+        engine = AgentEngine(api_key="k", structured_outputs="strict")
         with pytest.raises(AgentConfigurationError, match="structured_outputs='strict' requires"):
             engine.register_agent(typed_agent("default_v2"))
         assert engine.agents == []
 
     def test_engine_knobs_reach_the_client_and_survive_key_rotation(self):
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1", structured_outputs="strict",
+        engine = AgentEngine(api_key="k", structured_outputs="strict",
                              fallback_signatures=[SYNTHETIC_SIGNATURE])
         assert engine.llm_client.structured_outputs == "strict"
         assert engine.llm_client.fallback_registry["enabled_signatures"] == [SYNTHETIC_SIGNATURE]

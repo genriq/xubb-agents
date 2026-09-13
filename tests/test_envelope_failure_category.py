@@ -53,7 +53,7 @@ class TestEnvelopeFailureCategory:
 
     def test_typed_contract_carries_it_to_the_merged_response(self):
         """Per execution and per agent: two agents, two categories, one merged response."""
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1", structured_outputs="json_object")
+        engine = AgentEngine(api_key="k", structured_outputs="json_object")
         timed_out, refused = agent(FailingClient("timeout"), "insight_v1", "slow"), agent(FailingClient("refusal"), "insight_v1", "shy")
         for a in (timed_out, refused):
             client = a.llm

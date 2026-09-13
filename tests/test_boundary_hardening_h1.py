@@ -84,8 +84,8 @@ def ctx(*, principal="p-A", prior=None, answers=None, capabilities=None, turn_co
                         insight_answers=answers or [])
 
 
-def engine(*agents, contract="typed_v1", callbacks=None):
-    e = AgentEngine(api_key="k", insight_contract=contract, callbacks=callbacks or [])
+def engine(*agents, callbacks=None):
+    e = AgentEngine(api_key="k", callbacks=callbacks or [])
     for a in agents:
         llm = getattr(a, "llm", None)
         e.register_agent(a)
@@ -234,23 +234,11 @@ class TestUnifiedBoundary:
         assert final.acceptance_by_agent["dom"] == "rejected" and final.insights == []
         assert code in codes(final) and c.blackboard.get_var("good") is None
 
-    def test_legacy_keeps_partial_acceptance_for_recoverable_insight_errors(self):
-        """NEGATIVE CONTROL for scope creep: D-LR is untouched — a bad insight
-        on legacy drops the insights and keeps valid channels (partial); a fatal
-        domain error still rejects whole."""
-        def recoverable(a, c):
-            return AgentResponse(insights=[a.create_insight("Who approves?", type=InsightType.QUESTION)],
-                                 variable_updates={"kept": 1})
-        final, c = turn(engine(FnAgent("l1", recoverable), contract="legacy_v2"), ctx(capabilities=None))
-        assert final.acceptance_by_agent["l1"] == "partial" and c.blackboard.get_var("kept") == 1
-
-        def fatal(a, c):
-            r = AgentResponse(insights=[a.create_insight("Budget risk", type=InsightType.WARNING)],
-                              variable_updates={"kept": 1})
-            r.facts.append({"type": "budget"})
-            return r
-        final, c = turn(engine(FnAgent("l2", fatal), contract="legacy_v2"), ctx(capabilities=None))
-        assert final.acceptance_by_agent["l2"] == "rejected" and c.blackboard.get_var("kept") is None
+    # RETIRED in 3.0.0 — test_legacy_keeps_partial_acceptance_for_recoverable_insight_errors:
+    # this asserted the `partial` disposition — a bad insight dropped while valid
+    # channels committed — which existed only on the legacy path (D-LR). Typed has
+    # no partial: a bad insight rejects the whole response (§8.4), which is
+    # asserted throughout this module and in test_engine_boundary_g0.py.
 
     def test_reference_authority_comes_from_the_invocation_not_the_response(self):
         """A producer cannot vouch for its own evidence by attaching a snapshot."""
@@ -325,7 +313,7 @@ class TestAnswerVisibility:
                           "text": "Answers visible: {{ context.insight_answers|length }}",
                           "insight_config": {"allowed_types": ["fact"], "content": CONTENT}})
         a.llm = FakeLLM({"has_insight": False, "insight": None})
-        e = AgentEngine(api_key="k", insight_contract="typed_v1", content_limits=OPERATOR)
+        e = AgentEngine(api_key="k", content_limits=OPERATOR)
         llm = a.llm; e.register_agent(a); a.llm = llm
         c = ctx(prior=[question_record(agent_id="someone-else")], answers=[answer()],
                 capabilities=caps(content_contracts=["long_form_v1"], content_formats=["plain_text", "markdown"],
@@ -366,7 +354,7 @@ class TestPrincipalIdentity:
         assert validate_correction_target(payload, principal_id="p-A", **unowned).classification == "principal_mismatch"
 
     def test_correction_capability_needs_a_principal_like_reply_and_question(self):
-        base = dict(contract="typed_v1", allowed_types=NINE, allow_reply=True, allow_question=True, allow_correction=True,
+        base = dict(allowed_types=NINE, allow_reply=True, allow_question=True, allow_correction=True,
                     schema_supported=None, host_supported=NINE, host_reply_drafts=True, host_text_questions=True,
                     host_corrections=True)
         assert "correction" in effective_insight_types(**base, principal_present=True)
@@ -413,14 +401,12 @@ class TestTypedFailures:
         final, _ = turn(engine(FnAgent("ok", mixed)))
         assert all(i.type.value in HUMAN_WIRE_VALUES and i.id and i.turn == 2 for i in final.insights)
 
-    def test_legacy_error_card_surface_is_unchanged(self):
-        """NEGATIVE CONTROL: the sanitized ERROR card remains on the legacy path."""
-        def boom(a, c):
-            raise RuntimeError("x")
-        final, _ = turn(engine(FnAgent("failed", boom), contract="legacy_v2"), ctx(capabilities=None))
-        errors = [i for i in final.insights if i.type is InsightType.ERROR]
-        assert len(errors) == 1 and errors[0].content == "agent_error"
-        assert final.acceptance_by_agent["failed"] == "rejected"
+    # RETIRED in 3.0.0 — test_legacy_error_card_surface_is_unchanged:
+    # this asserted that a framework-manufactured ERROR insight survived rejection
+    # and reached the human channel on the legacy path (H1 / XA-07). That surface
+    # is removed: a framework error is a diagnostic, never an insight. The rule
+    # that MATTERS — the exception text never escapes — survives and is asserted in
+    # test_engine_boundary_g0.py::test_a_crashing_agent_leaks_nothing_and_surfaces_no_error_card.
 
     def test_forged_framework_error_on_an_accepted_typed_result_is_rejected(self):
         def forge(a, c):

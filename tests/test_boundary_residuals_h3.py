@@ -48,7 +48,7 @@ def content_agent(body_, text="Answers visible: {{ context.insight_answers|lengt
 
 
 def engine(a, callbacks=None):
-    e = AgentEngine(api_key="k", insight_contract="typed_v1", content_limits=OPERATOR, callbacks=callbacks or [])
+    e = AgentEngine(api_key="k", content_limits=OPERATOR, callbacks=callbacks or [])
     llm = a.llm; e.register_agent(a); a.llm = llm
     return e
 
@@ -164,7 +164,7 @@ def brief_agent(body_):
 
 
 def live(a, callbacks):
-    e = AgentEngine(api_key="k", insight_contract="typed_v1", content_limits=OPERATOR, callbacks=callbacks)
+    e = AgentEngine(api_key="k", content_limits=OPERATOR, callbacks=callbacks)
     llm = a.llm; e.register_agent(a); a.llm = llm
     return asyncio.run(e.process_turn(c1_ctx())), e
 

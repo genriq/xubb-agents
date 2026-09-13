@@ -58,7 +58,7 @@ def main() -> int:
             return AgentResponse(insights=[self.create_insight("Who approves?", type=InsightType.QUESTION)],
                                  variable_updates={"leak": 1})
 
-    engine = AgentEngine(api_key="not-a-real-key", insight_contract="typed_v1", structured_outputs="json_object",
+    engine = AgentEngine(api_key="not-a-real-key", structured_outputs="json_object",
                          content_limits={"max_response_bytes": 262144, "live_max_output_tokens": 1000,
                                          "live_max_timeout_seconds": 10, "max_concurrent_content_tasks": 1})
     fake = dyn.llm
@@ -108,7 +108,7 @@ def main() -> int:
                            "trigger_config": {"cooldown": 0}, "insight_config": {"allowed_types": ["fact"]}})
     widget.llm = Fake({"ui_actions": [{"target_widget": "goals_widget", "action": "update", "payload": {"done": 1}}],
                        "state_snapshot": {"phase": "closing"}})
-    reach = AgentEngine(api_key="not-a-real-key", insight_contract="typed_v1", structured_outputs="json_object")
+    reach = AgentEngine(api_key="not-a-real-key", structured_outputs="json_object")
     for a in (flat, widget):
         keep = a.llm
         reach.register_agent(a)

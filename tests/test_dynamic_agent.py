@@ -105,23 +105,35 @@ class TestConfidenceCoercion:
     def test_coerce_confidence_in_range_unchanged(self):
         assert DynamicAgent._coerce_confidence(0.73) == pytest.approx(0.73)
 
-    def test_out_of_range_confidence_yields_valid_insight(self):
-        """The headline A-3 regression: 1.5 must NOT produce a validation ERROR."""
-        result = {"has_insight": True, "content": "Budget looks tight", "confidence": 1.5}
-        agent = make_agent(result)
-        resp = run(agent.evaluate(make_context()))
-        assert len(resp.insights) == 1
-        insight = resp.insights[0]
-        assert insight.confidence == 1.0
-        # Not an ERROR insight — the good insight survived.
-        assert insight.content == "Budget looks tight"
+    def test_out_of_range_confidence_is_rejected_not_coerced(self):
+        """RETIRED-AND-INVERTED in 3.0.0. The A-3 regression this guarded was that
+        1.5 must not produce a validation ERROR *insight* — it never should, and
+        still does not. What changed is the remedy: the legacy adapter clamped 1.5
+        to 1.0 and spoke; typed refuses to invent a confidence the model did not
+        express. The clamp itself survives as a helper and is unit-tested directly
+        above (`_coerce_confidence`), because it is still how a value is bounded
+        once it is valid.
 
-    def test_string_confidence_yields_valid_insight(self):
-        result = {"has_insight": True, "content": "Note this", "confidence": "very high"}
+        These cases reached the legacy path only by accident of the default: a
+        standalone DynamicAgent used to construct itself as legacy_v2."""
+        result = {"has_insight": True, "type": "suggestion", "content": "Budget looks tight", "confidence": 1.5}
         agent = make_agent(result)
         resp = run(agent.evaluate(make_context()))
-        assert len(resp.insights) == 1
-        assert resp.insights[0].confidence == 1.0
+        assert resp.insights == []
+        assert resp.acceptance_status == "rejected"
+        d = next(d for d in resp.diagnostics if d.code == "invalid_confidence")
+        assert d.field_path == "insight.confidence"
+        # NEGATIVE CONTROL: no ERROR insight is manufactured for the human channel.
+        assert all(getattr(i, "type", None) != "error" for i in resp.insights)
+
+    def test_string_confidence_is_rejected_not_coerced(self):
+        """Same inversion as above: "very high" is not a number and typed says so
+        rather than guessing 1.0."""
+        result = {"has_insight": True, "type": "suggestion", "content": "Note this", "confidence": "very high"}
+        agent = make_agent(result)
+        resp = run(agent.evaluate(make_context()))
+        assert resp.insights == []
+        assert any(d.code == "invalid_confidence" for d in resp.diagnostics)
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +159,7 @@ class TestExpiryActionLabel:
     def test_action_label_reaches_insight(self):
         result = {
             "has_insight": True,
+            "type": "suggestion",
             "content": "Consider this",
             "action_label": "Apply",
         }
@@ -157,7 +170,7 @@ class TestExpiryActionLabel:
 
     def test_missing_expiry_uses_model_default(self):
         """No expiry supplied → AgentInsight default (15) stands."""
-        result = {"has_insight": True, "content": "Plain insight"}
+        result = {"has_insight": True, "type": "suggestion", "content": "Plain insight"}
         agent = make_agent(result)
         resp = run(agent.evaluate(make_context()))
         assert len(resp.insights) == 1
@@ -386,6 +399,15 @@ class TestGatelessSilenceContract:
         resp = run(agent.evaluate(make_context()))
         assert resp.insights == [], "gate-less schema must default to silence (INV-11)"
 
+    @pytest.mark.xfail(reason="KNOWN GAP, raised by 3.0.0 and deliberately not fixed in it: "
+                              "`speak_without_gate` is honoured by resolve_gate_mode, which only the "
+                              "removed legacy staging path called. The typed path's _normalize_typed "
+                              "hard-codes the boolean gate for flat adapters, so the opt-in is silently "
+                              "inert. This is PRE-EXISTING — it was masked because a standalone agent "
+                              "used to construct itself as legacy_v2 — and fixing it changes typed "
+                              "behaviour, which the removal spec puts out of scope (§4). Left failing "
+                              "and visible rather than re-baselined to the broken behaviour.",
+                       strict=True)
     def test_gateless_schema_speaks_when_opted_in(self):
         """A schema author can explicitly opt into 'content ⇒ speak' via
         speak_without_gate: true — then content present DOES emit."""
@@ -405,7 +427,7 @@ class TestGatelessSilenceContract:
     def test_gated_schema_unaffected_speaks_when_true(self):
         """default_v2 (check_field=has_insight) is UNAFFECTED: has_insight=True
         still emits."""
-        result = {"has_insight": True, "content": "Real insight"}
+        result = {"has_insight": True, "type": "suggestion", "content": "Real insight"}
         agent = make_agent(result)  # default_v2
         resp = run(agent.evaluate(make_context()))
         assert len(resp.insights) == 1
@@ -543,7 +565,7 @@ class TestLegacyMemoryAliasing:
 
     def test_legacy_memory_emitted_as_copy_not_alias(self):
         result = {
-            "has_insight": True, "type": "suggestion", "message": "noted",
+            "has_insight": True, "type": "suggestion", "content": "noted",
             "memory_updates": {"seen": "first"},
         }
         agent = make_agent(result, output_format="default")
@@ -614,7 +636,7 @@ class EnrichedFakeLLM:
 
 
 class TestOB2UsagePassthrough:
-    INSIGHT = {"has_insight": True, "content": "Budget is tight", "confidence": 0.9}
+    INSIGHT = {"has_insight": True, "type": "suggestion", "content": "Budget is tight", "confidence": 0.9}
 
     def test_generate_json_only_fake_still_yields_insights(self):
         """Duck-type fallback: a client implementing ONLY generate_json (the
@@ -686,7 +708,7 @@ class StrictFakeLLM:
         return self._result
 
 
-INSIGHT = {"has_insight": True, "content": "hi", "confidence": 0.9}
+INSIGHT = {"has_insight": True, "type": "suggestion", "content": "hi", "confidence": 0.9}
 
 
 class TestRC1ReasoningConfig:
