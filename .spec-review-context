@@ -1,0 +1,7 @@
+# Spec-review context for THIS repo only.
+# The engine is public and carries no internal context (see CONTRIBUTING/PROCESS):
+# this file deliberately shadows any workspace-level standing context so a review
+# of an engine spec is primed with engine documents alone.
+docs/PROCESS.md
+docs/SPEC_INSIGHT_TYPES.md
+docs/SPEC_INSIGHT_TYPES_AMENDMENT_2.md

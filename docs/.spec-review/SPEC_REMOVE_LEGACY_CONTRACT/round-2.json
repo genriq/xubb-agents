@@ -1,0 +1,39 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "The spec clearly separates contract removal from adapter shapes and makes typed behavior preservation explicit. However, all four previous findings remain unaddressed, including silent custom1 fallback and incomplete registry migration.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "major",
+      "section": "§2.4 Schemas; §5 Breaking changes",
+      "issue": "Deleting custom1.json still permits the schema loader's missing-file fallback to default.json. The spec does not require rejecting the removed custom1 identifier.",
+      "why_it_matters": "Existing custom1 agents can silently register with different mappings and instructions instead of receiving the intended migration failure.",
+      "suggested_fix": "Reject custom1 explicitly before fallback, leaving unrelated fallback behavior unchanged. Add a registration test asserting a named migration error and no registry mutation."
+    },
+    {
+      "id": "F2",
+      "severity": "major",
+      "section": "§6 Registry; §7.1 Strict contract gate",
+      "issue": "The migration inventory still omits ITC-23.FW-error-provenance-sanitized, whose registered test requires the removed ERROR insight surface and whose additional references include legacy partial acceptance. It still incorrectly classifies INV-19-reasoning-config-explicit as legacy-dependent.",
+      "why_it_matters": "The strict gate cannot pass with obsolete assertions untouched, while retiring ITC-23 wholesale would discard surviving sanitization and provenance requirements.",
+      "suggested_fix": "Include ITC-23 in the explicit migration classification, preserve its surviving obligations with typed diagnostic and forgery tests, and remove obsolete assertions. Remove INV-19 from the legacy-dependent inventory and correct the counts."
+    },
+    {
+      "id": "F3",
+      "severity": "major",
+      "section": "§7.5 Probes",
+      "issue": "The section still permits retiring probes when their defects are considered structurally impossible, contradicting PROCESS.md's requirement that escaped-defect probes remain permanent hard gates.",
+      "why_it_matters": "Implementers receive conflicting instructions about removing permanent regression coverage.",
+      "suggested_fix": "Remove the retirement exception and require preserving probe identities and regression assertions through migration, or propose a separate explicit amendment to PROCESS.md."
+    },
+    {
+      "id": "F4",
+      "severity": "minor",
+      "section": "§2.5 State bridge; §4 Explicitly not in scope",
+      "issue": "§2.5 still says the state bridge and memory channel are renamed in §6, but §6 specifies no renames and §4 excludes them from scope.",
+      "why_it_matters": "The intended scope of these potentially compatibility-sensitive renames remains unclear.",
+      "suggested_fix": "Delete the rename sentence if the names remain unchanged."
+    }
+  ],
+  "resolved_from_previous_round": []
+}
