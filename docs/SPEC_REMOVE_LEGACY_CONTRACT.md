@@ -1,6 +1,6 @@
 # SPEC — Remove the `legacy_v2` insight contract
 
-- **Status:** APPROVED v1.1 — ready to build
+- **Status:** SHIPPED — merged 2026-09-13 as PR #41 and released as **3.0.0** (tag `v3.0.0` on the merge commit `d9a8b32`). Verified at merge: 902 tests + 1 deliberate xfail, contract gate strict 89/89, wheel built and smoke-tested from a clean virtualenv against the installed distribution.
 - **Reviewed —** APPROVED round 3 (round 1: 3 majors + 1 minor; round 2 re-reported them after a failed patch wrote nothing; round 3 clean. Nothing contested — each finding was verified against the code before folding.)
 - **Target release:** 3.0.0 (breaking)
 - **Supersedes:** the contract-selection mechanism introduced with XUBB-ITC-1 §7.1
@@ -118,3 +118,29 @@ Reducing line count. The measure of this change is that one regime governs insig
   - **F4** — §2.5 promised a rename in §6 that §6 never specified and §4 excluded. The names stay.
 - **Round 2** — CHANGES_REQUIRED, the same four. Not a disagreement: the patch applying them aborted on a mismatched anchor before writing, so the reviewer read the unchanged file. Recorded rather than quietly re-rolled, because a round that reports "nothing changed" is evidence about the process, not noise.
 - **Round 3** — **APPROVED**, 0 findings.
+
+## 12. What shipped, against what this specified
+
+Two deviations, both recorded rather than quietly absorbed:
+
+- **§2.5 held.** `_sync_state_to_legacy` and `memory_{agent_id}` were neither
+  removed nor renamed, as specified.
+- **One known gap was raised and NOT fixed** (§4's rule working as intended):
+  `speak_without_gate` is honoured only by `resolve_gate_mode`, which the removed
+  legacy staging path called. The typed path hard-codes the boolean gate for flat
+  adapters, so the opt-in is silently inert. It is **pre-existing** — masked
+  because a standalone `DynamicAgent` used to construct itself as `legacy_v2` —
+  and fixing it changes typed behaviour, which §4 puts out of scope. Left as
+  `xfail(strict=True)` so it stays visible rather than re-baselined to the broken
+  behaviour. It needs its own change.
+- **One cosmetic item deliberately left**, for the same scope reason: every
+  schema descriptor still carries `schema_version: "legacy_v2"`. The field is
+  dormant (read nowhere in `src/` or `tests/`), but the string is misleading in a
+  release whose headline is the removal of that contract. A one-line follow-up.
+
+Two defects were introduced during the build and caught by the suite, both worth
+recording because neither would have been obvious in review: dedenting a block out
+of an `if` left it inside the PREVIOUS block, so the generated output instruction
+silently vanished on any turn without trigger context; and a class constant
+belonging to the typed path was deleted along with the legacy acceptance block it
+happened to sit beside.
