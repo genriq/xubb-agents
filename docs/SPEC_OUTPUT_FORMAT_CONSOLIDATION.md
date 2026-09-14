@@ -1,6 +1,6 @@
 # SPEC — Consolidate and repair the output formats
 
-- **Status:** APPROVED — ready to build
+- **Status:** SHIPPED — merged as PR #42 (2026-09-14), released as 3.1.0, tagged `v3.1.0` at `b4ce54b`
 - **Reviewed by Codex —** APPROVED round 2 (round 1: 2 majors + 2 minors — F1 registration vs the retained implicit default, F2 the unscoped rollback claim, F3 gate terminology, F4 widget diagnostic precedence — all fixed; round 2 clean but for F5, a wording conflict between widget channel availability and the isolated-content restriction, fixed in place. Nothing contested.)
 - **Target releases:** **3.1.0** (deprecation + repairs) and **4.0.0** (removal). Both numbers are published by 3.1.0.
 - **Baseline:** 3.0.0, commit `d9a8b32577fcc353a80240f7206d0b5f41bd163f`
