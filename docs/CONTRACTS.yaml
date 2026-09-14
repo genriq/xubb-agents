@@ -86,7 +86,7 @@ contracts:
       A direct host write via Blackboard.set_var warns and applies (unchanged). An
       AGENT-proposed sys.* write (variable_updates / non-memory state_updates) is a
       reserved_state_write: the whole response is rejected at the engine boundary and
-      nothing from it commits (XUBB-ITC-1 §8.6, D-LR fatal row; G0).
+      nothing from it commits (XUBB-ITC-1 §8.6; a fatal row, in the one regime).
     source:
       - "docs/archive/SPEC_V2_1_HARDENING.md: INV-4"
       - "docs/SPEC_INSIGHT_TYPES.md: §8.6 (D-LR fatal rows)"
@@ -94,8 +94,8 @@ contracts:
     invariant: INV-4
     test: "tests/test_blackboard.py::TestBlackboardVariables::test_unauthorized_sys_write_is_flagged"
     test_engine_sets: "tests/test_engine.py::TestProcessTurn::test_sys_variables_set"
-    test_agent_write_rejected: "tests/test_legacy_acceptance_g0.py::TestFatalRejection::test_reserved_sys_write_rejects_whole_response"
-    test_custom_agent_boundary: "tests/test_legacy_acceptance_g0.py::TestFatalRejection::test_custom_agent_reserved_write_rejected_at_boundary"
+    test_agent_write_rejected: "tests/test_engine_boundary_g0.py::TestFatalRejection::test_reserved_sys_write_rejects_whole_response"
+    test_custom_agent_boundary: "tests/test_engine_boundary_g0.py::TestFatalRejection::test_custom_agent_reserved_write_rejected_at_boundary"
     status: covered   # host write flagged (warning); agent-proposed write rejects the response (G0).
 
   - id: INV-5-tracing-never-crashes
@@ -398,10 +398,10 @@ contracts:
       - "docs/SPEC_INSIGHT_TYPES.md: §8.2"
       - "src/xubb_agents/core/insight_validation.py: evaluate_gate / resolve_gate_mode"
     invariant: ITC-04.FW
-    test: "tests/test_legacy_acceptance_g0.py::TestStrictBooleanGate::test_non_boolean_gate_never_speaks_and_is_reported"
-    test_missing_gate: "tests/test_legacy_acceptance_g0.py::TestStrictBooleanGate::test_missing_required_gate_is_an_insight_error"
-    test_root_presence: "tests/test_legacy_acceptance_g0.py::TestStrictBooleanGate::test_root_presence_adapter_rejects_non_object_root"
-    test_content_presence: "tests/test_legacy_acceptance_g0.py::TestStrictBooleanGate::test_custom1_content_presence_gate_is_declared_not_truthiness"
+    test: "tests/test_engine_boundary_g0.py::TestStrictBooleanGate::test_non_boolean_gate_never_speaks_and_is_reported"
+    test_missing_gate: "tests/test_engine_boundary_g0.py::TestStrictBooleanGate::test_missing_required_gate_is_an_insight_error"
+    test_root_presence: "tests/test_engine_boundary_g0.py::TestStrictBooleanGate::test_root_presence_adapter_rejects_non_object_root"
+    test_content_presence: "tests/test_engine_boundary_g0.py::TestStrictBooleanGate::test_a_removed_schema_is_refused_by_name_and_never_falls_back"
     test_unit: "tests/test_insight_validation.py::TestBooleanGate::test_non_boolean_values_are_invalid_never_speech"
     status: covered   # G0: negative control = the superseded truthiness rule ("false" speaks) fails.
 
@@ -415,30 +415,29 @@ contracts:
       - "docs/SPEC_INSIGHT_TYPES.md: §8.2, §8.6"
       - "src/xubb_agents/core/insight_validation.py: decide_legacy"
     invariant: ITC-05.FW
-    test: "tests/test_legacy_acceptance_g0.py::TestValidSilencePreservesState::test_false_gate_commits_state_with_accepted_silent_status"
-    test_distinct_from_rejection: "tests/test_legacy_acceptance_g0.py::TestValidSilencePreservesState::test_silence_is_distinguishable_from_rejection"
-    test_unit: "tests/test_insight_validation.py::TestDecideLegacy::test_accepted_silent"
+    test: "tests/test_engine_boundary_g0.py::TestValidSilencePreservesState::test_false_gate_commits_state_with_accepted_silent_status"
+    test_distinct_from_rejection: "tests/test_engine_boundary_g0.py::TestValidSilencePreservesState::test_silence_is_distinguishable_from_rejection"
     status: covered   # G0.
 
   - id: ITC-06.FW-unknown-type-rejects-no-relabel
     statement: >
       An unrecognised type label (unknown_type) or a recognised-but-disallowed wire value
-      on the legacy path — error, observation, reply, correction, question (type_not_allowed)
+      recognised but outside the run's effective set (type_not_allowed)
       — rejects every insight from that result and NEVER relabels it as suggestion,
       information, observation or any other purpose. Independently valid channels commit
       (partial); with none, the response is rejected. The diagnostic carries a bounded
       classification, never the content. Case-folding and the absent-type default
-      ("suggestion") are declared legacy adapter normalisations, not relabels.
+      3.0.0: the legacy adapter normalisations (case-folding, defaulting an absent
+      type to "suggestion") are RETIRED — typed asks for an exact lowercase value and
+      reports what the model actually wrote rather than guessing what it meant.
     source:
       - "docs/SPEC_INSIGHT_TYPES.md: §8.6 (D-LR)"
       - "docs/INSIGHT_TYPES_FINAL_DECISIONS.md: D-LR"
       - "src/xubb_agents/core/insight_validation.py: normalize_legacy_type"
     invariant: ITC-06.FW
-    test: "tests/test_legacy_acceptance_g0.py::TestUnknownTypeRejectsWithoutRelabel::test_label_rejects_insight_keeps_valid_state_partial"
-    test_rejected_whole: "tests/test_legacy_acceptance_g0.py::TestUnknownTypeRejectsWithoutRelabel::test_unknown_type_without_state_is_rejected_whole"
-    test_sidecar_withheld: "tests/test_legacy_acceptance_g0.py::TestUnknownTypeRejectsWithoutRelabel::test_partial_withholds_action_bearing_sidecar"
-    test_unit: "tests/test_insight_validation.py::TestLegacyTypeNormalization::test_unknown_labels_reject_and_never_relabel"
-    test_unit_no_emit: "tests/test_insight_validation.py::TestDecideLegacy::test_partial_never_emits_an_insight"
+    test: "tests/test_engine_boundary_g0.py::TestUnknownTypeRejectsWithoutRelabel::test_label_rejects_the_whole_response_without_relabelling"
+    test_rejected_whole: "tests/test_engine_boundary_g0.py::TestUnknownTypeRejectsWithoutRelabel::test_unknown_type_without_state_is_rejected_whole"
+    test_sidecar_withheld: "tests/test_engine_boundary_g0.py::TestUnknownTypeRejectsWithoutRelabel::test_an_action_bearing_sidecar_is_not_withheld_but_rejected_whole"
     status: covered   # G0: negative control = the superseded unknown→SUGGESTION fallback fails.
 
   - id: ITC-13.FW-one-rejection-callback-per-result
@@ -447,15 +446,16 @@ contracts:
       invocation per agent execution result whose status is partial or rejected, none for
       accepted / accepted_silent; every detail is correlated on the aggregate
       AgentResponse.diagnostics. A raising callback cannot release rejected content or
-      block the turn. (Legacy_v2 scope at G0; typed_v1 atomic rejection lands at G1.)
+      block the turn. 3.0.0: with one regime the trigger is simply `rejected` —
+      `partial` no longer exists.
     source:
       - "docs/SPEC_INSIGHT_TYPES.md: §8.5, §14"
       - "src/xubb_agents/core/engine.py: _run_agent_safe"
       - "src/xubb_agents/core/callbacks.py: on_insight_validation_error"
     invariant: ITC-13.FW
-    test: "tests/test_legacy_acceptance_g0.py::TestRejectionCallback::test_exactly_one_callback_per_rejected_or_partial_result"
-    test_no_leak: "tests/test_legacy_acceptance_g0.py::TestRejectionCallback::test_callback_failure_cannot_leak_rejected_content"
-    test_base_hook: "tests/test_legacy_acceptance_g0.py::TestRejectionCallback::test_callback_base_has_noop_validation_hook"
+    test: "tests/test_engine_boundary_g0.py::TestRejectionCallback::test_exactly_one_callback_per_rejected_result"
+    test_no_leak: "tests/test_engine_boundary_g0.py::TestRejectionCallback::test_callback_failure_cannot_leak_rejected_content"
+    test_base_hook: "tests/test_engine_boundary_g0.py::TestRejectionCallback::test_callback_base_has_noop_validation_hook"
     status: covered   # G0 (legacy scope).
 
   - id: ITC-23.FW-error-provenance-sanitized
@@ -471,17 +471,20 @@ contracts:
       - "src/xubb_agents/core/agent.py: BaseAgent.process (exception path)"
       - "src/xubb_agents/core/engine.py: _enforce_acceptance"
     invariant: ITC-23.FW
-    test: "tests/test_legacy_acceptance_g0.py::TestErrorProvenance::test_framework_error_is_sanitized_category_not_exception_text"
-    test_debug_channel: "tests/test_legacy_acceptance_g0.py::TestErrorProvenance::test_raw_exception_lives_only_in_protected_debug_channel"
-    test_forged_dropped: "tests/test_legacy_acceptance_g0.py::TestErrorProvenance::test_agent_authored_error_insight_is_dropped_at_boundary"
-    test_metadata_cannot_forge: "tests/test_legacy_acceptance_g0.py::TestErrorProvenance::test_metadata_origin_cannot_forge_framework_provenance"
-    test_model_error_rejected: "tests/test_legacy_acceptance_g0.py::TestUnknownTypeRejectsWithoutRelabel::test_label_rejects_insight_keeps_valid_state_partial"
+    test: "tests/test_engine_boundary_g0.py::TestErrorProvenance::test_a_crashing_agent_leaks_nothing_and_surfaces_no_error_card"
+    test_debug_channel: "tests/test_engine_boundary_g0.py::TestErrorProvenance::test_raw_exception_lives_only_in_protected_debug_channel"
+    test_forged_dropped: "tests/test_engine_boundary_g0.py::TestErrorProvenance::test_agent_authored_error_insight_is_dropped_at_boundary"
+    test_metadata_cannot_forge: "tests/test_engine_boundary_g0.py::TestErrorProvenance::test_metadata_origin_cannot_forge_framework_provenance"
+    test_model_error_rejected: "tests/test_engine_boundary_g0.py::TestUnknownTypeRejectsWithoutRelabel::test_label_rejects_the_whole_response_without_relabelling"
     status: covered   # G0: negative control = str(e) in insight content fails.
 
   - id: ITC-24.FW-legacy-partial-acceptance-no-parse-mutation
     statement: >
-      D-LR on the legacy_v2 path: a recoverable insight error rejects the insight
-      component only; independently validated, authorized channels commit with an explicit,
+      3.0.0: the legacy partial-acceptance half of this contract is RETIRED with the
+      regime that defined it — an insight error now rejects the whole response, so
+      there is no partial status and no selective withholding. What survives, and is
+      what the id now covers, is the parse-time rule below. Formerly: a recoverable
+      insight error rejected the insight component only; independently validated, authorized channels commit with an explicit,
       serializable, engine-derived partial status (never reported as delivery or silence);
       action-bearing data sidecars are withheld. Fatal rows (invalid domain payload,
       reserved-state write, unparseable envelope) reject the whole response. In NO mode does
@@ -493,13 +496,12 @@ contracts:
       - "docs/INSIGHT_TYPES_FINAL_DECISIONS.md: D-LR"
       - "src/xubb_agents/library/dynamic.py: _stage_legacy / _stage_channels"
     invariant: ITC-24.FW
-    test: "tests/test_legacy_acceptance_g0.py::TestNoParseTimeMutation::test_default_v2_memory_never_touches_private_state"
-    test_legacy_memory_path: "tests/test_legacy_acceptance_g0.py::TestNoParseTimeMutation::test_legacy_default_schema_memory_path_stages_merged_view_without_mutation"
-    test_rejected_writes_nothing: "tests/test_legacy_acceptance_g0.py::TestNoParseTimeMutation::test_rejected_response_writes_nothing_to_memory"
-    test_partial_observable: "tests/test_legacy_acceptance_g0.py::TestNoParseTimeMutation::test_partial_status_is_serializable_and_engine_derived"
-    test_envelope_rejected_usage_kept: "tests/test_legacy_acceptance_g0.py::TestNoParseTimeMutation::test_invalid_envelope_is_rejected_and_usage_survives"
-    test_invalid_domain_fatal: "tests/test_legacy_acceptance_g0.py::TestFatalRejection::test_invalid_domain_payload_rejects_whole_response"
-    test_unit_table: "tests/test_insight_validation.py::TestDecideLegacy::test_fatal_domain_issue_rejects_everything_even_with_valid_insight"
+    test: "tests/test_engine_boundary_g0.py::TestNoParseTimeMutation::test_default_v2_memory_never_touches_private_state"
+    test_legacy_memory_path: "tests/test_engine_boundary_g0.py::TestNoParseTimeMutation::test_default_schema_memory_path_stages_merged_view_without_mutation"
+    test_rejected_writes_nothing: "tests/test_engine_boundary_g0.py::TestNoParseTimeMutation::test_rejected_response_writes_nothing_to_memory"
+    test_partial_observable: "tests/test_engine_boundary_g0.py::TestNoParseTimeMutation::test_status_is_serializable_and_engine_derived_never_model_authored"
+    test_envelope_rejected_usage_kept: "tests/test_engine_boundary_g0.py::TestNoParseTimeMutation::test_invalid_envelope_is_rejected_and_usage_survives"
+    test_invalid_domain_fatal: "tests/test_engine_boundary_g0.py::TestFatalRejection::test_invalid_domain_payload_rejects_whole_response"
     status: covered   # G0: negative control = parse-time private_state.update() fails.
 
   # ---- XUBB-ITC-1 — G1 part 1: vocabulary, alias, contract selection, config (inert on the wire) ----
@@ -603,20 +605,20 @@ contracts:
 
   - id: INSIGHT-CONTRACT-SELECTION
     statement: >
-      AgentEngine(insight_contract=...) accepts exactly {"legacy_v2", "typed_v1"}; the
-      default is legacy_v2 in the current major; any other value is a ValueError. The
-      engine injects the selected contract into every registered agent. Under typed_v1 a
-      DynamicAgent may register only with a schema declaring a typed adapter
-      (insight_v1, default_v2, v2_raw) and able to carry the fields its insight_config
-      needs; insight_v1 is typed-only. Mismatches fail at registration, never at runtime.
+      3.0.0: there is NOTHING to select. `AgentEngine` takes no `insight_contract`
+      argument and neither the engine nor a registered agent carries a contract
+      attribute; passing the removed argument raises TypeError rather than being
+      accepted-and-ignored, because silently moving an embedder to a different
+      validation regime would change what their agents may emit without telling
+      them. A DynamicAgent may register only with a schema declaring a
+      `typed_adapter` and able to carry the fields its insight_config needs.
+      Mismatches fail at registration, never at runtime. The id is kept, and the
+      invariant inverted, so the selection mechanism cannot return unnoticed.
     source:
       - "docs/SPEC_INSIGHT_TYPES.md: §7.1, §13.1"
       - "src/xubb_agents/core/engine.py: AgentEngine.__init__, _validate_insight_config"
-    test: "tests/test_insight_vocabulary_g1.py::TestContractSelection::test_typed_v1_is_selectable_and_injected"
-    test_default: "tests/test_insight_vocabulary_g1.py::TestContractSelection::test_default_is_legacy_v2"
-    test_unknown: "tests/test_insight_vocabulary_g1.py::TestContractSelection::test_unknown_contract_is_a_value_error"
-    test_adapter_gate: "tests/test_typed_acceptance_g1.py::TestTypedRegistration::test_schema_without_typed_adapter_fails_at_registration"
-    test_typed_only_schema: "tests/test_typed_acceptance_g1.py::TestTypedRegistration::test_insight_v1_is_typed_only"
+    test_adapter_gate: "tests/test_typed_acceptance_g1.py::TestTypedRegistration::test_a_schema_without_a_typed_adapter_fails_at_registration"
+    test_typed_only_schema: "tests/test_typed_acceptance_g1.py::TestTypedRegistration::test_insight_v1_registers_like_every_other_shipped_schema"
     status: covered   # G1 part 2: typed_v1 selectable; adapter gating at registration.
 
   # ---- XUBB-ITC-1 — G1 part 2: typed acceptance (typed_v1) ----
@@ -870,7 +872,8 @@ contracts:
       type_not_allowed (static) or capability_unavailable (missing principal). It is a
       draft: the engine emits the insight and invokes nothing — no event, queue, sidecar
       or state write results from it, and the generated instruction states the draft
-      rule. Legacy mode cannot produce a reply.
+      rule. 3.0.0: the clause that said legacy mode cannot produce a reply is retired
+      with that mode; the permission prerequisites above are the whole rule.
     source:
       - "docs/SPEC_INSIGHT_TYPES.md: §7.2, §9"
       - "src/xubb_agents/core/insight_validation.py: effective_insight_types"
@@ -879,7 +882,6 @@ contracts:
     test_no_flag: "tests/test_reply_question_g3.py::TestReplyDrafts::test_reply_without_agent_permission_is_not_allowed"
     test_no_host: "tests/test_reply_question_g3.py::TestReplyDrafts::test_reply_without_host_draft_support_is_not_allowed"
     test_no_principal: "tests/test_reply_question_g3.py::TestReplyDrafts::test_reply_without_principal_is_capability_unavailable"
-    test_legacy: "tests/test_reply_question_g3.py::TestReplyDrafts::test_reply_requires_typed_contract"
     test_prompt: "tests/test_reply_question_g3.py::TestReplyDrafts::test_prompt_states_the_draft_rule"
     status: covered   # G3 part 1. Host-side draft distinction (ITC-17.HOST) is a conformance run, not claimed.
 
@@ -1094,7 +1096,7 @@ contracts:
       - "src/xubb_agents/core/engine.py: _validate_insight_config"
     invariant: ITC-33.FW
     test: "tests/test_long_form_c1.py::TestNegotiation::test_host_without_the_contract_makes_no_call"
-    test_registration: "tests/test_long_form_c1.py::TestNegotiation::test_content_block_requires_typed_contract_and_a_supporting_schema"
+    test_registration: "tests/test_long_form_c1.py::TestNegotiation::test_content_block_requires_a_supporting_schema"
     test_operator: "tests/test_long_form_c1.py::TestNegotiation::test_missing_operator_byte_limit_is_invalid_policy"
     test_not_negotiated: "tests/test_long_form_c1.py::TestNegotiation::test_unnegotiated_extension_fields_still_reject"
     test_prompt_schema: "tests/test_long_form_c1.py::TestNegotiation::test_prompt_and_provider_schema_reflect_the_plan"
@@ -1183,7 +1185,6 @@ contracts:
     test_callback: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_finish_callback_mutation_is_caught_for_dynamic_agents_too"
     test_staged: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_staged_provenance_and_content_fields_survive_the_unified_boundary"
     test_domain: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_domain_channels_are_revalidated_on_the_object_that_commits"
-    test_legacy_partial: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_legacy_keeps_partial_acceptance_for_recoverable_insight_errors"
     test_reference_authority: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_reference_authority_comes_from_the_invocation_not_the_response"
     test_host_records: "tests/test_boundary_hardening_h1.py::TestUnifiedBoundary::test_host_records_still_resolve_for_custom_agents"
     status: covered   # H1. Closes audit XA-01.
@@ -1226,18 +1227,19 @@ contracts:
 
   - id: TYPED-FAILURES-ARE-DIAGNOSTICS
     statement: >
-      Under typed_v1 an evaluation failure produces diagnostics only (invalid_envelope,
-      classification agent_error:<ExceptionType>, no exception text) and no insight: the
-      framework-manufactured ERROR card is converted at the boundary and never forwarded
-      by the merge; every typed insight in a final response has a human-facing type and
-      engine-minted identity. The sanitized ERROR card remains a legacy_v2-only surface.
+      An evaluation failure produces diagnostics only (invalid_envelope,
+      classification agent_error:<ExceptionType>, no exception text) and no
+      insight: the framework-manufactured ERROR card is converted at the boundary
+      and never forwarded by the merge; every insight in a final response has a
+      human-facing type and engine-minted identity. 3.0.0 removed the last
+      exception — the sanitized ERROR card that survived rejection on the legacy
+      surface (H1 / XA-07). A framework error is now a diagnostic everywhere.
     source:
       - "src/xubb_agents/core/engine.py: _enforce_typed (rejected branch) / _merge_responses"
       - "src/xubb_agents/core/agent.py: process"
     invariant: INV-41
     test: "tests/test_boundary_hardening_h1.py::TestTypedFailures::test_typed_exception_is_a_diagnostic_not_an_insight"
     test_identity: "tests/test_boundary_hardening_h1.py::TestTypedFailures::test_every_typed_insight_has_a_human_facing_type_and_identity"
-    test_legacy_control: "tests/test_boundary_hardening_h1.py::TestTypedFailures::test_legacy_error_card_surface_is_unchanged"
     test_forged: "tests/test_boundary_hardening_h1.py::TestTypedFailures::test_forged_framework_error_on_an_accepted_typed_result_is_rejected"
     status: covered   # H1. Closes audit XA-07.
 
@@ -1260,7 +1262,6 @@ contracts:
     invariant: INV-42
     test: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_agent_without_content_contract_is_refused_before_any_call"
     test_control: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_control_negotiated_request_is_accepted"
-    test_legacy: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_legacy_engine_refuses_content_requests"
     test_host: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_host_without_the_contract_or_reading_capability_is_refused"
     test_depth: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_unsupported_depth_is_refused_before_any_call"
     test_schema: "tests/test_content_assurance_h2.py::TestEntrypointAdmission::test_schema_without_content_support_is_refused"
@@ -1403,7 +1404,6 @@ contracts:
     test_instruction: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_default_registers_and_instruction_is_candidate_plus_memory"
     test_silence: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_false_gate_with_placeholders_is_silence_and_memory_still_commits"
     test_state_only: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_state_only_default_agent_gets_the_silence_envelope_with_memory"
-    test_legacy_unchanged: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_legacy_path_for_default_is_unchanged"
     test_control: "tests/test_typed_reach_2_8.py::TestFlatV1Adapter::test_control_typed_declaration_without_an_adapter_is_refused"
     status: covered   # v2.8 TA-1
 
@@ -1430,17 +1430,20 @@ contracts:
 
   - id: TYPED-UNSUPPORTED-SCHEMA-NAMED
     statement: >
-      custom1 fails registration under typed_v1 with a message naming the schema, its
-      typed_unsupported_reason and the six typed adapters; nothing registers; the schema
-      still registers under legacy_v2; every other shipped schema registers under
-      typed_v1; a typed declaration without a typed_adapter is a distinct refusal.
+      A schema with no `typed_adapter` cannot be registered, and the refusal names
+      the schema, its `typed_unsupported_reason` when it declares one, and the
+      shipped adapters. Nothing registers (all-or-nothing). 3.0.0: `custom1` — the
+      only shipped schema in that position — is REMOVED, and is refused BY NAME
+      when the agent is constructed, before the loader's missing-file fallback can
+      silently resolve it to `default`. That fallback is unchanged for every other
+      unrecognised name, which is what lets an embedder's own schema resolve.
     source:
       - "src/xubb_agents/library/schemas/custom1.json: descriptor.typed_unsupported_reason"
       - "src/xubb_agents/core/engine.py: _validate_insight_config"
       - "docs/SPEC_V2_8_TYPED_REACH.md: §3.3"
     invariant: INV-49
-    test: "tests/test_typed_reach_2_8.py::TestUnsupportedSchema::test_custom1_is_refused_by_name_with_the_reason_and_the_alternatives"
-    test_legacy: "tests/test_typed_reach_2_8.py::TestUnsupportedSchema::test_custom1_still_registers_under_legacy"
+    test: "tests/test_typed_reach_2_8.py::TestUnsupportedSchema::test_custom1_is_refused_by_name_before_the_schema_fallback"
+    test_legacy: "tests/test_typed_reach_2_8.py::TestUnsupportedSchema::test_custom1_cannot_register_under_anything"
     test_reach: "tests/test_typed_reach_2_8.py::TestUnsupportedSchema::test_every_other_shipped_schema_registers_under_typed"
     test_control: "tests/test_typed_reach_2_8.py::TestUnsupportedSchema::test_control_adapterless_typed_declaration_is_the_generic_refusal"
     status: covered   # v2.8 TA-3
@@ -1503,8 +1506,8 @@ contracts:
     test_candidate_flag: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_candidate_carrying_the_flag_rejects"
     test_producer_flag: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_custom_producer_cannot_set_the_flag"
     test_unknown_provenance: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_custom_producer_without_staging_has_unknown_provenance"
-    test_legacy: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_legacy_projection_and_legacy_emission_carry_no_flag"
     test_control: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_control_invalid_explicit_urgency_still_rejects"
+    test_legacy_wire: "tests/test_typed_reach_2_8.py::TestUrgencyProvenance::test_the_legacy_wire_projection_still_omits_the_flag"
     status: covered   # v2.8 UP-1
 
   - id: CONTENT-RESULT-AFTER-RELEASE

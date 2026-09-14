@@ -64,7 +64,7 @@ def context(principal="principal-A", references=None, answers=None, capabilities
 
 def run_turn(agent, ctx=None):
     ctx = ctx or context()
-    engine = AgentEngine(api_key="audit-not-a-real-key", insight_contract="typed_v1")
+    engine = AgentEngine(api_key="audit-not-a-real-key")
     engine.register_agent(agent)
     return asyncio.run(engine.process_turn(ctx)), ctx
 
@@ -186,7 +186,7 @@ def test_content_entrypoint_requires_negotiated_content_contract_before_call():
     a = DynamicAgent({"id": "no-content", "name": "no-content", "text": "Observe.",
                       "output_format": "insight_v1", "trigger_config": {"cooldown": 0}})
     fake = FakeLLM(ordinary_candidate())
-    engine = AgentEngine(api_key="audit-not-a-real-key", insight_contract="typed_v1")
+    engine = AgentEngine(api_key="audit-not-a-real-key")
     engine.register_agent(a)
     a.llm = fake
     async def go():
@@ -216,7 +216,7 @@ def content_setup():
                                   max_content_chars=10000, max_preview_chars=100)
     limits = {"max_response_bytes": 100000, "live_max_output_tokens": 500,
               "live_max_timeout_seconds": 1, "max_concurrent_content_tasks": 1}
-    engine = AgentEngine(api_key="audit-not-a-real-key", insight_contract="typed_v1", content_limits=limits)
+    engine = AgentEngine(api_key="audit-not-a-real-key", content_limits=limits)
     engine.register_agent(a)
     a.llm = fake
     ctx = context(capabilities=caps)

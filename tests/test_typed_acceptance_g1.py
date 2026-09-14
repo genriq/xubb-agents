@@ -13,7 +13,7 @@ Framework-scope leaves registered in docs/CONTRACTS.yaml:
   ITC-04/05/06/13/24 typed edges (extend the G0 contracts to typed_v1)
   TYPED-SCHEMA-DERIVATION  local validation agrees with the packaged JSON Schema fixtures
 
-The legacy_v2 path is untouched: tests/test_legacy_acceptance_g0.py still passes.
+The legacy_v2 path is untouched: tests/test_engine_boundary_g0.py still passes.
 """
 import asyncio
 import json
@@ -38,7 +38,7 @@ from xubb_agents.core.insight_validation import (
 from xubb_agents.core.models import AgentResponse, InsightType, TranscriptSegment, TriggerType, AgentInsight
 
 from tests.test_dynamic_agent import FakeLLM, make_context, run
-from tests.test_legacy_acceptance_g0 import UsageFakeLLM, Recording, FACT
+from tests.test_engine_boundary_g0 import UsageFakeLLM, Recording, FACT
 
 FIXTURES = Path(__file__).parent / "fixtures" / "insight_contract_1.2.0"
 ALL_NINE = list(HUMAN_WIRE_VALUES)
@@ -73,7 +73,7 @@ def tagent(result, *, insight_config=None, output_format="insight_v1", agent_id=
 
 
 def tengine(*agents, callbacks=None):
-    engine = AgentEngine(api_key="k", insight_contract="typed_v1", callbacks=callbacks or [])
+    engine = AgentEngine(api_key="k", callbacks=callbacks or [])
     for a in agents:
         fake = a.llm
         engine.register_agent(a)
@@ -108,22 +108,34 @@ def cand(**over):
 # ---------------------------------------------------------------------------
 
 class TestTypedRegistration:
-    def test_typed_engine_constructs_and_injects_contract(self):
+    def test_an_engine_carries_no_contract_and_neither_do_its_agents(self):
+        """3.0.0: the attribute is gone, not set to a constant. A reader cannot
+        branch on something that does not exist."""
         agent = tagent(envelope())
         engine = tengine(agent)
-        assert engine.insight_contract == "typed_v1" and agent.insight_contract == "typed_v1"
+        assert not hasattr(engine, "insight_contract")
+        assert not hasattr(agent, "insight_contract")
 
-    @pytest.mark.parametrize("schema", ["custom1"])     # v2.8: default / ui_control / widget_control now register
-    def test_schema_without_typed_adapter_fails_at_registration(self, schema):
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1")
-        with pytest.raises(AgentConfigurationError, match="does not support insight_contract='typed_v1'"):
-            engine.register_agent(tagent(envelope(), output_format=schema))
+    def test_a_schema_without_a_typed_adapter_fails_at_registration(self):
+        """A descriptor that names no adapter is a descriptor defect (INV-49) and
+        can no longer be excused by a second contract. custom1 — the only shipped
+        schema in that position — is refused earlier still, by name, when the agent
+        is constructed (see test_typed_reach_2_8.py::TestUnsupportedSchema)."""
+        engine = AgentEngine(api_key="k")
+        agent = tagent(envelope())
+        agent.descriptor = dict(agent.descriptor)
+        agent.descriptor.pop("typed_adapter", None)
+        with pytest.raises(AgentConfigurationError, match="no typed_adapter"):
+            engine.register_agent(agent)
         assert engine.agents == []
 
-    def test_insight_v1_is_typed_only(self):
-        engine = AgentEngine(api_key="k")   # legacy
-        with pytest.raises(AgentConfigurationError, match="does not support insight_contract='legacy_v2'"):
-            engine.register_agent(tagent(envelope(), output_format="insight_v1"))
+    def test_insight_v1_registers_like_every_other_shipped_schema(self):
+        """RETIRED-AND-INVERTED. insight_v1 used to be refused by a legacy engine
+        for declaring typed only. There is no legacy engine, so "typed-only" now
+        describes every schema and the refusal cannot arise."""
+        engine = AgentEngine(api_key="k")
+        engine.register_agent(tagent(envelope(), output_format="insight_v1"))
+        assert len(engine.agents) == 1
 
     @pytest.mark.parametrize("schema", ["insight_v1", "default_v2", "v2_raw", "default", "ui_control", "widget_control"])
     def test_typed_adapters_register(self, schema):
@@ -314,7 +326,7 @@ class TestCapabilityIntersection:
         unavailable even when every permission holds (pinned via the pure function;
         every purpose is implemented since G3 part 2)."""
         from xubb_agents.core.insight_validation import effective_insight_types
-        e = effective_insight_types(contract="typed_v1", allowed_types=list(HUMAN_WIRE_VALUES), allow_reply=True,
+        e = effective_insight_types(allowed_types=list(HUMAN_WIRE_VALUES), allow_reply=True,
                                     allow_question=True, allow_correction=True, schema_supported=None,
                                     host_supported=list(HUMAN_WIRE_VALUES), host_reply_drafts=True, host_text_questions=True,
                                     host_corrections=True, principal_present=True, implemented=("fact",))
@@ -329,7 +341,7 @@ class TestCapabilityIntersection:
                 return AgentResponse(insights=[self.create_insight("Budget risk ahead", type=InsightType.WARNING)],
                                      facts=[])
         agent = Custom()
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1"); engine.register_agent(agent)
+        engine = AgentEngine(api_key="k"); engine.register_agent(agent)
         final, _ = turn(engine)
         assert final.insights == [] and "type_not_allowed" in codes(final)
 
@@ -373,7 +385,7 @@ class TestIdentity:
                 ins = self.create_insight("Budget risk ahead", type=InsightType.WARNING)
                 ins.id = "chosen-by-agent"
                 return AgentResponse(insights=[ins])
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1"); engine.register_agent(Custom())
+        engine = AgentEngine(api_key="k"); engine.register_agent(Custom())
         final, _ = turn(engine)
         assert final.insights == []
         assert any(d.code == "invalid_field" and d.classification == "engine_owned" for d in final.diagnostics)
@@ -384,7 +396,7 @@ class TestIdentity:
                 super().__init__(AgentConfig(name="plain", cooldown=0, trigger_types=[TriggerType.TURN_BASED]))
             async def evaluate(self, context):
                 return AgentResponse(insights=[self.create_insight("Budget risk ahead", type=InsightType.WARNING)])
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1"); engine.register_agent(Custom())
+        engine = AgentEngine(api_key="k"); engine.register_agent(Custom())
         final, _ = turn(engine)
         ins = final.insights[0]
         assert ins.id and ins.turn == 1 and ins.contract_version == "typed_v1"
@@ -572,8 +584,14 @@ class TestAmendmentFixtures:
                 skipped.append(f["operation"]); continue
             args = dict(f["args"])
             if f["operation"] == "acceptance_decision":
-                mode = args.pop("mode")
-                call = lambda: fn(mode, **args)
+                # 3.0.0: `acceptance_decision` no longer takes a mode. The reference
+                # fixture file is an artifact of the spec revision that introduced
+                # both regimes and is NOT edited here — a reference is worth less if
+                # it is rewritten whenever the code moves. Legacy-mode cases are
+                # skipped with their reason; typed cases still reproduce exactly.
+                if args.pop("mode") != "typed_v1":
+                    skipped.append("acceptance_decision:legacy_v2"); continue
+                call = lambda: fn(**args)
             elif f["operation"] == "rank_candidates":
                 call = lambda: fn([dict(r, merge_order=tuple(r["merge_order"])) for r in args["records"]])
             else:
@@ -587,8 +605,13 @@ class TestAmendmentFixtures:
         # 19 acceptance_decision + 14 resolve_urgency + 10 confidence_output; the
         # package builds its rank_candidates permutations inline (pinned in
         # TestConfidence.test_default_ranking_ignores_confidence).
-        assert ran == 43
-        assert set(skipped) == {"allow_schema_fallback", "arbitrate_corrections"}   # G2 / G3
+        # 43 before 3.0.0; the 10 legacy-mode acceptance_decision cases are now
+        # skipped with their reason (see above), leaving 33 that still reproduce
+        # the reference exactly. Pinned, so a silent drop still fails the build.
+        assert ran == 33
+        assert skipped.count("acceptance_decision:legacy_v2") == 10
+        assert set(skipped) == {"allow_schema_fallback", "arbitrate_corrections",   # G2 / G3
+                                "acceptance_decision:legacy_v2"}                  # 3.0.0
 
 
 # ---------------------------------------------------------------------------

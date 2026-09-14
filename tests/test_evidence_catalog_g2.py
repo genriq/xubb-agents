@@ -302,7 +302,7 @@ class Capture(BaseAgent):
 class TestReferenceContextPropagation:
     def test_reference_context_reaches_phase1_and_phase2_unchanged(self):
         reference = InsightReferenceContext(evidence=[EvidenceCatalogEntry(kind="document", ref_id="d1", revision="1")])
-        engine = AgentEngine(api_key="k", insight_contract="typed_v1")
+        engine = AgentEngine(api_key="k")
         p1 = Capture("p1", emit=True); p2 = Capture("p2", subscribed=["ping"])
         engine.register_agent(p1); engine.register_agent(p2)
         asyncio.run(engine.process_turn(ctx(reference=reference)))

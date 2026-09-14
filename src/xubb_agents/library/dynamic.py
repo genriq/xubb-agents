@@ -10,10 +10,10 @@ from ..core.models import (
     InsightConfig,
 )
 from ..core.insight_validation import (
-    DomainChannels, resolve_gate_mode, evaluate_gate, validate_legacy_candidate,
-    validate_domain_channels, decide_legacy,
+    DomainChannels, resolve_gate_mode, evaluate_gate,
+    validate_domain_channels,
     # typed_v1 (G1 part 2)
-    DEFAULT_INSIGHT_CONTRACT, MISSING, EffectiveTypes, effective_types_for_run,
+    MISSING, EffectiveTypes, effective_types_for_run,
     evaluate_typed_gate, validate_typed_candidate, decide_typed,
     ADAPTER_PASSTHROUGH_FIELDS, RUN_SPECIFIC_UNAVAILABLE_REASONS, TYPED_CANDIDATE_FIELDS,
     CONTENT_EXTENSION_FIELDS,
@@ -251,7 +251,6 @@ class DynamicAgent(BaseAgent):
         # XUBB-ITC-1 §7.1: the contract is ENGINE-selected and injected at
         # registration (like the LLM client). Evaluated outside an engine, an
         # agent runs the legacy path.
-        self.insight_contract = DEFAULT_INSIGHT_CONTRACT
         # C1: operator limits for long_form_v1, injected by the engine.
         self.content_limits: Dict[str, Any] = {}
 
@@ -267,12 +266,33 @@ class DynamicAgent(BaseAgent):
         from copy import deepcopy as _deepcopy
         twin = DynamicAgent(_deepcopy(self._source_config))
         twin.llm = self.llm
-        twin.insight_contract = self.insight_contract
         twin.content_limits = self.content_limits
         return twin
 
+    #: Schemas removed in a major release. These are refused BY NAME, before the
+    #: missing-file fallback below can reach them, because that fallback is the
+    #: whole problem: deleting the file alone would not fail an agent still
+    #: configured for the removed schema — it would silently register that agent
+    #: under `default`, a different envelope with different channels. A rename is
+    #: a decision the operator must make, not one the loader makes for them.
+    _REMOVED_SCHEMAS = {
+        "custom1": ("custom1 was removed in 3.0.0 with the legacy_v2 insight contract: it "
+                    "declared no typed adapter, so it can no longer be registered. Re-point "
+                    "this agent at a schema that declares one — insight_v1, default_v2, "
+                    "v2_raw, default, ui_control or widget_control — and republish it."),
+    }
+
     def _load_schema(self, format_name: str) -> dict:
-        """Loads schema config from disk, falling back to default if not found."""
+        """Loads schema config from disk, falling back to default if not found.
+
+        A REMOVED schema name raises instead: see ``_REMOVED_SCHEMAS``. The
+        fallback's behaviour for every other unrecognised name is deliberately
+        unchanged — it is what lets an embedder's own schema name resolve sanely.
+        """
+        removed = self._REMOVED_SCHEMAS.get(format_name)
+        if removed:
+            from ..core.engine import AgentConfigurationError   # local: avoids a cycle
+            raise AgentConfigurationError(removed)
         try:
             # Construct path relative to this file
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -476,27 +496,26 @@ class DynamicAgent(BaseAgent):
         # XUBB-ITC-1 §6.4 (G2): one opaque id per invocation names both the
         # execution and the immutable snapshot the agent's references point into.
         execution_id = uuid.uuid4().hex
-        typed = self.insight_contract == "typed_v1"
         # Citation markers are shown to the model whenever an ENABLED type needs
         # an evidence basis — the consulting profile (hypotheses/implications)
         # or a permitted correction in any profile (H2 / XA-06: the evidence the
         # validator accepts and the evidence the prompt exposes must agree). The
         # catalog itself is built for every typed run from the material ACTUALLY
         # exposed (after trimming).
-        eff_types = self._effective_types(context) if typed else None
+        eff_types = self._effective_types(context)
         # v2.8 (EC-1): a host that resolves citations gets the markers on EVERY typed run.
-        cite = typed and (self.config.insight_config.analysis_profile == "consulting"
-                          or "correction" in eff_types
-                          or bool(context.insight_capabilities.evidence_citations))
+        cite = (self.config.insight_config.analysis_profile == "consulting"
+                or "correction" in eff_types
+                or bool(context.insight_capabilities.evidence_citations))
         exposed_docs = list(context.rag_docs) if (self.include_context and context.rag_docs) else []
         # EC-1: the exposed window is a suffix of the host's list; the position of
         # its first segment in that list is the coordinate origin.
         first_index = len(context.recent_segments) - len(target_segments)
         reference = self._build_reference_context(context, execution_id, target_segments, exposed_docs,
-                                                  first_index=first_index) if typed else None
+                                                  first_index=first_index)
         # C1 / §14.6.1: negotiate long_form_v1 and run ADMISSION before generation;
         # the plan also shapes the generated instruction and the provider schema.
-        content_plan = self._content_plan(context) if typed else None
+        content_plan = self._content_plan(context)
         if content_plan is not None and not content_plan["accepted"]:
             # Fail closed BEFORE any prompt is rendered or call is made (§14.6.1).
             response = AgentResponse(execution_id=execution_id, acceptance_status="rejected")
@@ -524,12 +543,11 @@ class DynamicAgent(BaseAgent):
         question_records = {r.id: r for r in context.insight_reference_context.prior_insights
                             if r.type == "question"}
         answers_for_me = []
-        if typed:
-            shared = context.insight_capabilities.answers_shared
-            for a in context.insight_answers:
-                rec = question_records.get(a.question_insight_id)
-                if rec is not None and (shared or rec.agent_id == self.config.id):
-                    answers_for_me.append(a)
+        shared = context.insight_capabilities.answers_shared
+        for a in context.insight_answers:
+            rec = question_records.get(a.question_insight_id)
+            if rec is not None and (shared or rec.agent_id == self.config.id):
+                answers_for_me.append(a)
 
         transcript_slice = "\n".join(turns)
         
@@ -584,7 +602,7 @@ class DynamicAgent(BaseAgent):
 
         # 5b. G3 §11.3: answers from the principal to this agent's questions.
         answers_section = ""
-        if typed and answers_for_me:
+        if answers_for_me:
             lines = []
             for a in answers_for_me:
                 q = question_records.get(a.question_insight_id)
@@ -617,21 +635,20 @@ class DynamicAgent(BaseAgent):
             parts.append(rag_section)
         if trigger_context:
             parts.append(trigger_context)
-        if self.insight_contract == "typed_v1":
-            # §13.1: typed mode generates the EXACT allowed-value instruction from
-            # the run's effective set; the schema's static instruction (which
-            # carries the legacy literal enum) is not sent, so no conflicting
-            # enum reaches the model.
-            own_records = [{"id": r.id, "turn": r.turn, "content": r.content, "agent_id": r.agent_id,
-                            "shared": context.insight_capabilities.correction_agent_policy == "allowlisted"
-                            and self.config.id in context.insight_capabilities.correction_agent_ids}
-                           for r in context.insight_reference_context.prior_insights
-                           if r.status == "active" and r.turn < context.turn_count
-                           and getattr(r, "correctable", True)]          # v2.8 (CT-1)
-            parts.append(self._typed_instruction(eff_types, reference if cite else None,
-                                                 own_records, content_plan, isolated=isolated))
-        elif self.json_instruction:
-            parts.append(self.json_instruction)
+        # 3.0.0: one contract, so the generated instruction is always what is
+        # sent; the schema's static `instruction` never reaches the model.
+        # §13.1: typed mode generates the EXACT allowed-value instruction from
+        # the run's effective set; the schema's static instruction (which
+        # carries the legacy literal enum) is not sent, so no conflicting
+        # enum reaches the model.
+        own_records = [{"id": r.id, "turn": r.turn, "content": r.content, "agent_id": r.agent_id,
+                        "shared": context.insight_capabilities.correction_agent_policy == "allowlisted"
+                        and self.config.id in context.insight_capabilities.correction_agent_ids}
+                       for r in context.insight_reference_context.prior_insights
+                       if r.status == "active" and r.turn < context.turn_count
+                       and getattr(r, "correctable", True)]          # v2.8 (CT-1)
+        parts.append(self._typed_instruction(eff_types, reference if cite else None,
+                                             own_records, content_plan, isolated=isolated))
 
         full_system_prompt = "\n\n".join(parts)
 
@@ -675,7 +692,7 @@ class DynamicAgent(BaseAgent):
         # set. The projection is LINTED before any call; a failing schema never
         # reaches the wire (fail closed, provider_schema_error).
         response_schema = None
-        if typed and "json_schema" in (self.descriptor.get("supported_transports") or []):
+        if "json_schema" in (self.descriptor.get("supported_transports") or []):
             response_schema = compile_schema(full=True, content_extension=content_plan is not None,
                                              allowed_types=list(self._effective_types(context).types))
             lint = schema_issues(response_schema)
@@ -778,11 +795,8 @@ class DynamicAgent(BaseAgent):
                     execution_id, "invalid_domain_payload", "$", classification=str(e)[:64]))
                 return response
 
-        if typed:
-            self._stage_typed(result, context, working_memory, execution_id, response, reference,
-                              content_plan, llm_telemetry)
-        else:
-            self._stage_legacy(result, context, working_memory, execution_id, response)
+        self._stage_typed(result, context, working_memory, execution_id, response, reference,
+                          content_plan, llm_telemetry)
         return response
 
     # ------------------------------------------------------------------
@@ -821,7 +835,7 @@ class DynamicAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _effective_types(self, context: AgentContext) -> EffectiveTypes:
-        return effective_types_for_run(contract=self.insight_contract,
+        return effective_types_for_run(
                                        insight_config=self.config.insight_config,
                                        descriptor=self.descriptor, context=context)
 
@@ -994,9 +1008,6 @@ class DynamicAgent(BaseAgent):
         (H2 / XA-04): the negotiated plan for ``context`` — None when this agent
         has no content contract, otherwise ``{"accepted", "codes", ...}``. No
         prompt is rendered, no model is called, no state is touched."""
-        if self.insight_contract != "typed_v1":
-            return {"accepted": False, "codes": ["content_contract_unavailable"],
-                    "classification": "typed_contract_required", "configuration": None}
         return self._content_plan(context)
 
     def _normalize_typed(self, result: Dict[str, Any]):
@@ -1202,66 +1213,6 @@ class DynamicAgent(BaseAgent):
                                  code=code, field_path=field_path,
                                  classification=classification, **extra)
 
-    def _stage_legacy(self, result: Dict[str, Any], context: AgentContext,
-                      working_memory: Dict[str, Any], execution_id: str,
-                      response: AgentResponse) -> None:
-        mapping = self.mapping
-
-        # 1. Root object (nested schemas). A malformed root is reported by the
-        #    gate check, not silently treated as an empty object.
-        root_key = mapping.get("root_key")
-        root_data = result.get(root_key, {}) if root_key else result
-        if not isinstance(root_data, dict):
-            root_data = {}
-
-        # 2. Gate — declared mode, never raw truthiness (§8.2).
-        gate_mode = resolve_gate_mode(mapping, self.descriptor)
-        speak, gate_issue = evaluate_gate(gate_mode, mapping, result, root_data)
-        insight_issues = [gate_issue] if gate_issue else []
-
-        # 3. Insight candidate (only when the gate says speak).
-        candidate = None
-        if speak:
-            candidate, candidate_issues = validate_legacy_candidate(root_data, mapping)
-            insight_issues.extend(candidate_issues)
-
-        # 4. Domain channels — validated independently of insight validity.
-        channels, domain_issues = validate_domain_channels(result, mapping)
-
-        # 5. Decide (D-LR).
-        decision = decide_legacy(speak, insight_issues, domain_issues, channels.has_domain())
-        response.acceptance_status = decision.status
-        for issue in insight_issues + domain_issues:
-            response.diagnostics.append(self._diagnostic(
-                execution_id, issue.code, issue.field_path, issue.classification))
-        if decision.status == "rejected":
-            return  # nothing staged; usage + diagnostics already on the response
-
-        # 6. Stage the accepted insight (legacy coercions A-3 / S-1 preserved).
-        if decision.emit_insight and candidate is not None:
-            conf_key = mapping.get("confidence_field", "confidence")
-            insight = self.create_insight(
-                content=candidate.content,
-                type=InsightType(candidate.type_value),
-                confidence=self._coerce_confidence(root_data.get(conf_key, 1.0)),
-                expiry=self._coerce_expiry(root_data.get(mapping.get("expiry_field", "expiry"))),
-                action_label=self._coerce_action_label(
-                    root_data.get(mapping.get("action_label_field", "action_label"))),
-            )
-            insight.metadata = candidate.metadata
-            response.insights.append(insight)
-
-        # 7. Stage domain channels. On partial acceptance the action-bearing
-        #    data sidecar is withheld and the disposition is reported.
-        self._stage_channels(channels, context, working_memory, response)
-        if decision.status == "partial":
-            withheld = ["data"] if channels.data is not None else []
-            response.diagnostics.append(self._diagnostic(
-                execution_id, "partial_legacy_response", "$",
-                retained_channels=channels.retained_names(), withheld_channels=withheld))
-        elif channels.data is not None:
-            data_key = mapping.get("data_key", mapping.get("data_field"))
-            response.data[data_key] = channels.data
 
     def _stage_channels(self, ch: DomainChannels, context: AgentContext,
                         working_memory: Dict[str, Any], response: AgentResponse) -> None:

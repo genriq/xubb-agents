@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-**Version:** 2.8.1 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+**Version:** 3.0.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
 
 📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
 
@@ -147,6 +147,19 @@ response = await engine.process_turn(context, trigger_type=TriggerType.TURN_BASE
 ```
 
 ## What's New
+
+**v3.0 — one insight contract (BREAKING).** `legacy_v2` is removed: the
+`insight_contract` constructor argument is gone (passing it raises `TypeError`
+rather than being silently ignored), descriptors no longer declare
+`supported_contracts`, and every schema must name a `typed_adapter`. `custom1` is
+removed and is refused **by name** — deleting its file alone would have let the
+loader's missing-file fallback resolve such an agent to `default`, a different
+envelope, without saying so. There is no `partial` acceptance any more: a
+recoverable insight error rejects the whole response. The legacy adapter
+coercions (case-folding a type, defaulting an absent one to `"suggestion"`) are
+gone with it — typed asks for an exact value and reports what the model wrote.
+See [SPEC_REMOVE_LEGACY_CONTRACT](docs/SPEC_REMOVE_LEGACY_CONTRACT.md) and the
+[CHANGELOG](CHANGELOG.md) for the migration table.
 
 **v2.8 — typed reach.** Every shipped schema but `custom1` now registers under the typed contract — `default` through a `flat_v1` adapter, `ui_control` and `widget_control` through `root_v2` with their `ui_actions` sidecar — and `custom1` says why it cannot. Typed cards carry evidence coordinates (`EvidenceRef.source_index`: the segment's position in the list the host passed, before trimming) and a host may ask for citation markers on every run (`evidence_citations`); the isolated content path's instruction is result-only; `urgency_provided` says whether the model authored the urgency; `await handle.result()` returns only after the content slot is released (`handle.released`); `PriorInsightRecord.correctable` controls what may be corrected; `data_by_agent` attributes sidecars per agent. Additive; the legacy contract is untouched. See [SPEC_V2_8_TYPED_REACH](docs/SPEC_V2_8_TYPED_REACH.md). 2.8.1 adds one diagnostic detail: when no JSON object arrives, `invalid_envelope` carries the model client's failure category (`timeout`, `refusal`, `malformed`, …) instead of `none`.
 
@@ -298,7 +311,7 @@ A piece of advice returned by an agent:
 - `OPPORTUNITY`: Urgent positive alert (Zone A)
 - `FACT`: Contextual information (Zone C)
 - `PRAISE`: Positive reinforcement
-- *G1 members, present in the enum but unavailable on the default `legacy_v2` path until typed acceptance lands:* `OBSERVATION`, `REPLY`, `CORRECTION`, `QUESTION`; `INFORMATION` is an alias of `FACT` (wire value stays `"fact"`). See `docs/SPEC_INSIGHT_TYPES.md`.
+- *Interactive purposes, available once their supporting capability is implemented and the host declares it:* `OBSERVATION`, `REPLY`, `CORRECTION`, `QUESTION`; `INFORMATION` is an alias of `FACT` (wire value stays `"fact"`). See `docs/SPEC_INSIGHT_TYPES.md`.
 - `ERROR`: System issues
 
 ---

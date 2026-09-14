@@ -1,0 +1,39 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "The spec clearly separates contract removal from adapter shapes and preserves typed acceptance as the target behavior. However, deleting custom1 currently triggers a silent schema fallback, and the registry migration misses a contract that explicitly tests the removed error-card behavior.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "major",
+      "section": "§2.4 Schemas; §5 Breaking changes",
+      "issue": "Deleting custom1.json does not make existing custom1 configurations fail. The schema loader in src/xubb_agents/library/dynamic.py falls back to default.json when the requested file is missing, so these agents can register with a different schema.",
+      "why_it_matters": "An embedder can silently receive different response mappings and instructions instead of the required migration failure. The surviving default schema has a typed adapter, so registration validation will not catch this.",
+      "suggested_fix": "Explicitly reject the removed custom1 identifier before the missing-file fallback, and add a real registration test asserting a named migration error and no registry mutation. Scope this exception without changing unrelated fallback behavior."
+    },
+    {
+      "id": "F2",
+      "severity": "major",
+      "section": "§6 Registry; §7.1 Strict contract gate",
+      "issue": "The nine-entry migration inventory omits ITC-23.FW-error-provenance-sanitized. Its registered test, TestErrorProvenance::test_framework_error_is_sanitized_category_not_exception_text, explicitly requires one ERROR insight in the final response, which §2.2 removes. Its additional references also include legacy partial-acceptance assertions.",
+      "why_it_matters": "Rewording the remaining entries while leaving their tests untouched cannot pass the strict gate. Dropping this entry wholesale would also lose surviving sanitization and provenance obligations.",
+      "suggested_fix": "Include ITC-23 explicitly in the migration classification. Preserve its surviving rules with typed diagnostic and forgery tests, remove obsolete error-card and partial-acceptance assertions, and correct the inventory. Also remove INV-19 from the legacy-dependent classification: its registered rule concerns reasoning configuration, not insight contracts."
+    },
+    {
+      "id": "F3",
+      "severity": "major",
+      "section": "§7.5 Probes",
+      "issue": "This section permits retiring a probe when its defect is considered structurally impossible, while PROCESS.md requires escaped-defect probes to remain permanent hard gates and never be deleted.",
+      "why_it_matters": "The implementation is given conflicting instructions about whether permanent regression coverage can be removed during this migration.",
+      "suggested_fix": "Require preserving probe identities and their regression assertions through the typed migration. Remove the retirement exception, or explicitly propose a separate amendment to PROCESS.md."
+    },
+    {
+      "id": "F4",
+      "severity": "minor",
+      "section": "§2.5 State bridge; §4 Non-goals",
+      "issue": "§2.5 says the state bridge and memory channel are renamed in §6, but §6 contains no rename specification and §4 calls them out of scope.",
+      "why_it_matters": "An implementer cannot tell whether a potentially compatibility-sensitive rename is intended.",
+      "suggested_fix": "Delete the rename sentence if these names remain unchanged, or specify the rename and its compatibility scope explicitly."
+    }
+  ],
+  "resolved_from_previous_round": []
+}

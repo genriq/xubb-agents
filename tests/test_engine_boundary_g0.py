@@ -1,4 +1,12 @@
-"""G0 — legacy safety through the REAL engine (XUBB-ITC-1, FINAL_DECISIONS D-LR).
+"""Engine-boundary acceptance through the REAL engine (XUBB-ITC-1 §8.4).
+
+3.0.0: this module was `test_engine_boundary_g0.py` and drove the `legacy_v2`
+regime. The regime is gone; most of the rules it asserted are not, so the module
+was migrated rather than deleted, and each surviving rule now runs against the
+one contract. What changed in every case is the DISPOSITION, not the rule: the
+legacy path answered an insight-only error with `partial` (reject the insight,
+keep valid state); the typed path rejects the whole response (§8.4). Retired
+outright, with reasons, at the foot of this file.
 
 These are the framework-scope leaves registered in docs/CONTRACTS.yaml:
 
@@ -110,23 +118,24 @@ class TestStrictBooleanGate:
     @pytest.mark.parametrize("gate", ["true", "false", "yes", 1, 0, None])
     def test_non_boolean_gate_never_speaks_and_is_reported(self, gate):
         """NEGATIVE CONTROL: under the superseded truthiness rule "true"/"false"/1
-        all spoke. Now: zero insights, invalid_gate, and the valid facts still commit
-        (partial) because the gate is an insight-only error."""
+        all spoke. Now: zero insights and invalid_gate. 3.0.0 changed only the
+        disposition — a malformed gate rejects the WHOLE response (§8.4), so the
+        facts no longer commit. The rule the control protects is unchanged."""
         result = {"has_insight": gate, "type": "suggestion", "content": "Ask about timing", "facts": [FACT]}
         agent = make_agent(result)
         engine = engine_with(agent, result)
         final, context = turn(engine)
         assert final.insights == []
-        assert final.acceptance_by_agent[agent.config.id] == "partial"
+        assert final.acceptance_by_agent[agent.config.id] == "rejected"
         assert "invalid_gate" in codes(final)
-        assert context.blackboard.get_fact("budget", "primary").value == 50000
+        assert not context.blackboard.has_fact("budget", "primary"),             "typed rejection is whole-response: nothing commits"
 
     def test_missing_required_gate_is_an_insight_error(self):
         result = {"type": "suggestion", "content": "Ask about timing", "facts": [FACT]}
         agent = make_agent(result)
         final, context = turn(engine_with(agent, result))
         assert final.insights == [] and "invalid_gate" in codes(final)
-        assert context.blackboard.has_fact("budget", "primary")
+        assert not context.blackboard.has_fact("budget", "primary")
 
     def test_boolean_true_speaks(self):
         result = {"has_insight": True, "type": "warning", "content": "Budget risk"}
@@ -141,18 +150,33 @@ class TestStrictBooleanGate:
         agent = make_agent(result, output_format="v2_raw")
         final, context = turn(engine_with(agent, result))
         assert final.insights == [] and "invalid_gate" in codes(final)
-        assert context.blackboard.get_var("phase") == "demo"
+        assert context.blackboard.get_var("phase") is None
 
-    def test_custom1_content_presence_gate_is_declared_not_truthiness(self):
-        speak = {"sales_tip": "Ask who approves", "risk_category": "warning", "confidence_score": 0.7}
-        agent = make_agent(speak, output_format="custom1")
-        final, _ = turn(engine_with(agent, speak))
-        assert [i.type for i in final.insights] == [InsightType.WARNING]
+    def test_a_removed_schema_is_refused_by_name_and_never_falls_back(self):
+        """3.0.0, replacing the custom1 content-presence case. custom1 was the only
+        shipped schema on that gate mode and is deleted — but deleting the FILE is
+        not what makes it fail. `_load_schema` falls back to `default.json` for any
+        name it cannot find, so without an explicit refusal an agent still
+        configured for custom1 would silently register under a different envelope
+        with different channels. It is refused by name, before the fallback.
 
-        numeric = {"sales_tip": 5, "risk_category": "warning"}
-        agent2 = make_agent(numeric, output_format="custom1")
-        final2, _ = turn(engine_with(agent2, numeric))
-        assert final2.insights == [] and "invalid_gate" in codes(final2)
+        The gate MODE survives and keeps unit coverage in
+        test_insight_validation.py::TestContentPresenceGate — an embedder's own
+        schema may still declare it."""
+        from xubb_agents.core.engine import AgentConfigurationError
+        with pytest.raises(AgentConfigurationError, match="custom1"):
+            make_agent({"sales_tip": "x"}, output_format="custom1")
+
+    def test_an_unrecognised_schema_name_still_falls_back(self):
+        """NEGATIVE CONTROL for the refusal above: the exception is scoped to the
+        removed name. Every other unknown name keeps resolving to `default`, which
+        is what lets an embedder's own schema name work."""
+        agent = make_agent({"has_insight": True, "type": "warning", "content": "x"},
+                           output_format="an-embedders-own-schema")
+        # It constructs (no refusal) and resolves to `default` — same descriptor,
+        # same adapter — which is exactly the behaviour custom1 must NOT get.
+        assert agent.descriptor.get("typed_adapter") == "flat_v1"
+        assert agent.mapping.get("check_field") == "has_insight"
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +221,12 @@ class TestUnknownTypeRejectsWithoutRelabel:
         ("briefing", "unknown_type"), ("summary", "unknown_type"), ("INFORMATION", "unknown_type"),
         ("observation", "type_not_allowed"), ("reply", "type_not_allowed"),
         ("correction", "type_not_allowed"), ("question", "type_not_allowed"),
-        ("error", "type_not_allowed"),
+        # 3.0.0: `error` is not in the human vocabulary at all (it is
+        # framework-manufactured), so a model authoring it is UNKNOWN rather than
+        # recognised-and-disallowed. Legacy listed it as reserved.
+        ("error", "unknown_type"),
     ])
-    def test_label_rejects_insight_keeps_valid_state_partial(self, label, code):
+    def test_label_rejects_the_whole_response_without_relabelling(self, label, code):
         """NEGATIVE CONTROL for 'unknown → suggestion': the advice-shaped body
         ("Offer the client a 20% discount…") must not surface under ANY type."""
         result = {"has_insight": True, "type": label,
@@ -209,13 +236,28 @@ class TestUnknownTypeRejectsWithoutRelabel:
         final, context = turn(engine_with(agent, result))
         assert final.insights == []
         assert all(i.type != InsightType.SUGGESTION for i in final.insights)
-        assert final.acceptance_by_agent[agent.config.id] == "partial"
+        # 3.0.0: whole-response rejection (§8.4) where legacy answered `partial`.
+        assert final.acceptance_by_agent[agent.config.id] == "rejected"
         diag = next(d for d in final.diagnostics if d.code == code)
-        assert diag.field_path == "type"
-        assert diag.classification == label.casefold()
-        # the discount text never leaks into a diagnostic
+        assert diag.field_path == "insight.type"   # typed paths are rooted at the candidate
+        if code == "unknown_type":
+            # Nothing in the vocabulary matched, so the offending label IS the
+            # classification — bounded, verbatim, and never the content. Legacy
+            # casefolded it here; typed reports exactly what the model wrote,
+            # which is what a prompt author needs to see.
+            assert diag.classification == label
+        else:
+            # 3.0.0 improvement over the legacy echo: a recognised-but-disallowed
+            # value reports WHY it is unavailable for this run, from the effective
+            # set's own reason vocabulary, rather than repeating the label back.
+            assert diag.classification in {"not_in_agent_allowed_types", "not_supported_by_host",
+                                           "not_supported_by_schema", "not_implemented_in_this_release",
+                                           "reply_not_permitted", "question_not_permitted",
+                                           "correction_not_permitted", "missing_principal", "missing_history"}
+        # the discount text never leaks into a diagnostic — unchanged, and the
+        # point of the control
         assert all("discount" not in (d.classification or "") for d in final.diagnostics)
-        assert context.blackboard.get_var("phase") == "negotiation"
+        assert context.blackboard.get_var("phase") is None, "nothing commits from a rejected response"
 
     def test_unknown_type_without_state_is_rejected_whole(self):
         result = {"has_insight": True, "type": "briefing", "content": "Recap of the call so far"}
@@ -225,31 +267,43 @@ class TestUnknownTypeRejectsWithoutRelabel:
         assert final.acceptance_by_agent[agent.config.id] == "rejected"
         assert context.blackboard.variables.keys() <= {"sys.turn_count", "sys.session_id", "sys.trigger_type"}
 
-    def test_case_folding_is_a_declared_legacy_normalisation(self):
+    def test_a_miscased_type_is_not_silently_folded(self):
+        """RETIRED-AND-INVERTED. Legacy declared case-folding as an adapter
+        normalisation, so "WARNING" became a warning. Typed asks for an exact
+        lowercase value and says so in the generated instruction, so the same
+        input is now `unknown_type` — the engine does not guess what was meant."""
         result = {"has_insight": True, "type": "WARNING", "content": "Budget risk"}
         agent = make_agent(result)
         final, _ = turn(engine_with(agent, result))
-        assert [i.type for i in final.insights] == [InsightType.WARNING]
+        assert final.insights == []
+        assert next(d for d in final.diagnostics if d.code == "unknown_type").classification == "WARNING"
 
-    def test_absent_type_uses_declared_legacy_default(self):
+    def test_an_absent_type_is_not_defaulted_to_suggestion(self):
+        """RETIRED-AND-INVERTED. Legacy defaulted an absent type to "suggestion"
+        (the `default` schema's parser did so since v1). Inventing a purpose the
+        model did not state is exactly what the typed contract exists to stop."""
         result = {"has_insight": True, "content": "Ask about the timeline"}
         agent = make_agent(result)
         final, _ = turn(engine_with(agent, result))
-        assert [i.type for i in final.insights] == [InsightType.SUGGESTION]
+        assert final.insights == []
+        assert final.acceptance_by_agent[agent.config.id] == "rejected"
 
-    def test_partial_withholds_action_bearing_sidecar(self):
+    def test_an_action_bearing_sidecar_is_not_withheld_but_rejected_whole(self):
+        """RETIRED-AND-REPLACED (ITC-24). The legacy `partial` disposition kept
+        valid channels while withholding the action-bearing sidecar, and reported
+        which was which in `partial_legacy_response`. Typed has no partial: a bad
+        insight rejects everything, so there is nothing to withhold selectively.
+        The property that mattered — an unusable insight never lets ui_actions
+        through — is stronger now, not weaker."""
         result = {"insight": {"type": "briefing", "content": "Recap"},
                   "ui_actions": [{"target_widget": "flash_zone", "action": "flash", "payload": {}}],
                   "state_snapshot": {"phase": "demo"}}
         agent = make_agent(result, output_format="ui_control")
         final, context = turn(engine_with(agent, result))
         assert final.insights == [] and final.data == {}
-        assert final.acceptance_by_agent[agent.config.id] == "partial"
-        partial = next(d for d in final.diagnostics if d.code == "partial_legacy_response")
-        assert partial.withheld_channels == ["data"]
-        # ui_control maps state_snapshot through variable_updates_field (S-3)
-        assert partial.retained_channels == ["variable_updates"]
-        assert context.blackboard.get_var("phase") == "demo"
+        assert final.acceptance_by_agent[agent.config.id] == "rejected"
+        assert not any(d.code == "partial_legacy_response" for d in final.diagnostics)
+        assert context.blackboard.get_var("phase") is None
 
 
 # ---------------------------------------------------------------------------
@@ -312,8 +366,11 @@ class TestNoParseTimeMutation:
         assert agent.private_state == {}
         assert context.blackboard.get_memory(agent.config.id) == {"seen": "first"}
 
-    def test_legacy_default_schema_memory_path_stages_merged_view_without_mutation(self):
-        result = {"has_insight": True, "type": "suggestion", "message": "noted", "memory_updates": {"seen": "first"}}
+    def test_default_schema_memory_path_stages_merged_view_without_mutation(self):
+        """The E-3 memory channel is NOT contract-bound and is unchanged (spec §2.5).
+        Only the field name moved: typed canonicalises the insight body to
+        `content`, where the `default` schema's legacy parse read `message`."""
+        result = {"has_insight": True, "type": "suggestion", "content": "noted", "memory_updates": {"seen": "first"}}
         agent = make_agent(result, output_format="default")
         context = make_context()
         context.shared_state[f"memory_{agent.config.id}"] = {"committed": True}
@@ -330,15 +387,18 @@ class TestNoParseTimeMutation:
         assert context.blackboard.get_memory(agent.config.id) == {}
         assert final.acceptance_by_agent[agent.config.id] == "rejected"
 
-    def test_partial_status_is_serializable_and_engine_derived(self):
+    def test_status_is_serializable_and_engine_derived_never_model_authored(self):
+        """The rule survives; only the value changed. A model cannot author its own
+        acceptance — it says "accepted" here and is overruled. 3.0.0: the overruling
+        value is `rejected`, because `partial` went with the legacy disposition."""
         result = {"has_insight": True, "type": "briefing", "content": "Recap", "facts": [FACT],
                   "acceptance_status": "accepted", "diagnostics": []}  # model cannot author these
         agent = make_agent(result)
         final, _ = turn(engine_with(agent, result))
-        assert final.acceptance_by_agent[agent.config.id] == "partial"
+        assert final.acceptance_by_agent[agent.config.id] == "rejected"
         dumped = final.model_dump()
-        assert dumped["acceptance_by_agent"][agent.config.id] == "partial"
-        assert any(d["code"] == "partial_legacy_response" for d in dumped["diagnostics"])
+        assert dumped["acceptance_by_agent"][agent.config.id] == "rejected"
+        assert not any(d["code"] == "partial_legacy_response" for d in dumped["diagnostics"])
 
     def test_invalid_envelope_is_rejected_and_usage_survives(self):
         agent = make_agent({})
@@ -356,12 +416,12 @@ class TestNoParseTimeMutation:
 # ---------------------------------------------------------------------------
 
 class TestRejectionCallback:
-    def test_exactly_one_callback_per_rejected_or_partial_result(self):
+    def test_exactly_one_callback_per_rejected_result(self):
         cb = Recording()
         results = {
             "ok": {"has_insight": True, "type": "warning", "content": "Budget risk"},
             "silent": {"has_insight": False, "facts": [FACT]},
-            "partial": {"has_insight": True, "type": "briefing", "content": "Recap", "facts": [FACT]},
+            "badtype": {"has_insight": True, "type": "briefing", "content": "Recap", "facts": [FACT]},
             "rejected": {"has_insight": True, "type": "warning", "content": "x y", "facts": "none",
                          "variable_updates": {"sys.a": 1}},
         }
@@ -374,12 +434,13 @@ class TestRejectionCallback:
             agents[name] = agent
         final, _ = turn(engine)
         by_agent = {issue.agent_id: issue for issue in cb.validation}
-        assert set(by_agent) == {"agent_partial", "agent_rejected"}
+        # ITC-13 unchanged: exactly one callback per failed execution result, and
+        # none for the accepted or the silent one.
+        assert set(by_agent) == {"agent_badtype", "agent_rejected"}
         assert len(cb.validation) == 2
-        assert by_agent["agent_partial"].code == "unknown_type"
+        assert by_agent["agent_badtype"].code == "unknown_type"
         assert by_agent["agent_rejected"].code in {"invalid_domain_payload", "reserved_state_write"}
-        # the aggregate correlates every detail
-        assert any(d.code == "partial_legacy_response" and d.agent_id == "agent_partial" for d in final.diagnostics)
+        assert not any(d.code == "partial_legacy_response" for d in final.diagnostics)
 
     def test_callback_failure_cannot_leak_rejected_content(self):
         cb = Recording(raise_on_validation=True)
@@ -388,7 +449,10 @@ class TestRejectionCallback:
         final, context = turn(engine_with(agent, result, callbacks=[cb]))
         assert final.insights == []
         assert len(cb.validation) == 1
-        assert context.blackboard.has_fact("budget", "primary")
+        # 3.0.0: the rule under test is that a THROWING callback cannot make
+        # rejected content leak — unchanged. What changed is that the fact no
+        # longer commits either, because typed rejection is whole-response.
+        assert not context.blackboard.has_fact("budget", "primary")
 
     def test_callback_base_has_noop_validation_hook(self):
         base = AgentCallbackHandler()
@@ -401,20 +465,24 @@ class TestRejectionCallback:
 # ---------------------------------------------------------------------------
 
 class TestErrorProvenance:
-    def test_framework_error_is_sanitized_category_not_exception_text(self):
-        """NEGATIVE CONTROL: the superseded path shipped str(e) as content."""
+    def test_a_crashing_agent_leaks_nothing_and_surfaces_no_error_card(self):
+        """NEGATIVE CONTROL, migrated. Two superseded behaviours, one rule.
+
+        The oldest path shipped ``str(e)`` as insight content — the leak this
+        control exists to catch. The legacy contract sanitised it to a category
+        but still let a framework-manufactured ERROR insight survive rejection and
+        reach the human channel (H1 / XA-07). 3.0.0 removes that surface: a
+        framework error is a DIAGNOSTIC, never an insight. The sanitisation rule
+        is unchanged and still asserted — nothing about the exception may escape."""
         def boom(agent, context):
             raise RuntimeError("SECRET-STACK: api key sk-123 leaked")
         agent = CustomAgent("crasher", boom)
         final, _ = turn(engine_with(agent))
-        errors = [i for i in final.insights if i.type == InsightType.ERROR]
-        assert len(errors) == 1
-        err = errors[0]
-        assert err.content == "agent_error"
-        assert "SECRET-STACK" not in err.content and "sk-123" not in err.content
-        assert err.metadata == {"category": "agent_error", "exception_type": "RuntimeError"}
-        assert "SECRET-STACK" not in str(err.model_dump())
+        assert [i for i in final.insights if i.type == InsightType.ERROR] == [],             "the legacy-only ERROR card went with the contract"
         assert final.acceptance_by_agent[agent.config.id] == "rejected"
+        # The leak control, which is the part that matters, on the whole response.
+        blob = str(final.model_dump())
+        assert "SECRET-STACK" not in blob and "sk-123" not in blob
 
     def test_raw_exception_lives_only_in_protected_debug_channel(self):
         def boom(agent, context):
@@ -432,7 +500,7 @@ class TestErrorProvenance:
         agent = CustomAgent("forger", fake_error)
         final, _ = turn(engine_with(agent))
         assert final.insights == []
-        assert "type_not_allowed" in codes(final)
+        assert "unknown_type" in codes(final)
         assert final.acceptance_by_agent[agent.config.id] == "rejected"
 
     def test_metadata_origin_cannot_forge_framework_provenance(self):
@@ -442,7 +510,9 @@ class TestErrorProvenance:
             return AgentResponse(insights=[ins])
         agent = CustomAgent("forger2", forge)
         final, _ = turn(engine_with(agent))
-        assert final.insights == [] and "type_not_allowed" in codes(final)
+        # `error` is not in the human vocabulary, so a forged one is unknown_type;
+        # the forged `origin` metadata buys nothing either way.
+        assert final.insights == [] and "unknown_type" in codes(final)
 
     def test_tracer_records_acceptance_and_sanitized_diagnostics(self):
         tracer = StructuredLogTracer()
@@ -451,6 +521,6 @@ class TestErrorProvenance:
         with patch("xubb_agents.utils.tracing.logger"):
             final, _ = turn(engine_with(agent, result, callbacks=[tracer]))
         step = tracer.current_trace["steps"][0]
-        assert step["acceptance"] == "partial"
+        assert step["acceptance"] == "rejected"
         assert any(d["code"] == "unknown_type" for d in step["diagnostics"])
         assert "discount" not in str(step["diagnostics"])

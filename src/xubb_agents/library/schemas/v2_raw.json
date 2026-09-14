@@ -23,18 +23,33 @@
       "fact"
     ],
     "typed_supported_insight_types": [
-      "fact", "observation", "suggestion", "warning", "opportunity", "praise",
-      "reply", "correction", "question"
+      "fact",
+      "observation",
+      "suggestion",
+      "warning",
+      "opportunity",
+      "praise",
+      "reply",
+      "correction",
+      "question"
     ],
     "supported_insight_fields": [
-      "type", "content", "confidence", "urgency", "observation_kind", "evidence_refs",
-      "rationale", "validation_step", "assumptions", "correction", "question", "metadata"
+      "type",
+      "content",
+      "confidence",
+      "urgency",
+      "observation_kind",
+      "evidence_refs",
+      "rationale",
+      "validation_step",
+      "assumptions",
+      "correction",
+      "question",
+      "metadata"
     ],
-    "supported_contracts": [
-      "legacy_v2",
-      "typed_v1"
+    "supported_transports": [
+      "json_object"
     ],
-    "supported_transports": ["json_object"],
     "supported_content_contracts": []
   }
 }

@@ -1,0 +1,6 @@
+{
+  "verdict": "APPROVED",
+  "summary": "The revision addresses all four previous findings: custom1 fails explicitly before fallback, the registry inventory preserves surviving diagnostic obligations, probes remain permanent gates, and the bridge names remain unchanged. The scope clearly separates contract removal from adapter shapes and requires preservation of typed behavior; no blocker or major findings remain.",
+  "findings": [],
+  "resolved_from_previous_round": ["F1", "F2", "F3", "F4"]
+}

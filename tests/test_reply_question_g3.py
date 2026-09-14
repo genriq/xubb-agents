@@ -53,7 +53,7 @@ def agent(result, *, agent_id="a", allowed=("fact", "reply", "question"), reply=
 
 
 def engine(*agents):
-    e = AgentEngine(api_key="k", insight_contract="typed_v1")
+    e = AgentEngine(api_key="k")
     for a in agents:
         llm = a.llm
         e.register_agent(a)
@@ -121,14 +121,13 @@ class TestReplyDrafts:
         assert final.insights == []
         assert any(d.code == "capability_unavailable" and d.classification == "reply:missing_principal" for d in final.diagnostics)
 
-    def test_reply_requires_typed_contract(self):
-        legacy = AgentEngine(api_key="k")
-        a = DynamicAgent({"id": "l", "name": "l", "text": "t", "output_format": "default_v2", "trigger_config": {"cooldown": 0},
-                          "insight_config": {"allowed_types": ["fact", "reply"], "allow_reply": True}})
-        legacy.register_agent(a)
-        a.llm = FakeLLM({"has_insight": True, **REPLY})
-        final, _ = turn(legacy)
-        assert final.insights == [] and "type_not_allowed" in codes(final)
+    # RETIRED in 3.0.0 — test_reply_requires_typed_contract:
+    # this asserted that a LEGACY engine withheld `reply` because the contract
+    # did not carry it. There is no legacy engine. My first attempt to migrate it
+    # re-asserted the host-permission rule instead — which is real, but is already
+    # covered exactly by test_reply_without_host_draft_support_is_not_allowed
+    # above. Duplicating it would have added a test without adding coverage.
+
 
     def test_prompt_states_the_draft_rule(self):
         a = agent(envelope(REPLY)); engine(a)
@@ -242,7 +241,7 @@ class TestQuestions:
                 if self.emit:
                     resp.events.append(Event(name="ping", payload={}, source_agent=self.config.id, timestamp=1.0))
                 return resp
-        e = AgentEngine(api_key="k", insight_contract="typed_v1")
+        e = AgentEngine(api_key="k")
         p1 = Capture("p1", emit=True); p2 = Capture("p2", subscribed=["ping"])
         e.register_agent(p1); e.register_agent(p2)
         # H1: visibility is per agent — p1/p2 did not ask q-1, so they see the

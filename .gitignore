@@ -45,3 +45,7 @@ process-lab/
 .mypy_cache/
 .benchmarks/
 .claude/
+
+# spec-review rounds: keep the verdicts (round-N.json), drop prompt copies and logs
+**/.spec-review/**/*.prompt.md
+**/.spec-review/**/*.log

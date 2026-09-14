@@ -1,7 +1,7 @@
 """Unit tests for core/insight_validation.py (XUBB-ITC-1, G0 legacy safety).
 
 Pure-function tests over plain dicts. Engine-level behaviour (what actually
-commits, which callbacks fire) lives in tests/test_legacy_acceptance_g0.py.
+commits, which callbacks fire) lives in tests/test_engine_boundary_g0.py.
 Every rule carries a negative control that would pass under the superseded
 behaviour (truthiness gates, unknown → suggestion) and therefore fails here
 if that behaviour is restored.
@@ -11,10 +11,19 @@ import math
 import pytest
 
 from xubb_agents.core.insight_validation import (
-    DIAGNOSTIC_CODES, LEGACY_HUMAN_TYPES, RESERVED_WIRE_VALUES, LEGACY_DEFAULT_TYPE,
-    Issue, bounded, resolve_gate_mode, evaluate_gate, normalize_legacy_type,
-    validate_legacy_candidate, validate_domain_channels, decide_legacy,
+    DIAGNOSTIC_CODES, HOST_DEFAULT_SUPPORTED_TYPES,
+    Issue, bounded, resolve_gate_mode, evaluate_gate,
+    validate_domain_channels,
 )
+
+# 3.0.0 note. The classes that exercised `normalize_legacy_type`,
+# `validate_legacy_candidate` and `decide_legacy` directly were removed with those
+# functions. The rules they asserted that SURVIVE — an unrecognised label is
+# `unknown_type`, a recognised-but-disallowed one is `type_not_allowed`, and
+# neither is ever silently relabelled — are asserted end-to-end on the typed path
+# in `test_typed_acceptance_g1.py` (TestTypeClassification), which drives the real
+# engine rather than the validator in isolation. Nothing was dropped; the coverage
+# moved to the path that still exists.
 
 
 # ---------------------------------------------------------------------------
@@ -111,71 +120,8 @@ class TestResolveGateMode:
 
 # ---------------------------------------------------------------------------
 # Type labels (spec §8.6) — ITC-06.FW
-# ---------------------------------------------------------------------------
-
-class TestLegacyTypeNormalization:
-    def test_absent_type_uses_declared_legacy_default(self):
-        assert normalize_legacy_type(None) == (LEGACY_DEFAULT_TYPE, None)
-        assert LEGACY_DEFAULT_TYPE == "suggestion"
-
-    @pytest.mark.parametrize("raw,expected", [("warning", "warning"), ("Warning", "warning"),
-                                              ("  FACT ", "fact"), ("praise", "praise")])
-    def test_case_and_whitespace_normalised(self, raw, expected):
-        assert normalize_legacy_type(raw) == (expected, None)
-
-    @pytest.mark.parametrize("raw", ["briefing", "summary", "tip", "info", "sugestion", ""])
-    def test_unknown_labels_reject_and_never_relabel(self, raw):
-        """NEGATIVE CONTROL for 'unknown → suggestion': the value must be None
-        (no human-facing type) and the code must be unknown_type."""
-        value, issue = normalize_legacy_type(raw)
-        assert value is None
-        assert issue.code == "unknown_type"
-        assert issue.classification == raw.strip().casefold()
-        assert value not in LEGACY_HUMAN_TYPES
-
-    @pytest.mark.parametrize("raw", list(RESERVED_WIRE_VALUES))
-    def test_recognised_but_disallowed_values_are_type_not_allowed(self, raw):
-        value, issue = normalize_legacy_type(raw)
-        assert value is None and issue.code == "type_not_allowed"
-
-    def test_non_string_type_is_unknown(self):
-        value, issue = normalize_legacy_type(7)
-        assert value is None and issue.code == "unknown_type" and issue.classification == "int"
-
-    def test_classification_is_bounded(self):
-        _, issue = normalize_legacy_type("x" * 500)
-        assert len(issue.classification) <= 64
 
 
-class TestLegacyCandidate:
-    MAPPING = {"type_field": "type", "content_field": "content", "metadata_field": "metadata"}
-
-    def test_valid_candidate(self):
-        cand, issues = validate_legacy_candidate(
-            {"type": "warning", "content": "Budget risk", "metadata": {"k": 1}}, self.MAPPING)
-        assert issues == []
-        assert cand.type_value == "warning" and cand.content == "Budget risk" and cand.metadata == {"k": 1}
-
-    @pytest.mark.parametrize("content", [None, "", " ", "x", 5, ["a"]])
-    def test_missing_or_invalid_content_is_invalid_field(self, content):
-        cand, issues = validate_legacy_candidate({"type": "warning", "content": content}, self.MAPPING)
-        assert cand is None
-        assert any(i.code == "invalid_field" and i.field_path == "content" for i in issues)
-
-    def test_non_dict_metadata_is_invalid_metadata(self):
-        cand, issues = validate_legacy_candidate(
-            {"type": "warning", "content": "ok text", "metadata": "zone-a"}, self.MAPPING)
-        assert cand is None
-        assert [i.code for i in issues] == ["invalid_metadata"]
-
-    def test_null_metadata_is_empty_dict(self):
-        cand, issues = validate_legacy_candidate(
-            {"type": "warning", "content": "ok text", "metadata": None}, self.MAPPING)
-        assert issues == [] and cand.metadata == {}
-
-
-# ---------------------------------------------------------------------------
-# Domain channels (D-LR independent validation) — ITC-24.FW
 # ---------------------------------------------------------------------------
 
 class TestDomainChannels:
@@ -231,49 +177,12 @@ class TestDomainChannels:
 
 # ---------------------------------------------------------------------------
 # D-LR decision table — ITC-24.FW
-# ---------------------------------------------------------------------------
-
-class TestDecideLegacy:
-    GATE = Issue("invalid_gate", "has_insight", "str")
-    UNKNOWN = Issue("unknown_type", "type", "briefing")
-    FATAL = Issue("invalid_domain_payload", "facts", "str", fatal=True)
-
-    def test_accepted(self):
-        d = decide_legacy(True, [], [], True)
-        assert (d.status, d.emit_insight, d.commit_domain) == ("accepted", True, True)
-
-    def test_accepted_silent(self):
-        d = decide_legacy(False, [], [], True)
-        assert (d.status, d.emit_insight, d.commit_domain) == ("accepted_silent", False, True)
-
-    def test_insight_error_with_domain_is_partial(self):
-        d = decide_legacy(True, [self.UNKNOWN], [], True)
-        assert (d.status, d.emit_insight, d.commit_domain) == ("partial", False, True)
-
-    def test_insight_error_without_domain_is_rejected(self):
-        d = decide_legacy(True, [self.UNKNOWN], [], False)
-        assert (d.status, d.emit_insight, d.commit_domain) == ("rejected", False, False)
-
-    def test_malformed_gate_is_an_insight_error(self):
-        d = decide_legacy(False, [self.GATE], [], True)
-        assert d.status == "partial" and d.emit_insight is False
-
-    def test_fatal_domain_issue_rejects_everything_even_with_valid_insight(self):
-        d = decide_legacy(True, [], [self.FATAL], True)
-        assert (d.status, d.emit_insight, d.commit_domain) == ("rejected", False, False)
-
-    def test_partial_never_emits_an_insight(self):
-        """NEGATIVE CONTROL: no decision path emits an insight once an insight
-        error exists — relabelling would require emit_insight=True here."""
-        for speak in (True, False):
-            for has_domain in (True, False):
-                assert decide_legacy(speak, [self.UNKNOWN], [], has_domain).emit_insight is False
 
 
 class TestVocabulary:
-    def test_legacy_human_set_is_the_five_existing_values(self):
-        assert set(LEGACY_HUMAN_TYPES) == {"suggestion", "warning", "opportunity", "fact", "praise"}
-        assert "error" not in LEGACY_HUMAN_TYPES
+    def test_the_undeclared_host_default_is_the_five_that_need_nothing_of_it(self):
+        assert set(HOST_DEFAULT_SUPPORTED_TYPES) == {"suggestion", "warning", "opportunity", "fact", "praise"}
+        assert "error" not in HOST_DEFAULT_SUPPORTED_TYPES
 
     def test_all_required_diagnostic_codes_present(self):
         required = {"invalid_gate", "inconsistent_gate", "unknown_type", "type_not_allowed", "invalid_field",

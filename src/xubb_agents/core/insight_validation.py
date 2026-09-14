@@ -37,7 +37,14 @@ from typing import Any, Dict, List, Optional, Tuple
 # The host-safe legacy set (spec §7.2): the five existing non-error wire values.
 # In legacy_v2 this is the effective human-facing set regardless of schema;
 # schema-level restriction becomes active with typed_v1 (G1).
-LEGACY_HUMAN_TYPES: Tuple[str, ...] = ("suggestion", "warning", "opportunity", "fact", "praise")
+# The set a host is assumed to support when it declares no capabilities at all.
+# These five need nothing of the host beyond rendering a card: no principal, no
+# reply-draft surface, no question correlation, no correction arbitration.
+#
+# 3.0.0: this tuple was `LEGACY_HUMAN_TYPES` and did two jobs — the legacy
+# contract's whole vocabulary, and this conservative default. The contract is
+# gone; the default is not, and is now named for what it does.
+HOST_DEFAULT_SUPPORTED_TYPES: Tuple[str, ...] = ("suggestion", "warning", "opportunity", "fact", "praise")
 
 # Wire values the framework knows about but which are NOT permitted on the
 # legacy path: the framework-manufactured diagnostic and the four purposes that
@@ -85,8 +92,9 @@ _MISSING = object()
 # Contract selection and the effective type set (G1, spec §7)
 # ---------------------------------------------------------------------------
 
-INSIGHT_CONTRACTS: Tuple[str, ...] = ("legacy_v2", "typed_v1")
-DEFAULT_INSIGHT_CONTRACT = "legacy_v2"
+# 3.0.0: there is one insight contract. `INSIGHT_CONTRACTS` and
+# `DEFAULT_INSIGHT_CONTRACT` were removed with `legacy_v2`; the wire version
+# stamped on an accepted insight is CONTRACT_VERSION.
 
 # Wire values of the nine human-facing purposes, canonical order (spec §3/§4).
 # Kept as plain strings here so this module stays free of pydantic/enum imports;
@@ -127,7 +135,7 @@ class EffectiveTypes:
         return "capability_unavailable" if reason in RUN_SPECIFIC_UNAVAILABLE_REASONS else "type_not_allowed"
 
 
-def effective_insight_types(*, contract: str, allowed_types: List[str],
+def effective_insight_types(*, allowed_types: List[str],
                             allow_reply: bool, allow_question: bool, allow_correction: bool,
                             schema_supported: Optional[List[str]],
                             host_supported: List[str], host_reply_drafts: bool,
@@ -137,19 +145,11 @@ def effective_insight_types(*, contract: str, allowed_types: List[str],
                             history_present: bool = True) -> EffectiveTypes:
     """Spec §7.2: framework ∩ agent ∩ schema ∩ host ∩ permission prerequisites.
 
-    Pure and order-preserving (canonical order). On the legacy path the set is
-    the host-safe five (§7.2 "safe host type set"); everything else is enforced
-    only under ``typed_v1``. Flags never expand ``allowed_types``. Reasons use
-    the diagnostic vocabulary so a caller can emit ``capability_unavailable``.
-    ``implemented`` is the release's implementation gate (checked LAST so the
-    permission reasons above stay observable).
+    Pure and order-preserving (canonical order). Flags never expand
+    ``allowed_types``. Reasons use the diagnostic vocabulary so a caller can
+    emit ``capability_unavailable``. ``implemented`` is the release's
+    implementation gate (checked LAST so the permission reasons stay observable).
     """
-    if contract == DEFAULT_INSIGHT_CONTRACT:
-        legacy = tuple(v for v in HUMAN_WIRE_VALUES if v in LEGACY_HUMAN_TYPES)
-        return EffectiveTypes(legacy, {v: "typed_contract_required" for v in HUMAN_WIRE_VALUES if v not in legacy})
-    if contract not in INSIGHT_CONTRACTS:
-        raise ValueError(f"unknown insight_contract {contract!r}")
-
     unavailable: Dict[str, str] = {}
     kept: List[str] = []
     for value in HUMAN_WIRE_VALUES:
@@ -177,25 +177,23 @@ def effective_insight_types(*, contract: str, allowed_types: List[str],
     return EffectiveTypes(tuple(kept), unavailable)
 
 
-def effective_types_for_run(*, contract: str, insight_config: Any, descriptor: Optional[Dict[str, Any]],
+def effective_types_for_run(*, insight_config: Any, descriptor: Optional[Dict[str, Any]],
                             context: Any) -> EffectiveTypes:
     """Engine/agent-shared adapter over :func:`effective_insight_types` (duck-typed
     on ``InsightConfig`` / ``AgentContext`` so this module stays import-free).
     ``context`` may be None (no host declaration ⇒ safe defaults)."""
     caps = getattr(context, "insight_capabilities", None)
     desc = descriptor or {}
-    # Typed adapters advertise the structurally supported set separately from
-    # the legacy instruction's literal offering.
-    schema_supported = desc.get("typed_supported_insight_types", desc.get("supported_insight_types")) \
-        if contract != DEFAULT_INSIGHT_CONTRACT else desc.get("supported_insight_types")
+    # A typed adapter may advertise the structurally supported set separately
+    # from the descriptor's general one.
+    schema_supported = desc.get("typed_supported_insight_types", desc.get("supported_insight_types"))
     return effective_insight_types(
-        contract=contract,
         allowed_types=list(getattr(insight_config, "allowed_types", []) or []),
         allow_reply=bool(getattr(insight_config, "allow_reply", False)),
         allow_question=bool(getattr(insight_config, "allow_question", False)),
         allow_correction=bool(getattr(insight_config, "allow_correction", False)),
         schema_supported=list(schema_supported) if schema_supported is not None else None,
-        host_supported=list(caps.supported_types) if caps is not None else list(LEGACY_HUMAN_TYPES),
+        host_supported=list(caps.supported_types) if caps is not None else list(HOST_DEFAULT_SUPPORTED_TYPES),
         host_reply_drafts=bool(caps and caps.reply_drafts),
         host_text_questions=bool(caps and caps.text_questions),
         host_corrections=bool(caps and caps.corrections),
@@ -309,21 +307,20 @@ def rank_candidates(records: List[Dict[str, Any]]) -> List[str]:
     return [r["id"] for r in sorted(records, key=lambda r: rank_key(r["urgency"], r["priority"], r["merge_order"]))]
 
 
-def acceptance_decision(mode: str, *, insight_valid: bool, gate: Any, domain_valid: bool,
+def acceptance_decision(*, insight_valid: bool, gate: Any, domain_valid: bool,
                         has_domain: bool, envelope_complete: bool = True,
                         authorized: bool = True) -> Dict[str, Any]:
-    """Reference-compatible scope decision (D-LR for legacy, §8.4 for typed).
+    """Reference-compatible scope decision (§8.4).
 
     ``domain_valid`` / ``authorized`` are prior validator results; this is the
-    disposition only. ``typed_v1``: any insight error or malformed gate rejects
-    the whole response. ``legacy_v2``: see :func:`decide_legacy`.
+    disposition only. Any insight error or malformed gate rejects the whole
+    response. 3.0.0 removed the ``mode`` parameter with the second contract:
+    the partial-acceptance disposition it selected was legacy-only.
     """
-    if mode not in INSIGHT_CONTRACTS:
-        raise ValueError("unknown_mode")
     fatal = not envelope_complete or not domain_valid or not authorized
     valid_gate = type(gate) is bool
     insight_error = not valid_gate or (gate is True and not insight_valid)
-    if fatal or (mode == "typed_v1" and insight_error):
+    if fatal or insight_error:
         return {"status": "rejected", "emit_insight": False, "commit_domain": False}
     if insight_error:
         return {"status": "partial" if has_domain else "rejected",
@@ -839,81 +836,6 @@ def evaluate_gate(mode: str, mapping: Dict[str, Any], result: Dict[str, Any],
     return False, None
 
 
-# ---------------------------------------------------------------------------
-# Candidate (insight) fields — legacy adapter rules
-# ---------------------------------------------------------------------------
-
-@dataclass
-class LegacyCandidate:
-    type_value: str
-    content: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    raw: Dict[str, Any] = field(default_factory=dict)
-
-
-def normalize_legacy_type(raw_type: Any, allowed: Tuple[str, ...] = LEGACY_HUMAN_TYPES,
-                          field_path: str = "type") -> Tuple[Optional[str], Optional[Issue]]:
-    """Resolve a model-authored type label on the legacy path.
-
-    * absent/None → the declared legacy default (``suggestion``);
-    * a string is case-folded and stripped (a declared legacy normalisation,
-      ``"Warning"`` unambiguously names warning — this is not a relabel);
-    * a recognised-but-disallowed value → ``type_not_allowed``;
-    * anything else → ``unknown_type``.
-    Never maps an unknown label onto another purpose.
-    """
-    if raw_type is None:
-        return LEGACY_DEFAULT_TYPE, None
-    if not isinstance(raw_type, str):
-        return None, Issue("unknown_type", field_path, bounded(raw_type))
-    value = raw_type.strip().casefold()
-    if value in allowed:
-        return value, None
-    if value in RESERVED_WIRE_VALUES:
-        return None, Issue("type_not_allowed", field_path, bounded(value))
-    return None, Issue("unknown_type", field_path, bounded(value))
-
-
-def validate_legacy_candidate(root_data: Dict[str, Any], mapping: Dict[str, Any],
-                              allowed: Tuple[str, ...] = LEGACY_HUMAN_TYPES
-                              ) -> Tuple[Optional[LegacyCandidate], List[Issue]]:
-    """Validate the insight fields of a speaking legacy response.
-
-    Confidence / expiry / action_label keep their documented legacy coercions
-    (A-3, S-1) and are applied by the caller; this function only decides the
-    classification, the content and the metadata shape.
-    """
-    issues: List[Issue] = []
-    type_key = mapping.get("type_field", "type")
-    type_value, issue = normalize_legacy_type(root_data.get(type_key), allowed, type_key)
-    if issue:
-        issues.append(issue)
-
-    content_key = mapping.get("content_field", "content")
-    content = root_data.get(content_key)
-    if not isinstance(content, str) or len(content.strip()) < 2:
-        issues.append(Issue("invalid_field", content_key, bounded(content) if content is not None else "missing"))
-
-    metadata: Dict[str, Any] = {}
-    meta_key = mapping.get("metadata_field")
-    if meta_key:
-        raw_meta = root_data.get(meta_key)
-        if raw_meta is None:
-            metadata = {}
-        elif isinstance(raw_meta, dict):
-            metadata = dict(raw_meta)
-        else:
-            issues.append(Issue("invalid_metadata", meta_key, bounded(raw_meta)))
-
-    if issues:
-        return None, issues
-    assert type_value is not None and isinstance(content, str)
-    return LegacyCandidate(type_value=type_value, content=content, metadata=metadata, raw=root_data), []
-
-
-# ---------------------------------------------------------------------------
-# Domain channels — independent validation and write authorization
-# ---------------------------------------------------------------------------
 
 @dataclass
 class DomainChannels:
@@ -1129,22 +1051,3 @@ class Decision:
     commit_domain: bool
 
 
-def decide_legacy(speak: bool, insight_issues: List[Issue], domain_issues: List[Issue],
-                  has_domain: bool) -> Decision:
-    """The D-LR table (FINAL_DECISIONS.md), legacy_v2 only.
-
-    * any fatal domain issue → ``rejected`` (nothing commits);
-    * an insight error (malformed gate, unknown type, invalid insight field)
-      → all insights rejected; ``partial`` when independently valid channels
-      remain, otherwise ``rejected``;
-    * otherwise ``accepted`` (spoke) or ``accepted_silent``.
-    """
-    if any(i.fatal for i in domain_issues):
-        return Decision("rejected", False, False)
-    if insight_issues:
-        if has_domain:
-            return Decision("partial", False, True)
-        return Decision("rejected", False, False)
-    if speak:
-        return Decision("accepted", True, True)
-    return Decision("accepted_silent", False, True)
