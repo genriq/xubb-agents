@@ -1649,9 +1649,22 @@ contracts:
     test_omitted: "tests/test_output_formats.py::TestResolution::test_an_omitted_key_inherits_the_implicit_default"
     test_registry_untouched: "tests/test_output_formats.py::TestResolution::test_a_failed_resolution_never_reaches_the_registry"
     test_probe: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF6UnknownFormatNames::test_an_unknown_name_is_refused_by_name"
-    status: covered   # 3.1.0 (F6)
+    test_schema_file: "tests/test_output_formats.py::TestPackagedSchemaLoad::test_missing_packaged_schema_is_refused_as_specified"
+    test_schema_control: "tests/test_output_formats.py::TestPackagedSchemaLoad::test_control_an_intact_install_constructs"
+    status: covered   # 3.1.0 (F6); packaged-file refusal implemented 3.1.1
 
   - id: OUTPUT-FORMAT-NO-OVERRIDES
+    # AMENDED 2026-09-14 (3.1.1), post-implementation review. The STATEMENT was
+    # right; the coverage was not — the named test exercised a path the defect
+    # did not live on. This is the F-1 shape (docs/PROCESS.md) caught by an
+    # outside reviewer rather than by the gate, which is why the gate was green
+    # over it. Statement unchanged; the missing boundary case is added below.
+    # Missed: every 3.1.0 test MUTATED agent.mapping after construction, but
+    # construction replaces mapping and descriptor with the contract's own, so a
+    # catalogue configuration carrying those keys was discarded in silence and
+    # registered clean. Repaired by validating the SUPPLIED keys before they are
+    # replaced (library/dynamic.py), keeping the registration-time check for
+    # post-construction mutation.
     statement: >
       A structural mapping or descriptor override — a different gate key, root key, content
       field, channel key or adapter identifier — and the retired speak_without_gate flag each
@@ -1665,20 +1678,37 @@ contracts:
     test_all_or_nothing: "tests/test_output_formats.py::TestNoStructuralOverrides::test_replace_agents_stays_all_or_nothing"
     test_control: "tests/test_output_formats.py::TestNoStructuralOverrides::test_control_the_contracts_own_mapping_registers"
     test_probe: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF2StructuralOverrides::test_a_structural_override_fails_at_registration"
-    status: covered   # 3.1.0 (F2a, F2b, F3)
+    test_config_path: "tests/test_output_formats.py::TestConfigurationOverridesAreRefused::test_catalog_configuration_overrides_are_refused"
+    test_config_control: "tests/test_output_formats.py::TestConfigurationOverridesAreRefused::test_control_the_contracts_own_mapping_is_not_an_override"
+    status: covered   # 3.1.0 (F2a, F2b, F3); config path added 3.1.1 (R2)
 
   - id: OUTPUT-FORMAT-PROMPT-PARSER
+    # AMENDED 2026-09-14 (3.1.1), post-implementation review. The STATEMENT was
+    # right; the coverage was not — the named test exercised a path the defect
+    # did not live on. This is the F-1 shape (docs/PROCESS.md) caught by an
+    # outside reviewer rather than by the gate, which is why the gate was green
+    # over it. Statement unchanged; the missing boundary case is added below.
+    # Missed: agreement was asserted against the PARSER but never against the
+    # strict PROJECTION. With no widget declarations the instruction forbade
+    # `ui_actions` while the projection still required it — the channel belongs
+    # to the format, not to the declarations — so no strictly constrained
+    # response could obey both. The instruction now asks for the empty array.
     statement: >
       For every supported format and retained compatibility adapter, the GENERATED output
       instruction names exactly the gate key and channel keys its parser accepts, and nothing
-      another format binds; a body shaped like the instruction is accepted.
+      another format binds; a body shaped like the instruction is accepted; and the
+      instruction agrees with the strict provider projection, including when a channel is
+      offered but authorizes no items.
     source:
       - "src/xubb_agents/library/dynamic.py: _typed_instruction, _normalize_typed"
       - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §5"
     test: "tests/test_output_formats.py::TestPromptParserAgreement::test_the_generated_prompt_names_exactly_the_keys_the_parser_reads"
     test_reverse: "tests/test_output_formats.py::TestPromptParserAgreement::test_a_body_shaped_like_the_prompt_is_accepted"
     test_probe: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF1ContentAliasDisagreement::test_the_generated_prompt_names_the_field_the_parser_reads"
-    status: covered   # 3.1.0 (F1, F2b)
+    test_strict_agreement: "tests/test_output_formats.py::TestPromptAgreesWithStrictSchema::test_no_widget_prompt_agrees_with_strict_schema"
+    test_sendable: "tests/test_output_formats.py::TestPromptAgreesWithStrictSchema::test_the_empty_array_is_what_the_agent_may_send"
+    test_strict_control: "tests/test_output_formats.py::TestPromptAgreesWithStrictSchema::test_control_an_action_is_still_unauthorized_without_declarations"
+    status: covered   # 3.1.0 (F1, F2b); strict agreement added 3.1.1 (R4)
 
   - id: OUTPUT-FORMAT-CHANNEL-PERMS
     statement: >
@@ -1695,7 +1725,9 @@ contracts:
     test_unknown_key: "tests/test_output_formats.py::TestChannelPermissions::test_an_unknown_envelope_key_is_refused_on_a_nested_format"
     test_control: "tests/test_output_formats.py::TestChannelPermissions::test_valid_silence_still_commits_its_permitted_channels"
     test_probe: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF4GateDoesNotGrantWritePermission::test_an_undeclared_channel_is_refused_under_either_gate"
-    status: covered   # 3.1.0 (F4)
+    test_callback_widening: "tests/test_output_formats.py::TestCallbackCannotWidenTheFormat::test_callback_cannot_add_ui_channel_to_insight_only_format"
+    test_callback_control: "tests/test_output_formats.py::TestCallbackCannotWidenTheFormat::test_control_the_same_callback_on_widget_control_is_accepted"
+    status: covered   # 3.1.0 (F4); callback widening added 3.1.1 (R3)
 
   - id: OUTPUT-FORMAT-DEPRECATION
     statement: >
@@ -1811,6 +1843,17 @@ contracts:
     status: covered   # 3.1.0 (F7)
 
   - id: OUTPUT-FORMAT-MIGRATION-TOOL
+    # AMENDED 2026-09-14 (3.1.1), post-implementation review. The STATEMENT was
+    # right; the coverage was not — the named test exercised a path the defect
+    # did not live on. This is the F-1 shape (docs/PROCESS.md) caught by an
+    # outside reviewer rather than by the gate, which is why the gate was green
+    # over it. Statement unchanged; the missing boundary case is added below.
+    # Missed: "--write ... touches nothing else" was asserted by checking one
+    # manual record's PROMPT BODY, and missed the changed output_format sitting
+    # next to it. The write loop excluded only unresolved names, so it rewrote
+    # every row it had just printed as needing a person. Repaired with one
+    # eligibility predicate shared by reporting, --dry-run and --write; the test
+    # now compares whole records.
     statement: >
       The inventory tool identifies, per agent configuration, the current format (naming the
       ones that inherit the implicit default), the target, and the work it cannot do: a
@@ -1826,15 +1869,48 @@ contracts:
     test_implicit: "tests/test_output_formats.py::TestMigrationTool::test_it_names_the_implicit_default_configurations"
     test_dry_run: "tests/test_output_formats.py::TestMigrationTool::test_a_dry_run_changes_no_file"
     test_write: "tests/test_output_formats.py::TestMigrationTool::test_write_sets_output_format_explicitly_and_touches_nothing_else"
+    test_manual_unchanged: "tests/test_output_formats.py::TestMigrationTool::test_manual_migration_records_are_unchanged"
+    test_write_control: "tests/test_output_formats.py::TestMigrationTool::test_control_the_mechanical_row_is_still_rewritten"
     test_control: "tests/test_output_formats.py::TestMigrationTool::test_control_an_already_migrated_agent_needs_nothing"
-    status: covered   # 3.1.0
+    status: covered   # 3.1.0; write scope repaired 3.1.1 (R1)
+
+  # ---- 3.1.1 post-implementation review repairs ----
+
+  - id: OUTPUT-FORMAT-RUN-NARROWING
+    statement: >
+      A run's effective channel set is computed once and used by the generated instruction, the
+      provider projection AND domain validation alike. The isolated content path offers no
+      channels: its projection carries none, and a channel key present on an isolated result is
+      fatal undeclared_channel even when empty.
+    source:
+      - "src/xubb_agents/library/dynamic.py: _offered_sinks, _projection_channels"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §4.2, §17 (R5)"
+    test: "tests/test_output_formats.py::TestIsolatedRunOffersNoChannels::test_isolated_present_empty_channel_is_undeclared"
+    test_projection: "tests/test_output_formats.py::TestIsolatedRunOffersNoChannels::test_isolated_projection_offers_no_channels"
+    test_control: "tests/test_output_formats.py::TestIsolatedRunOffersNoChannels::test_control_a_channel_free_isolated_result_is_accepted"
+    status: covered   # 3.1.1 (R5)
+
+  - id: CHANNEL-PRESENCE-NOT-VALUE
+    statement: >
+      A channel is validated on PRESENCE, not on truthiness: an absent key is no proposal, and a
+      present JSON null is a present value of the wrong shape (invalid_domain_payload, or
+      invalid_ui_action on the action channel) that rejects the whole response. Only [] and {}
+      are the empty forms. This holds at the final acceptance boundary too.
+    source:
+      - "src/xubb_agents/core/insight_validation.py: validate_domain_channels, validate_ui_actions"
+      - "src/xubb_agents/core/engine.py: _enforce_acceptance"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §4.1, §6.1, §17 (R6)"
+    test: "tests/test_output_formats.py::TestPresentNullIsNotAbsent::test_present_null_ui_actions_is_fatal_and_atomic"
+    test_state_channels: "tests/test_output_formats.py::TestPresentNullIsNotAbsent::test_a_present_null_state_channel_is_fatal_too"
+    test_control: "tests/test_output_formats.py::TestPresentNullIsNotAbsent::test_control_an_absent_or_empty_channel_is_still_no_proposal"
+    status: covered   # 3.1.1 (R6)
 
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:      102   (every contract & invariant names a passing, rule-asserting test)
+# covered:      104   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:        102
+# total:        104
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

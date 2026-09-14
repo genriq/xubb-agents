@@ -911,14 +911,14 @@ def validate_ui_actions(raw, *, authorization, validator=None, field_path="ui_ac
     its proposed state effects included.
     """
     issues = []
-    if raw is None:
-        return None, issues
 
     def fatal(code, path, classification):
         text = (classification or "")[:_CLASSIFICATION_MAX]
         issues.append(Issue(code, path, text or None, fatal=True))
 
     if not isinstance(raw, list):
+        # R6: a PRESENT null is not an absent key. Callers pass a value only when
+        # the key is present, so `None` lands here as the non-array it is.
         fatal("invalid_ui_action", field_path, "not_an_array:" + type(raw).__name__)
         return None, issues
     if not raw:
@@ -1036,9 +1036,13 @@ def validate_domain_channels(result, spec, *, offered=None,
 
     # --- the bound, offered channels --------------------------------------
     for wire, sink in available.items():
-        raw = result.get(wire)
-        if raw is None:
+        # R6: presence, then value. `result.get(wire)` conflated an absent key
+        # with a present JSON null, and the null took the absent key's exemption
+        # from validation — so a null channel skipped its shape check and let the
+        # rest of the response commit. Only [] and {} are the empty forms (§4.1).
+        if wire not in result:
             continue
+        raw = result[wire]
         if sink == "events":
             if not isinstance(raw, list):
                 fatal("invalid_domain_payload", wire, raw)

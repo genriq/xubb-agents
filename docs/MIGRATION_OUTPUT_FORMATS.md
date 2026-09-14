@@ -139,8 +139,9 @@ engine = AgentEngine(api_key=..., widget_payload_validator=my_validator)
 ```
 
 The declarations also shape the **prompt**: the model is told exactly which targets,
-actions and required payload keys exist. With nothing declared it is told it may not act,
-so it is never invited to produce what the boundary will reject.
+actions and required payload keys exist. With nothing declared it names no target and is
+required to send `"ui_actions": []` — the empty array, which is also what the strict
+projection requires — so it is never invited to produce an action the boundary will reject.
 
 **Validation and delivery are not execution.** The framework validates an action and
 publishes it on `AgentResponse.data["ui_actions"]` (attributed per agent in
@@ -171,6 +172,8 @@ or a configuration error naming the rule. None of them is a silent behaviour cha
 | An unknown top-level key on a nested envelope | `invalid_field` / `unknown_envelope_key` |
 | A UI action that is malformed, or names an undeclared target or action, or carries an undeclared payload key | `invalid_ui_action`, `unauthorized_ui_action` |
 | A `default` body carrying both `message` and `content` with different text | `invalid_field` / `content_alias_conflict` |
+| A channel key present with the value `null`. Absent means "no proposal"; `[]` and `{}` are the empty forms; a present null is a value of the wrong shape (3.1.1) | `invalid_domain_payload`, or `invalid_ui_action` on the action channel |
+| A channel key on an isolated content run, which offers none — even empty (3.1.1) | `undeclared_channel` |
 
 **Of accepted configuration** (all `AgentConfigurationError`, all before any registry
 mutation)

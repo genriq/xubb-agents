@@ -15,6 +15,54 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [3.1.1] - 2026-09-14
+
+### Fixed — six defects found by an independent post-implementation review of 3.1.0
+
+An outside review of the shipped `b4ce54b` reproduced six defects and one
+spec/implementation discrepancy. All are repaired here; none required reversing an
+architectural choice. Details in
+[`docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md`](docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md) §17.
+
+**Five of the six were registered contracts whose test missed the path the defect lived
+on** — the F-1 escape [`docs/PROCESS.md`](docs/PROCESS.md) exists to prevent, found by a
+reviewer rather than by the gate. A green gate proves every registered rule has a passing
+test; it does not prove that test reaches the input path a user does. The affected registry
+entries are amended in place with dated notes saying what the coverage missed.
+
+| | Was | Now |
+|---|---|---|
+| **R1** | `tools/migrate_output_formats.py --write` rewrote rows it had just reported as needing a person, then printed that they were unchanged — a handwritten flat-envelope agent silently became `insight_v1` while its prompt still asked for the old shape. | One eligibility predicate shared by reporting, `--dry-run` and `--write`. Manual rows are left byte-identical, and the test compares whole records. |
+| **R2** | A configuration carrying `mapping` or `descriptor` overrides was **discarded in silence** and registered clean: construction replaced both with the contract's own before anything looked at them, and every test mutated the attribute afterwards. | The supplied keys are validated against the contract before they are replaced, so the promised refusal runs on the catalogue input path. The registration-time check stays for post-construction mutation. |
+| **R3** | An `on_agent_finish` callback could add a host-authorized `ui_actions` array to an `insight_v1` response and have it published. Host authorization of an action is not the same thing as the format offering the channel. | The final boundary checks the originating format's binding first (`undeclared_channel`, whole response rejected). A custom `BaseAgent`, which has no format, keeps its documented producer path. |
+| **R4** | With no host widget declarations the instruction said `Do NOT include "ui_actions"` while the strict projection still **required** the key — no strictly constrained response could obey both. | The instruction requires `"ui_actions": []`. Channel availability belongs to the format; item authorization belongs to the host. |
+| **R5** | The isolated content path's "no channels" rule reached the prompt but not the provider projection or the parser, so a channel present on an isolated result was accepted. | One effective channel set per run, used by the instruction, the projection and domain validation alike. |
+| **R6** | `result.get(wire)` conflated an absent key with a present JSON null, so `"ui_actions": null` skipped validation entirely and let the rest of the response commit. | Presence is checked before value, at the parser and at the final boundary. Absent is "no proposal"; `[]` and `{}` are the empty forms; a present null is a value of the wrong shape. |
+
+### Changed
+
+- A packaged `schemas/*.json` document that is missing, unreadable or malformed now raises
+  `AgentConfigurationError` naming it as a broken installation, which is what §9 item 1 always
+  said. 3.1.0 logged and returned an empty document — harmless for the envelope, since the
+  contract file is the authority, but a silently broken install.
+- New diagnostics on previously-accepted input: a present-null channel
+  (`invalid_domain_payload` / `invalid_ui_action`), a channel key on an isolated run
+  (`undeclared_channel`), and a callback-added action on a format that does not bind the
+  channel (`undeclared_channel`). Each rejects the whole response, loudly.
+
+### Corrected
+
+- The 3.1.0 delivery record's handwritten-envelope subtotal was wrong. The tool flags **31**
+  of 105 configurations for handwritten envelope markers — all 31 manual rows, including all
+  four widget agents, which carry both; 27 are handwritten-only. The totals
+  (105 / 74 mechanical / 31 manual / 93 implicit) reproduce unchanged.
+
+### Compatibility
+
+Registry: 104 contracts (2 new, 5 amended in place), 100% covered, strict gate green. Suite:
+1080 passed, 0 skipped, 0 xfail. Still offline only — no live-provider claim. No host has
+adopted 3.1.0, so nothing downstream is affected by these tightenings.
+
 ## [3.1.0] - 2026-09-14
 
 ### Changed — output formats consolidated onto two, and seven contract disagreements repaired

@@ -19,6 +19,7 @@ with faked model clients.
 import asyncio
 import json
 import warnings
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -533,13 +534,21 @@ class TestWidgetActionsThroughEveryProducer:
 
     def test_control_no_declarations_no_invitation(self):
         """NEGATIVE CONTROL for the test above: prompt and boundary agree in both
-        directions — with nothing declared the model is told it may not act."""
+        directions — with nothing declared the model is told it may not act.
+
+        AMENDED (3.1.1, R4). This asserted that the key was OMITTED from the
+        prompt. That contradicted the strict projection, which requires the key
+        because the channel belongs to the FORMAT, not to the declarations
+        (§6.2 rule 1) — no strictly constrained response could obey both. The
+        rule being controlled is unchanged: nothing is authorized. What changed
+        is how the prompt says it."""
         a = agent({"has_insight": False, "insight": None}, "widget_control", agent_id="w")
         engine(a)
         asyncio.run(a.evaluate(ctx()))
         prompt = prompt_of(a)
+        assert '"ui_actions": []' in output_format_of(prompt)
         assert '"ui_actions": [ ... ]' not in output_format_of(prompt)
-        assert 'Do NOT include "ui_actions"' in prompt
+        assert "must be the empty array" in prompt and "goals_widget" not in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +656,235 @@ class TestMigrationTool:
         written = json.loads(catalogue.read_text(encoding="utf-8"))["prompts"]
         by_id = {p["id"]: p for p in written}
         assert by_id["implicit"]["output_format"] == "insight_v1"
-        assert by_id["widget"]["output_format"] == "widget_control"
-        assert by_id["unknown"]["output_format"] == "insigt_v1", "an unresolved name is left for a person"
-        assert by_id["handwritten"]["text"] == 'Return {"has_insight": true, "message": "..."}'
+        assert by_id["explicit_new"]["output_format"] == "insight_v1", "already correct, unchanged"
+
+    def test_manual_migration_records_are_unchanged(self, catalogue):
+        """R1 (P1). The write loop excluded only UNRESOLVED names, so it rewrote
+        every row it had just printed as needing a person — then printed that
+        those rows were unchanged. A handwritten flat-envelope agent silently
+        became insight_v1 while its prompt still told the model to emit the old
+        shape, so its output could be rejected under the new format.
+
+        Compares WHOLE records, not just their text: the 3.1.0 test checked the
+        prompt body and missed the changed format sitting next to it."""
+        before = {p["id"]: deepcopy(p) for p in json.loads(catalogue.read_text(encoding="utf-8"))["prompts"]}
+        module, rows = self.report(catalogue)
+        module.main([str(catalogue), "--write"])
+        after = {p["id"]: p for p in json.loads(catalogue.read_text(encoding="utf-8"))["prompts"]}
+
+        manual = [r["id"] for r in rows if r["manual"]]
+        assert set(manual) == {"handwritten", "widget", "overridden", "retired_flag", "unknown"}
+        for agent_id in manual:
+            assert after[agent_id] == before[agent_id], f"{agent_id} was reported manual and rewritten anyway"
+
+    def test_control_the_mechanical_row_is_still_rewritten(self, catalogue):
+        """NEGATIVE CONTROL: a tool that writes nothing satisfies the rule above
+        and is useless."""
+        before = {p["id"]: deepcopy(p) for p in json.loads(catalogue.read_text(encoding="utf-8"))["prompts"]}
+        module, _rows = self.report(catalogue)
+        module.main([str(catalogue), "--write"])
+        after = {p["id"]: p for p in json.loads(catalogue.read_text(encoding="utf-8"))["prompts"]}
+        assert "output_format" not in before["implicit"] and after["implicit"]["output_format"] == "insight_v1"
+
+
+# ---------------------------------------------------------------------------
+# Post-implementation review of 3.1.0 (2026-09-14): six defects found against
+# the SHIPPED release. Each is a case where the registered contract was real but
+# the test bound to it exercised a path the defect did not live on — the F-1
+# shape this repository exists to catch, caught here by an outside reviewer
+# rather than by the gate. Repaired in 3.1.1.
+# ---------------------------------------------------------------------------
+
+class TestConfigurationOverridesAreRefused:
+    """R2 (P1). The 3.1.0 refusal was asserted by MUTATING agent.mapping after
+    construction — but construction replaces mapping and descriptor with the
+    contract's own, so a catalogue configuration carrying those keys was
+    silently discarded and registered clean. The promised refusal never ran on
+    the input path an operator actually uses."""
+
+    @pytest.mark.parametrize("extra", [
+        {"mapping": {"check_field": "should_speak"}},
+        {"mapping": {"root_key": "advice"}},
+        {"mapping": {"speak_without_gate": True}},
+        {"descriptor": {"typed_adapter": "unrecognized_adapter"}},
+    ])
+    def test_catalog_configuration_overrides_are_refused(self, extra):
+        with pytest.raises(AgentConfigurationError):
+            DynamicAgent({"id": "cfg", "name": "cfg", "text": "t", "output_format": "insight_v1",
+                          "trigger_config": {"cooldown": 0}, **extra})
+
+    def test_control_an_ordinary_configuration_still_registers(self):
+        """NEGATIVE CONTROL: the check must read the SUPPLIED keys, not reject
+        every configuration that carries no override at all."""
+        e = AgentEngine(api_key="k")
+        e.register_agent(agent({"has_insight": False, "insight": None}, "insight_v1", agent_id="ok"))
+        assert len(e.agents) == 1
+
+    def test_control_the_contracts_own_mapping_is_not_an_override(self):
+        spec = resolve("widget_control")
+        a = DynamicAgent({"id": "same", "name": "same", "text": "t", "output_format": "widget_control",
+                          "trigger_config": {"cooldown": 0}, "mapping": spec.mapping()})
+        assert a.mapping == spec.mapping()
+
+
+class TestCallbackCannotWidenTheFormat:
+    """R3 (P2). The final boundary rechecked action SHAPE and host
+    AUTHORIZATION but not whether the originating format offers the channel at
+    all. Host authorization of an action does not make ui_actions available to
+    insight_v1."""
+    ACTION = {"target_widget": "goals_widget", "action": "update", "payload": {"goal_id": "g1"}}
+
+    class AddAction(AgentCallbackHandler):
+        def __init__(self, action):
+            self.action = action
+
+        async def on_agent_finish(self, agent_name, response, duration):
+            if response is not None:
+                response.data["ui_actions"] = [self.action]
+
+    def test_callback_cannot_add_ui_channel_to_insight_only_format(self):
+        a = agent({"has_insight": False, "insight": None, "variable_updates": {"phase": "closing"}},
+                  "insight_v1", agent_id="i")
+        final, context = turn(engine(a, callbacks=[self.AddAction(self.ACTION)]),
+                              ctx(widgets=("goals_widget",)))
+        assert final.data == {}, "insight_v1 does not offer a UI channel"
+        assert "undeclared_channel" in [d.code for d in final.diagnostics]
+        assert final.acceptance_by_agent["i"] == "rejected"
+        assert context.blackboard.get_var("phase") is None, "no partial commit"
+
+    def test_control_the_same_action_in_the_envelope_is_refused_too(self):
+        final, _ = turn(engine(agent({"has_insight": False, "insight": None, "ui_actions": [self.ACTION]},
+                                     "insight_v1", agent_id="i")), ctx(widgets=("goals_widget",)))
+        assert "undeclared_channel" in [d.code for d in final.diagnostics]
+
+    def test_control_the_same_callback_on_widget_control_is_accepted(self):
+        """NEGATIVE CONTROL: the rule is the FORMAT's binding, not a ban on
+        callbacks touching data."""
+        a = agent({"has_insight": False, "insight": None}, "widget_control", agent_id="w")
+        final, _ = turn(engine(a, callbacks=[self.AddAction(self.ACTION)]), ctx(widgets=("goals_widget",)))
+        assert final.data["ui_actions"] == [self.ACTION], [d.code for d in final.diagnostics]
+
+
+class TestPromptAgreesWithStrictSchema:
+    """R4 (P2). With no host declarations the instruction forbade ui_actions
+    while the strict projection still REQUIRED the key, because channel
+    availability is a property of the format (SS6.2 rule 1). A strictly
+    constrained response could not satisfy both."""
+
+    def test_no_widget_prompt_agrees_with_strict_schema(self):
+        from xubb_agents.core.provider_schema import compile_schema
+        a = agent({"has_insight": False, "insight": None}, "widget_control", agent_id="w")
+        engine(a)
+        asyncio.run(a.evaluate(ctx()))                       # no declarations
+        prompt = prompt_of(a)
+        schema = compile_schema(full=True, content_extension=False, allowed_types=["fact"],
+                                channels=a._projection_channels())
+        assert "ui_actions" in schema["required"], "the format owns the channel"
+        assert '"ui_actions": []' in output_format_of(prompt), \
+            "the prompt must ask for the empty array the schema requires"
+        assert "Do NOT include" not in prompt
+
+    def test_the_empty_array_is_what_the_agent_may_send(self):
+        final, _ = turn(engine(agent({"has_insight": False, "insight": None, "ui_actions": []},
+                                     "widget_control", agent_id="w")), ctx())
+        assert final.acceptance_by_agent["w"] == "accepted_silent", [d.code for d in final.diagnostics]
+
+    def test_control_an_action_is_still_unauthorized_without_declarations(self):
+        """NEGATIVE CONTROL: agreeing with the schema must not authorize acting."""
+        action = {"target_widget": "goals_widget", "action": "update", "payload": {}}
+        final, _ = turn(engine(agent({"has_insight": False, "insight": None, "ui_actions": [action]},
+                                     "widget_control", agent_id="w")), ctx())
+        assert [(d.code, d.classification) for d in final.diagnostics] == \
+            [("unauthorized_ui_action", "no_widgets_declared")]
+
+
+class TestPresentNullIsNotAbsent:
+    """R6 (P2). result.get(wire) conflated an absent key with a present JSON
+    null, so a null ui_actions skipped validation entirely and let the rest of
+    the response commit. SS4.1 makes [] and {} the empty forms; SS6.1 requires
+    an array."""
+
+    def test_present_null_ui_actions_is_fatal_and_atomic(self):
+        body = {"has_insight": False, "insight": None, "ui_actions": None,
+                "variable_updates": {"phase": "closing"}}
+        final, context = turn(engine(agent(body, "widget_control", agent_id="w")),
+                              ctx(widgets=("goals_widget",)))
+        assert "invalid_ui_action" in [d.code for d in final.diagnostics]
+        assert final.acceptance_by_agent["w"] == "rejected"
+        assert context.blackboard.get_var("phase") is None, "no partial commit"
+
+    @pytest.mark.parametrize("channel", ["variable_updates", "events", "facts", "memory_updates"])
+    def test_a_present_null_state_channel_is_fatal_too(self, channel):
+        body = {"has_insight": False, "insight": None, channel: None}
+        final, _ = turn(engine(agent(body, "insight_v1", agent_id="n")))
+        assert "invalid_domain_payload" in [d.code for d in final.diagnostics], channel
+
+    def test_control_an_absent_or_empty_channel_is_still_no_proposal(self):
+        """NEGATIVE CONTROL: only PRESENT null changes; absent and empty keep
+        meaning exactly what the spec says they mean."""
+        for body in ({"has_insight": False, "insight": None},
+                     {"has_insight": False, "insight": None, "variable_updates": {}, "ui_actions": []}):
+            final, _ = turn(engine(agent(body, "widget_control", agent_id="w")), ctx())
+            assert final.acceptance_by_agent["w"] == "accepted_silent", body
+
+
+class TestIsolatedRunOffersNoChannels:
+    """R5 (P2). SS4.2 says the isolated content path offers no channels, and the
+    prompt implemented it — but the projection used the full format channel set
+    and validate_domain_channels was called without its offered narrowing, so a
+    present channel on an isolated result was accepted."""
+
+    @staticmethod
+    def isolated(body_):
+        from tests.test_isolated_content_c2 import agent as c2_agent, engine as c2_engine, live_ctx, run_content
+        a = c2_agent(body_)
+        return a, c2_engine(a), live_ctx(turn_count=2), run_content
+
+    def test_isolated_projection_offers_no_channels(self):
+        from tests.test_isolated_content_c2 import detailed
+        a, e, c, run_content = self.isolated(detailed())
+        run_content(e, c)
+        sent = a.llm.calls[-1].get("response_schema")
+        offered = set((sent or {}).get("properties", {})) - {"has_insight", "insight"}
+        assert offered == set(), f"isolated runs offer no channels, got {sorted(offered)}"
+
+    def test_isolated_present_empty_channel_is_undeclared(self):
+        from tests.test_isolated_content_c2 import detailed
+        body_ = dict(detailed())
+        body_["events"] = []
+        a, e, c, run_content = self.isolated(body_)
+        result = run_content(e, c)
+        assert result.status == "rejected", [d.code for d in result.diagnostics]
+        assert "undeclared_channel" in [d.code for d in result.diagnostics]
+
+    def test_control_a_channel_free_isolated_result_is_accepted(self):
+        """NEGATIVE CONTROL: narrowing must not break the path it narrows."""
+        from tests.test_isolated_content_c2 import detailed
+        a, e, c, run_content = self.isolated(detailed())
+        assert run_content(e, c).status == "accepted"
+
+
+class TestPackagedSchemaLoad:
+    """Spec SS9 item 1 says a packaged schema file that is missing, unreadable
+    or malformed is an error, never a different contract. 3.1.0 logged and
+    returned an empty document instead — harmless for the envelope, since the
+    contract file is the authority, but not what the spec says and a silently
+    broken install."""
+
+    def test_missing_packaged_schema_is_refused_as_specified(self, monkeypatch):
+        import xubb_agents.library.dynamic as dyn
+        real_open = open
+
+        def fail_open(path, *a, **kw):
+            if str(path).endswith("insight_v1.json"):
+                raise FileNotFoundError(path)
+            return real_open(path, *a, **kw)
+
+        monkeypatch.setattr(dyn, "open", fail_open, raising=False)
+        with pytest.raises(AgentConfigurationError, match="schema"):
+            DynamicAgent({"id": "broken", "name": "broken", "text": "t",
+                          "output_format": "insight_v1", "trigger_config": {"cooldown": 0}})
+
+    def test_control_an_intact_install_constructs(self):
+        assert DynamicAgent({"id": "fine", "name": "fine", "text": "t",
+                             "output_format": "insight_v1", "trigger_config": {"cooldown": 0}}).schema_def

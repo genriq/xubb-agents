@@ -161,7 +161,7 @@ carried on `AgentContext.widget_capabilities` (default empty), frozen per run an
 
 So an absent capability and an unknown action inside a declared channel are the same code with different classifications, and neither is ever reported as an undeclared channel. The migration note and the tests use exactly this rule.
 
-The run's declarations also shape the **prompt**: the generated instruction lists exactly the permitted `target_widget` / `action` pairs and their required payload keys. With nothing declared, the instruction omits `ui_actions` and tells the agent it may not act — so the model is never invited to produce what the parser will reject.
+The run's declarations also shape the **prompt**: the generated instruction lists exactly the permitted `target_widget` / `action` pairs and their required payload keys. With nothing declared it names no target, and requires `"ui_actions": []` — the **empty array**, not the omission of the key. *(Amended 3.1.1, R5 in §17. The first draft said the instruction omits the key, which contradicts §4.1: the channel belongs to the format, so the strict projection requires it, and no strictly constrained response could obey both.)* Either way the model is never invited to produce an action the boundary will reject.
 
 ### 6.3 Where it is enforced
 
@@ -311,6 +311,36 @@ A 4.0.0 rollback to 3.1.0 is a pin change under the same two cases. A **roll-for
 
 - Independent review: `spec-review` (Codex), rounds recorded in `docs/.spec-review/SPEC_OUTPUT_FORMAT_CONSOLIDATION/`.
 - Implementation follows the repository's spec-first process: contract registry entry plus rule-asserting test and negative control for every changed behavioural contract; the gate green at `--strict`; permanent probes never skipped.
+
+## 17. Post-implementation review (2026-09-14, repaired in 3.1.1)
+
+An independent review of the shipped `b4ce54b` found six defects and one spec/implementation
+discrepancy. All were reproduced locally before any repair, and all are fixed in 3.1.1. The
+architectural direction was not challenged; every finding was a case where the implementation
+did not follow the contract this spec states.
+
+**The shape of the miss matters more than the count.** Five of the six were registered
+contracts whose statement was correct and whose named test exercised a path the defect did not
+live on — the F-1 escape `docs/PROCESS.md` exists to prevent, found by a reviewer rather than by
+the gate. A green gate proves every registered rule has a passing test; it does not prove the
+test reaches the input path a user does.
+
+| | Finding | Repair |
+|---|---|---|
+| R1 | The migration tool rewrote rows it had just reported as needing a person, then printed that they were unchanged. Its test checked one manual record's prompt body and missed the changed format beside it. | One eligibility predicate shared by reporting, `--dry-run` and `--write`; the test compares whole records. |
+| R2 | A catalogue configuration carrying `mapping` / `descriptor` overrides was discarded in silence and registered clean — every 3.1.0 test mutated the attribute *after* construction. | The supplied keys are validated before they are replaced; the registration-time check stays for post-construction mutation. |
+| R3 | An `on_agent_finish` callback could add a host-authorized `ui_actions` array to an `insight_v1` response and have it published. Host authorization is not channel availability. | The final boundary checks the originating format's binding first; a custom `BaseAgent` keeps its documented producer path. |
+| R4 | With no declarations the instruction forbade `ui_actions` while the strict projection required it. | The instruction requires the empty array. §6.2 amended above. |
+| R5 | §4.2 says the isolated path offers no channels; the prompt implemented it, the projection and the parser did not. | One effective channel set per run, used by all three. |
+| R6 | `result.get(wire)` conflated an absent key with a present JSON null, so `"ui_actions": null` skipped validation and let the rest of the response commit. | Presence is checked before value, at the parser and at the final boundary. |
+| — | §9 item 1 says a missing or malformed **packaged schema file** is an error; the implementation logged and returned an empty document. | The refusal is implemented, naming it as a broken installation rather than a configuration error. |
+
+**Correction to the delivery record below:** its handwritten-envelope subtotal was wrong. The
+tool flags **31** of the 105 configurations for handwritten envelope markers — that is all 31
+manual rows, including all four widget agents, which carry both. 27 are handwritten-only. The
+totals (105 / 74 mechanical / 31 manual / 93 implicit) reproduce unchanged. Counting rule: a
+row is "handwritten" if its `text` contains any envelope marker the tool lists; catalogue
+SHA-256 begins `d25fad7d75389dc7`.
 
 ## 16. Delivery record (2026-09-14, 3.1.0)
 
