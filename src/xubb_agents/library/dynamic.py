@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import uuid
+import warnings
 from typing import Any, Dict, List, Optional
 from jinja2.sandbox import SandboxedEnvironment
 from ..core.agent import BaseAgent, AgentConfig, DEFAULT_MODEL
@@ -10,7 +11,7 @@ from ..core.models import (
     InsightConfig,
 )
 from ..core.insight_validation import (
-    DomainChannels, resolve_gate_mode, evaluate_gate,
+    DomainChannels,
     validate_domain_channels,
     # typed_v1 (G1 part 2)
     MISSING, EffectiveTypes, effective_types_for_run,
@@ -23,6 +24,10 @@ from ..core.insight_validation import (
 )
 from ..core.models import (
     EvidenceCatalogEntry, EvidenceSnapshot, EvidenceRef, CorrectionPayload, QuestionPayload,
+)
+from ..core.output_format import (
+    FormatSpec, OutputFormatError, deprecation_message, known_channel_wire_keys,
+    resolve as resolve_output_format, select_shape,
 )
 from ..core.provider_schema import compile_schema, schema_issues, decode_response
 from ..core.content_contract import (
@@ -43,9 +48,11 @@ class DynamicAgent(BaseAgent):
     - Blackboard access in Jinja2 templates via {{ blackboard }}
     - Parses v2 response fields: events, variable_updates, queue_pushes, facts, memory_updates
 
-    v2.2 hardening:
-    - A-1 silence gate: a gate-less + rootless agent defaults to silence;
-      opt in to speaking via the ``speak_without_gate`` flag.
+    v2.2 hardening (A-1 amended in 3.1.0):
+    - A-1 silence gate: the gate is DECLARED by the agent's output format and
+      nothing speaks without one. The gate-less case the original A-1 guarded —
+      and its ``speak_without_gate`` opt-in, which was accepted and inert — can
+      no longer be registered.
     - A-2 session-relative timestamps: time references are anchored to the
       session, not wall-clock.
     - A-3 confidence clamp: parsed insight confidence is clamped to [0, 1].
@@ -203,8 +210,22 @@ class DynamicAgent(BaseAgent):
                 from ..core.engine import AgentConfigurationError
                 raise AgentConfigurationError(f"Agent '{agent_name}': invalid insight_config: {e}") from e
 
-        # Parse output format (default, v2_raw, or custom filename)
-        output_format = config_dict.get("output_format", "default")
+        # SPEC_OUTPUT_FORMAT_CONSOLIDATION §9 item 1: an OMITTED key resolves to
+        # the implicit runtime default and then follows the same path as an
+        # explicit name (so it inherits that format's deprecation warning);
+        # every other unresolved value — null, empty, non-string, unknown —
+        # raises. There is no fallback to another contract: falling back is the
+        # defect it used to hide (a typo re-homed an agent into a different
+        # envelope with different channels).
+        try:
+            if "output_format" in config_dict:
+                format_spec = resolve_output_format(config_dict["output_format"])
+            else:
+                format_spec = resolve_output_format()
+        except OutputFormatError as e:
+            from ..core.engine import AgentConfigurationError
+            raise AgentConfigurationError(f"Agent '{agent_name}': {e}") from e
+        output_format = format_spec.id
         
         # V2: Parse trigger conditions
         trigger_conditions = config_dict.get("trigger_conditions")
@@ -240,23 +261,25 @@ class DynamicAgent(BaseAgent):
         # Assign model to self for easy access (or use self.config.model)
         self.model = model
         
-        # --- SCHEMA LOADING ---
-        # Load schema definition from library/schemas/{output_format}.json
-        self.schema_def = self._load_schema(output_format)
+        # --- OUTPUT FORMAT ---
+        # 3.1.0: the format's contract is the authority. `descriptor` and
+        # `mapping` are DERIVED from it, so the parser cannot disagree with the
+        # generated prompt; the packaged schemas/*.json file is documentation
+        # whose agreement is conformance-tested, never trusted at run time.
+        self.format_spec: FormatSpec = format_spec
+        self.schema_def = self._load_schema_doc(output_format)
         self.json_instruction = self.schema_def.get("instruction", "")
-        self.mapping = self.schema_def.get("mapping", {})
-        # XUBB-ITC-1 §13.1: versioned descriptor (gate_mode, supported types,
-        # contracts). Absent on user-authored schemas → inferred from the mapping.
-        self.descriptor = self.schema_def.get("descriptor", {}) or {}
-        # XUBB-ITC-1 §7.1: the contract is ENGINE-selected and injected at
-        # registration (like the LLM client). Evaluated outside an engine, an
-        # agent runs the legacy path.
+        self.mapping = format_spec.mapping()
+        self.descriptor = format_spec.descriptor()
+        #: Host payload hook for UI actions, injected by the engine (§6.2).
+        self.widget_validator = None
         # C1: operator limits for long_form_v1, injected by the engine.
         self.content_limits: Dict[str, Any] = {}
 
-        # A-1 / INV-11: warn at load time if the schema is misconfigured in a way
-        # that silently loses the "stay silent" contract.
-        self._warn_on_gateless_misconfig(output_format)
+        if format_spec.deprecated:
+            message = deprecation_message(format_spec, agent_id)
+            warnings.warn(message, DeprecationWarning, stacklevel=3)
+            self.logger.warning(message)
 
     def clone_for_isolated_run(self) -> "DynamicAgent":
         """A fresh instance from the same definition sharing only the immutable
@@ -267,103 +290,26 @@ class DynamicAgent(BaseAgent):
         twin = DynamicAgent(_deepcopy(self._source_config))
         twin.llm = self.llm
         twin.content_limits = self.content_limits
+        twin.widget_validator = self.widget_validator
         return twin
 
-    #: Schemas removed in a major release. These are refused BY NAME, before the
-    #: missing-file fallback below can reach them, because that fallback is the
-    #: whole problem: deleting the file alone would not fail an agent still
-    #: configured for the removed schema — it would silently register that agent
-    #: under `default`, a different envelope with different channels. A rename is
-    #: a decision the operator must make, not one the loader makes for them.
-    _REMOVED_SCHEMAS = {
-        "custom1": ("custom1 was removed in 3.0.0 with the legacy_v2 insight contract: it "
-                    "declared no typed adapter, so it can no longer be registered. Re-point "
-                    "this agent at a schema that declares one — insight_v1, default_v2, "
-                    "v2_raw, default, ui_control or widget_control — and republish it."),
-    }
-
-    def _load_schema(self, format_name: str) -> dict:
-        """Loads schema config from disk, falling back to default if not found.
-
-        A REMOVED schema name raises instead: see ``_REMOVED_SCHEMAS``. The
-        fallback's behaviour for every other unrecognised name is deliberately
-        unchanged — it is what lets an embedder's own schema name resolve sanely.
-        """
-        removed = self._REMOVED_SCHEMAS.get(format_name)
-        if removed:
-            from ..core.engine import AgentConfigurationError   # local: avoids a cycle
-            raise AgentConfigurationError(removed)
+    def _load_schema_doc(self, format_name: str) -> dict:
+        """The packaged schema file, kept for its documentation and for the
+        S-1 passthrough fields. It is NOT an authority: the envelope, the gate
+        and the channels come from the format contract, and a divergence in this
+        file is caught by the conformance test rather than used. A file that is
+        missing or unreadable is an empty document, never a different contract —
+        the fallback to `default` that used to live here is the defect the
+        format registry exists to prevent (F6)."""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(base_dir, "schemas", f"{format_name}.json")
         try:
-            # Construct path relative to this file
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            schema_path = os.path.join(base_dir, "schemas", f"{format_name}.json")
-            
-            if os.path.exists(schema_path):
-                with open(schema_path, "r") as f:
-                    return json.load(f)
-            else:
-                # Fallback to default if file missing
-                if format_name != "default":
-                    self.logger.warning(f"Schema '{format_name}' not found. Falling back to default.")
-                
-                # Load default
-                default_path = os.path.join(base_dir, "schemas", "default.json")
-                if os.path.exists(default_path):
-                    with open(default_path, "r") as f:
-                        return json.load(f)
-                        
+            with open(path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
         except Exception as e:
-            self.logger.error(f"Failed to load schema '{format_name}': {e}")
-        
-        # Emergency Hardcoded Fallback (if JSON files are missing entirely)
-        return {
-            "instruction": "IMPORTANT: Return { \"has_insight\": boolean, \"message\": \"...\", \"type\": \"suggestion\" }",
-            "mapping": {
-                "check_field": "has_insight",
-                "content_field": "message",
-                "type_field": "type"
-            },
-            "descriptor": {"gate_mode": "boolean", "supported_contracts": ["legacy_v2"]},
-        }
-
-    # A-1 (INV-11): gate fields a schema's instruction might reference. If the
-    # prose tells the model about one of these but the mapping forgets to wire it
-    # up via `check_field`, the silence gate is silently lost — the exact
-    # misconfiguration A-1 guards against.
-    _GATE_FIELD_HINTS = ("has_insight", "should_speak", "speak", "is_relevant")
-
-    def _warn_on_gateless_misconfig(self, format_name: str) -> None:
-        """A-1 / INV-11: load-time warning for gate-less schema misconfiguration.
-
-        A custom schema can lose the "stay silent" contract in a way that is
-        invisible until it spams the HUD: the instruction text tells the model
-        to emit a boolean gate (e.g. ``has_insight``), but the mapping omits
-        ``check_field`` (and has no ``root_key`` emptiness gate either). In that
-        state the parser has nothing to gate on, so the documented gate-less
-        default policy (see `evaluate`'s should_speak block) applies and the
-        model's intended silence is dropped.
-
-        We warn ONCE at load time so the author notices the mismatch. Gated
-        schemas (default, default_v2, custom1) and root-keyed schemas (v2_raw,
-        ui_control, widget_control) are all unaffected.
-        """
-        mapping = self.mapping or {}
-        if mapping.get("check_field") or mapping.get("root_key"):
-            return  # Properly gated — nothing to warn about.
-
-        instruction = (self.json_instruction or "").lower()
-        referenced = [hint for hint in self._GATE_FIELD_HINTS if hint in instruction]
-        if referenced:
-            self.logger.warning(
-                "Schema '%s' is gate-less (mapping has no 'check_field' and no "
-                "'root_key') but its instruction references gate field(s) %s. The "
-                "silence gate is NOT wired up: the model's intended silence will be "
-                "ignored. Add 'check_field' to the mapping, or set "
-                "'speak_without_gate: true' to opt into the speak-when-content "
-                "default explicitly. (A-1/INV-11)",
-                format_name,
-                referenced,
-            )
+            self.logger.warning(f"Schema documentation for '{format_name}' unavailable ({e}); "
+                                f"the format contract is unaffected.")
+            return {}
 
     @staticmethod
     def _coerce_positive_number(raw, field_name, agent_name, cast):
@@ -648,7 +594,8 @@ class DynamicAgent(BaseAgent):
                        if r.status == "active" and r.turn < context.turn_count
                        and getattr(r, "correctable", True)]          # v2.8 (CT-1)
         parts.append(self._typed_instruction(eff_types, reference if cite else None,
-                                             own_records, content_plan, isolated=isolated))
+                                             own_records, content_plan, isolated=isolated,
+                                             widgets=self._widget_authorization(context)))
 
         full_system_prompt = "\n\n".join(parts)
 
@@ -693,8 +640,14 @@ class DynamicAgent(BaseAgent):
         # reaches the wire (fail closed, provider_schema_error).
         response_schema = None
         if "json_schema" in (self.descriptor.get("supported_transports") or []):
+            # F7: the projection offers EXACTLY the channels this format binds.
+            # It used to offer every channel in the response descriptor, making
+            # `state_updates` and `data` required of the model on a format whose
+            # parser reads neither — a provider-required field whose meaningful
+            # output was silently discarded.
             response_schema = compile_schema(full=True, content_extension=content_plan is not None,
-                                             allowed_types=list(self._effective_types(context).types))
+                                             allowed_types=list(self._effective_types(context).types),
+                                             channels=self._projection_channels())
             lint = schema_issues(response_schema)
             if lint:
                 response = AgentResponse(execution_id=execution_id, acceptance_status="rejected")
@@ -834,66 +787,124 @@ class DynamicAgent(BaseAgent):
     # typed_v1 (G1 part 2): effective set, generated instruction, staging.
     # ------------------------------------------------------------------
 
+    def _projection_channels(self) -> List[str]:
+        """Wire keys the provider projection may offer for this format (§5.1)."""
+        return [wire for wire in self.format_spec.channels]
+
+    @staticmethod
+    def _widget_authorization(context: AgentContext):
+        """The host's widget declarations for this run (§6.2). The model cannot
+        grant itself a capability, and an absent declaration authorizes nothing —
+        never everything."""
+        caps = getattr(context, "widget_capabilities", None)
+        return caps.authorization_map() if caps is not None else {}
+
     def _effective_types(self, context: AgentContext) -> EffectiveTypes:
         return effective_types_for_run(
                                        insight_config=self.config.insight_config,
                                        descriptor=self.descriptor, context=context)
 
-    _DOMAIN_MAPPING_KEYS = ("events_field", "variable_updates_field", "queue_field",
-                            "facts_field", "memory_field", "state_field", "data_field",
-                            "check_field")
-
-    def _domain_keys(self) -> set:
-        keys = {"has_insight"}
-        for mk in self._DOMAIN_MAPPING_KEYS:
-            if self.mapping.get(mk):
-                keys.add(self.mapping[mk])
+    def _reserved_envelope_keys(self, spec: "FormatSpec") -> set:
+        """Top-level keys a FLAT envelope must not fold into the insight: the
+        gate, the channels this format binds, and every wire name the framework
+        knows as a channel. The last part is what closes F4 — an undeclared
+        `events` key is refused as a channel instead of quietly becoming an
+        unknown insight field when speaking and a committed write when silent."""
+        keys = set(known_channel_wire_keys()) | set(spec.channels)
+        if spec.gate_key:
+            keys.add(spec.gate_key)
         return keys
+
+    #: How each sink is shown in a generated OUTPUT FORMAT block, and the order
+    #: they appear in. Derived from the format contract, so a channel appears in
+    #: the prompt exactly when the parser will accept it.
+    _CHANNEL_EXAMPLES = {
+        "events": ('[ {"name": "event_name", "payload": {}} ]', "[]"),
+        "variable_updates": ("{}", "{}"),
+        "queue_pushes": ("{}", "{}"),
+        "facts": ("[]", "[]"),
+        "memory_updates": ("{}", "{}"),
+        "private_memory": ('{ "key": "value" }', "{}"),
+    }
+    _CHANNEL_ORDER = ("events", "variable_updates", "queue_pushes", "facts",
+                      "memory_updates", "private_memory")
+
+    def _channel_block(self, spec: "FormatSpec", empty: bool = False,
+                       data_key: Optional[str] = None) -> str:
+        """The channel lines of a flat or canonical OUTPUT FORMAT block."""
+        pairs = [(sink, spec.wire_key_for(sink)) for sink in self._CHANNEL_ORDER
+                 if spec.offers(sink)]
+        parts = [f'"{wire}": {self._CHANNEL_EXAMPLES[sink][1 if empty else 0]}' for sink, wire in pairs]
+        lines = []
+        if parts:
+            # Same shape the five standard channels have always been shown in:
+            # the event example on its own line, the rest on one.
+            if len(parts) > 1 and pairs[0][0] == "events":
+                lines.append("  " + parts[0])
+                lines.append("  " + ", ".join(parts[1:]))
+            else:
+                lines.append("  " + ", ".join(parts))
+        if data_key:
+            lines.append(f'  "{data_key}": ' + ("[]" if empty else "[ ... ]"))
+        return ",\n".join(lines)
+
+    @staticmethod
+    def _widget_instruction(widgets: Optional[Dict[str, Any]]) -> Optional[str]:
+        """The action contract for this run, built from the HOST's declarations
+        (§6.2). No declarations, no instruction: the model is never invited to
+        produce actions the boundary will reject."""
+        if not widgets:
+            return None
+        listing = "; ".join(
+            f'"{target}" -> ' + ", ".join(
+                f'"{action}"' + (" (payload keys: " + ", ".join(sorted(rule.get("required") or ())) + ")"
+                                 if rule.get("required") else "")
+                for action, rule in sorted(declared.items()))
+            for target, declared in sorted(widgets.items()))
+        return ('an array of widget actions, each {"target_widget": ..., "action": ..., "payload": {...}}. '
+                f'ONLY these targets and actions exist: {listing}. '
+                'Return [] when no widget should change; an action naming anything else is rejected '
+                'along with the rest of your response.')
 
     def _typed_instruction(self, eff: EffectiveTypes, reference: Optional["ReferenceContext"] = None,
                            reference_records: Optional[List[Dict[str, Any]]] = None,
-                           content_plan: Optional[Dict[str, Any]] = None, isolated: bool = False) -> str:
+                           content_plan: Optional[Dict[str, Any]] = None, isolated: bool = False,
+                           widgets: Optional[Dict[str, Any]] = None) -> str:
         """The exact allowed-value instruction for this run (§13.1, §13.4).
         ``reference`` (consulting profile) adds the citation contract and the
         host-supplied evidence ids the model may cite; ``reference_records`` lists
         the agent's own retained earlier messages it may correct."""
-        adapter = self.descriptor.get("typed_adapter", "insight_v1")
+        spec = self.format_spec
+        # One vocabulary for the three envelope shapes. Every key below comes
+        # from the format CONTRACT, so what the model is asked for is exactly
+        # what the parser reads.
+        adapter = {"canonical": "insight_v1", "flat": "flat", "root": "root_v2"}[spec.envelope]
         cfg = self.config.insight_config
         types = list(eff.types)
-        # v2.8 (TA-1 / TA-2 / IC-1): the channels a body offers come from the
-        # schema's mapping and descriptor, never from an assumption; the isolated
-        # path offers none (result-only).
-        state_key = self.mapping.get("variable_updates_field") or "state_snapshot"
-        memory_key = self.mapping.get("state_field") or "memory_updates"
-        data_key = self.mapping.get("data_field")
-        sidecar = self.descriptor.get("sidecar_instruction") if data_key else None
+        state_key = spec.wire_key_for("variable_updates") or "state_snapshot"
+        data_key = spec.wire_key_for("ui_actions")
+        sidecar = self._widget_instruction(widgets) if data_key else None
         if isolated:
+            # v2.8 (IC-1): the isolated path is result-only and offers nothing.
             flat_channels = ""
             root_extra = ""
-        elif adapter == "flat_v1":
-            flat_channels = f'  "{memory_key}": {{ "key": "value" }}'
-            root_extra = ""
         else:
-            flat_channels = ('  "events": [ {"name": "event_name", "payload": {}} ],\n'
-                             '  "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}')
-            root_extra = f',\n  "{state_key}": {{ "key": "value" }}'
+            flat_channels = self._channel_block(spec, data_key=(data_key if sidecar else None))
+            root_extra = f',\n  "{state_key}": {{ "key": "value" }}' if spec.offers("variable_updates") else ""
             if data_key and sidecar:
                 root_extra += f',\n  "{data_key}": [ ... ]'
         if not types:
             # §7.3: never an empty enum — a silence-only envelope.
             if adapter == "root_v2":
-                silent_root = "" if isolated else (f'  "{state_key}": {{ "key": "value" }}'
+                silent_root = "" if isolated else ((f'  "{state_key}": {{ "key": "value" }}'
+                                                    if spec.offers("variable_updates") else "")
                                                  + (f',\n  "{data_key}": []' if data_key and sidecar else ""))
                 body = "{\n" + silent_root + "\n}" if silent_root else "{\n}"
                 rule = 'Do NOT include an "insight" object: no human-facing message is permitted for this agent in this run.'
             else:
-                if isolated:
-                    silent_channels = ""
-                elif adapter == "flat_v1":
-                    silent_channels = f'  "{memory_key}": {{}}'
-                else:
-                    silent_channels = '  "events": [], "variable_updates": {}, "queue_pushes": {}, "facts": [], "memory_updates": {}'
-                head = '{\n  "has_insight": false' + (',\n  "insight": null' if adapter != "flat_v1" else '')
+                silent_channels = "" if isolated else self._channel_block(
+                    spec, empty=True, data_key=(data_key if sidecar else None))
+                head = '{\n  "has_insight": false' + (',\n  "insight": null' if spec.insight_key else '')
                 body = head + (',\n' + silent_channels if silent_channels else '') + '\n}'
                 rule = '"has_insight" MUST be the JSON boolean false: no human-facing message is permitted for this agent in this run. You may still return state updates.'
             silent_rules = [rule]
@@ -901,6 +912,8 @@ class DynamicAgent(BaseAgent):
                 silent_rules.append("This is a result-only request: return no events, state, facts, queue pushes, memory updates or actions.")
             elif data_key and sidecar:
                 silent_rules.append(f'"{data_key}": {sidecar}')
+            elif data_key:
+                silent_rules.append(self._NO_WIDGETS_RULE.format(key=data_key))
             return "IMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n" + body + "\n\nRULES:\n" + "\n".join(f"- {r}" for r in silent_rules)
 
         enum = " | ".join(f'"{t}"' for t in types)
@@ -924,7 +937,7 @@ class DynamicAgent(BaseAgent):
         if adapter == "insight_v1":
             body = (f'{{\n  "has_insight": true | false,\n  "insight": null | {{\n{candidate}\n  }}'
                     + (f',\n{channels}' if channels else '') + '\n}')
-        elif adapter in ("flat_v2", "flat_v1"):
+        elif adapter == "flat":
             body = f'{{\n  "has_insight": true | false,\n{candidate}' + (f'\n{channels}' if channels else '') + '\n}'
         else:  # root_v2
             body = f'{{\n  "insight": {{\n{candidate}\n  }}{root_extra}\n}}'
@@ -935,7 +948,7 @@ class DynamicAgent(BaseAgent):
             "a recommended action → suggestion; reinforcing effective behaviour → praise; an interpretation or synthesis of evidence → observation; "
             "relevant information without any of the above → fact (\"fact\" is the wire spelling of information).",
             ("Speak only when you have something worth the principal's attention; otherwise set \"has_insight\" to the JSON boolean false"
-             + (" and \"insight\" to null." if adapter not in ("flat_v2", "flat_v1") else ".")) if adapter != "root_v2"
+             + (" and \"insight\" to null." if adapter != "flat" else ".")) if adapter != "root_v2"
             else "Omit the \"insight\" object entirely when you have nothing worth the principal's attention.",
             "\"has_insight\" must be a JSON boolean (true/false), never a string or number." if adapter != "root_v2" else
             "\"insight\", when present, must be a non-empty object.",
@@ -950,8 +963,10 @@ class DynamicAgent(BaseAgent):
             rules.append("This is a result-only request: return the insight only — no events, state, facts, "
                          "queue pushes, memory updates or actions.")
         elif data_key and sidecar:
-            # v2.8 (TA-2): the schema's own sidecar contract, from its descriptor
+            # The action contract for this run, from the host's declarations (§6.2).
             rules.append(f'"{data_key}": {sidecar}')
+        elif data_key:
+            rules.append(self._NO_WIDGETS_RULE.format(key=data_key))
         if "reply" in types:
             rules.append('A "reply" is optional wording for the principal to say or send to the counterpart — a DRAFT they may use, '
                          'never something already said. Do not put approvals, authority, prices, deadlines or commitments in it '
@@ -992,6 +1007,12 @@ class DynamicAgent(BaseAgent):
                     rules.append("Additional evidence ids you may cite (kind:ref_id): " + ", ".join(host_ids) + ".")
         return "IMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n" + body + "\n\nRULES:\n" + "\n".join(f"- {r}" for r in rules)
 
+    #: What a widget format says when the host declared no widgets for the run.
+    #: Missing declarations authorize nothing, and the prompt says so rather than
+    #: inviting actions the boundary will reject (§6.2).
+    _NO_WIDGETS_RULE = ('Do NOT include "{key}": no widget is available to you in this run, and any '
+                        'action would reject your whole response.')
+
     @staticmethod
     def _forbidden_output_fields(content_plan: Optional[Dict[str, Any]]) -> List[str]:
         """Engine-owned and un-negotiated fields the model must not emit, derived
@@ -1011,23 +1032,45 @@ class DynamicAgent(BaseAgent):
         return self._content_plan(context)
 
     def _normalize_typed(self, result: Dict[str, Any]):
-        """Adapter normalisation → (gate_mode, gate_value, candidate). Declared
-        per schema (§13.1); never inferred from truthiness."""
-        adapter = self.descriptor.get("typed_adapter", "insight_v1")
-        if adapter == "insight_v1":
-            return "boolean", result.get("has_insight", MISSING), result.get("insight", None)
-        if adapter in ("flat_v2", "flat_v1"):
-            gate = result.get("has_insight", MISSING)
-            domain = self._domain_keys()
-            candidate = {k: v for k, v in result.items() if k not in domain}
+        """Translate the accepted envelope into ONE logical response.
+
+        Returns ``(spec, legacy_shape, gate_mode, gate_value, candidate, issues)``
+        where ``spec`` is the shape actually parsed (a compatibility adapter may
+        differ from the configured format during its window) and ``gate_mode`` is
+        the declared gate kind. Every envelope ends at an explicit Boolean
+        decision in ``evaluate_typed_gate``; nothing here is inferred from
+        truthiness.
+        """
+        spec, legacy_shape = select_shape(self.format_spec, result)
+        issues: List[Issue] = []
+        if spec.envelope == "canonical":
+            return (spec, legacy_shape, "boolean", result.get(spec.gate_key, MISSING),
+                    result.get(spec.insight_key, None), issues)
+        if spec.envelope == "flat":
+            gate = result.get(spec.gate_key, MISSING)
+            reserved = self._reserved_envelope_keys(spec)
+            candidate = {k: v for k, v in result.items() if k not in reserved}
+            alias = spec.content_alias
+            if alias and alias in candidate:
+                # F1: the published `default` contract advertised `message` while
+                # the parser read `content`. The adapter accepts either, and a
+                # body carrying BOTH with different text is refused rather than
+                # silently resolved — preferring one would be the same defect.
+                aliased = candidate.pop(alias)
+                if "content" not in candidate:
+                    candidate["content"] = aliased
+                elif candidate["content"] != aliased:
+                    issues.append(Issue("invalid_field", f"insight.{alias}",
+                                        "content_alias_conflict", fatal=True))
             if gate is False:
                 candidate = None          # placeholder fields under a false gate are discarded
             elif gate is True and not candidate:
-                candidate = None          # → inconsistent_gate
-            return "boolean", gate, candidate
-        # root_v2 (v2_raw): presence-gated nested candidate
-        root_key = self.mapping.get("root_key") or "insight"
-        return "root_presence", MISSING, result.get(root_key, MISSING)
+                candidate = None          # -> inconsistent_gate
+            return spec, legacy_shape, "boolean", gate, candidate, issues
+        # root: presence of the nested object IS the gate; evaluate_typed_gate
+        # turns it into the canonical Boolean decision.
+        return (spec, legacy_shape, "root_presence", MISSING,
+                result.get(spec.insight_key, MISSING), issues)
 
     # ------------------------------------------------------------------
     # C1: long_form_v1 plan (§14.6)
@@ -1099,9 +1142,26 @@ class DynamicAgent(BaseAgent):
                 response.diagnostics.append(self._diagnostic(
                     execution_id, "capability_unavailable", "insight.type", f"{value}:{reason}"))
 
-        gate_mode, gate_value, candidate = self._normalize_typed(result)
+        spec, legacy_shape, gate_mode, gate_value, candidate, adapter_issues = self._normalize_typed(result)
+        if legacy_shape:
+            message = (f"Agent '{self.config.id}': '{self.format_spec.id}' accepted the legacy "
+                       f"root-presence envelope. That shape is removed in "
+                       f"{self.format_spec.legacy_wire_shape.deprecation['removed_in'] if self.format_spec.legacy_wire_shape and self.format_spec.legacy_wire_shape.deprecation else '4.0.0'}"
+                       f"; emit the canonical envelope ('has_insight' + nested 'insight'). "
+                       f"See docs/MIGRATION_OUTPUT_FORMATS.md.")
+            warnings.warn(message, DeprecationWarning, stacklevel=2)
+            self.logger.warning(message)
+
+        # §4.2: channel permissions are checked BEFORE the insight is normalized,
+        # so a false gate can no longer smuggle an undeclared write past the
+        # field checks (F4). A speech gate never grants a write permission.
+        channels, domain_issues = validate_domain_channels(
+            result, spec,
+            widget_authorization=self._widget_authorization(context),
+            widget_validator=self.widget_validator)
+
         speak, gate_issue = evaluate_typed_gate(gate_mode, gate_value, candidate)
-        insight_issues = [gate_issue] if gate_issue else []
+        insight_issues = ([gate_issue] if gate_issue else []) + list(adapter_issues)
 
         typed = None
         extras: Dict[str, Any] = {}
@@ -1118,8 +1178,6 @@ class DynamicAgent(BaseAgent):
             )
             insight_issues.extend(cand_issues)
 
-        channels, domain_issues = validate_domain_channels(result, self.mapping)
-
         # C1 / §14.7: the negotiated content contract — trusted completion
         # telemetry, admission against the declared execution context, exact
         # character and byte ceilings. Nothing is shortened and accepted; a
@@ -1130,8 +1188,11 @@ class DynamicAgent(BaseAgent):
             execution = {
                 "completion_status": completion_status_from(tele.get("finish_reason"), tele.get("error_category")),
                 "content_execution_context": content_plan.get("execution_context"),
-                # result-only on the isolated path: sidecars count as effects too
-                "domain_effects_present": channels.has_domain() or channels.data is not None,
+                # result-only on the isolated path: sidecars count as effects too,
+                # and so does a channel key the format refused (it was still an
+                # attempt to act on a result-only request).
+                "domain_effects_present": (channels.has_domain() or channels.data is not None
+                                           or any(i.code == "undeclared_channel" for i in domain_issues)),
             }
             envelope = {"has_insight": bool(speak), "insight": (dict(candidate) if speak and isinstance(candidate, dict) else None)}
             raw = tele.get("raw_bytes")
@@ -1194,8 +1255,7 @@ class DynamicAgent(BaseAgent):
 
         self._stage_channels(channels, context, working_memory, response)
         if channels.data is not None:
-            data_key = self.mapping.get("data_key", self.mapping.get("data_field"))
-            response.data[data_key] = channels.data
+            response.data[spec.wire_key_for("ui_actions")] = channels.data
 
     # ------------------------------------------------------------------
     # G0 staging (XUBB-ITC-1 §8 / FINAL_DECISIONS D-LR).

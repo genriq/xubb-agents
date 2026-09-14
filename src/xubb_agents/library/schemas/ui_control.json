@@ -1,27 +1,25 @@
 {
   "id": "ui_control",
-  "description": "Schema for controlling UI widgets (Hands) alongside Insights (Voice).",
-  "instruction": "\nIMPORTANT: You are a UI Controller. You can output verbal insights AND/OR silent UI actions.\n\nOUTPUT FORMAT (respond with a single JSON object):\n{\n  \"insight\": {\n    \"type\": \"suggestion\" | \"warning\" | \"fact\",\n    \"content\": \"Verbal advice for the user.\",\n    \"confidence\": 0.0 to 1.0\n  },\n  \"ui_actions\": [\n    {\n      \"target_widget\": \"goals_widget\" | \"sentiment_meter\" | \"flash_zone\",\n      \"action\": \"update\" | \"set\" | \"flash\",\n      \"payload\": { ... }\n    }\n  ],\n  \"state_snapshot\": { \"key\": \"value\" }\n}\n",
+  "status": "deprecated",
+  "description": "Root-presence legacy envelope with a ui_actions sidecar. Consolidated into widget_control, which keeps the action channel under host declarations.",
+  "contract": "library/contract/output_formats.json \u2014 THE authority. This file is documentation; its mapping and descriptor are conformance-tested against the contract and are not read at run time.",
+  "instruction": "\nDEPRECATED since 3.1.0, removed in 4.0.0 \u2014 move to widget_control.\n\nIMPORTANT: You are a UI Controller. You can output verbal insights AND/OR silent UI actions.\n\nOUTPUT FORMAT (respond with a single JSON object):\n{\n  \"insight\": { \"type\": \"suggestion\" | \"warning\" | \"fact\", \"content\": \"...\", \"confidence\": 0.0 to 1.0 },\n  \"ui_actions\": [\n    { \"target_widget\": \"<a widget the host declared>\", \"action\": \"<an action it declared>\", \"payload\": { } }\n  ],\n  \"state_snapshot\": { \"key\": \"value\" }\n}\n\nNOTES:\n- Only the targets and actions the host declared for this run exist; anything else\n  rejects your whole response. With no declarations you may not act at all.\n",
   "mapping": {
     "root_key": "insight",
-    "check_field": null,
+    "check_field": "insight",
     "content_field": "content",
     "type_field": "type",
     "confidence_field": "confidence",
-    "state_field": null,
+    "metadata_field": "metadata",
     "variable_updates_field": "state_snapshot",
     "data_field": "ui_actions",
     "data_key": "ui_actions"
   },
   "descriptor": {
-    "schema_version": "legacy_v2",
     "gate_mode": "root_presence",
-    "typed_adapter": "root_v2",
-    "supported_insight_types": [
-      "suggestion",
-      "warning",
-      "fact"
-    ],
+    "typed_adapter": "root",
+    "output_format": "ui_control",
+    "status": "deprecated",
     "typed_supported_insight_types": [
       "fact",
       "observation",
@@ -51,6 +49,14 @@
       "json_object"
     ],
     "supported_content_contracts": [],
-    "sidecar_instruction": "an array of UI actions, each {\"target_widget\": \"goals_widget\" | \"sentiment_meter\" | \"flash_zone\", \"action\": \"update\" | \"set\" | \"flash\", \"payload\": { ... }}; return [] when no widget should change."
+    "channels": {
+      "state_snapshot": "variable_updates",
+      "ui_actions": "ui_actions"
+    }
+  },
+  "deprecation": {
+    "deprecated_in": "3.1.0",
+    "removed_in": "4.0.0",
+    "replacement": "widget_control"
   }
 }

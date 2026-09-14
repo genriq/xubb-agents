@@ -3,6 +3,16 @@
 
 **Version:** dated to the v2.2 code analysis (2026-06); revision note added 2026-08-19.
 
+> **SUPERSEDED IN 3.1.0 — output formats.** Everything below about *which* output
+> formats exist, how a schema's `mapping` shapes the envelope, gate-less schemas and
+> `speak_without_gate` is superseded by
+> [SPEC_OUTPUT_FORMAT_CONSOLIDATION.md](SPEC_OUTPUT_FORMAT_CONSOLIDATION.md) and
+> [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md). In 3.1.0 there are
+> two supported formats (`insight_v1`, `widget_control`) and four deprecated aliases
+> removed in 4.0.0; every format's gate, keys and channels come from one contract file;
+> a structural `mapping` override and `speak_without_gate` are refused at registration;
+> and an unknown format name raises instead of falling back to `default`.
+
 > **Accuracy note (2026-08-19).** This playbook's patterns remain valid through v2.6, but three things in it predate the current tree: file paths are pre-`src/`-layout (every `core/...` and `library/...` path now lives under `src/xubb_agents/...`), model guidance predates the v2.6 two-lane model policy (see `prompt_engineering_guide.md` §9 for current model names), and quoted marketing lines may no longer appear in their cited documents. Where this document and `CONTRACTS.yaml` or `technical_spec_agents.md` disagree, they win. A full revision is queued.
 
 **For:** engineers building a live HUD/overlay copilot on the `xubb_agents` framework — something that listens to a conversation as it happens, understands it, and surfaces the *right* insight at the *right* moment. Grounded in a deep analysis of the real code under `src/xubb_agents/`; core patterns date to v2.2 and remain current through v2.6.
@@ -176,7 +186,7 @@ The framework is engineered, top to bottom, so that **saying nothing is the natu
 
 - **Cooldowns** (`trigger_config.cooldown`, enforced in `BaseAgent.process()`) mean an agent physically cannot fire again for N seconds even if it wants to. Restraint is wired into the clock.
 - **Trigger conditions fail closed** (C-1, v2.2): a typo'd or unknown operator now evaluates to `False`, so a misconfigured agent stays *silent* rather than firing every turn. The framework biases every ambiguity toward silence.
-- **Gate-less schemas default to silence** (A-1, v2.2): a custom output schema with no gate field and no root key stays silent unless it explicitly opts in with `speak_without_gate: true`. You have to *earn the right to speak* by declaring you mean to.
+- **Nothing speaks without an explicit gate** (A-1, v2.2; strengthened in 3.1.0): a schema with no declared gate rule cannot be registered at all, and `speak_without_gate` — which was accepted and inert from 2.2 to 3.0.0 — is refused with migration guidance. You have to *earn the right to speak* by declaring you mean to; now the framework refuses to let you forget.
 - **Separation of observe vs. speak:** an agent can return a perfectly valid `AgentResponse` with rich `facts`, `events`, and `variable_updates` and **zero `insights`**. It updated the shared understanding without spending a single photon of the user's attention. This is the most underused move in the framework — see §5.
 
 So the design intent is: **agents observe constantly and accumulate quietly; they surface an insight only when one is genuinely earned.** An insight is "earned" when the accumulated state on the board crosses a threshold that the human actually needs to know about *right now*. The job of a good agent team is mostly to *not* show things.

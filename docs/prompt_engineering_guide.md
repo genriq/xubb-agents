@@ -6,6 +6,16 @@
 
 This guide is the **definitive reference** for writing effective prompts for the Xubb Agents framework. It covers system prompt design, Jinja2 templating, output schemas, trigger configuration, and agent coordination patterns.
 
+> **SUPERSEDED IN 3.1.0 — output formats.** Everything below about *which* output
+> formats exist, how a schema's `mapping` shapes the envelope, gate-less schemas and
+> `speak_without_gate` is superseded by
+> [SPEC_OUTPUT_FORMAT_CONSOLIDATION.md](SPEC_OUTPUT_FORMAT_CONSOLIDATION.md) and
+> [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md). In 3.1.0 there are
+> two supported formats (`insight_v1`, `widget_control`) and four deprecated aliases
+> removed in 4.0.0; every format's gate, keys and channels come from one contract file;
+> a structural `mapping` override and `speak_without_gate` are refused at registration;
+> and an unknown format name raises instead of falling back to `default`.
+
 > **Scope:** This guide covers the `xubb_agents` library only. Host-specific features (UI rendering, database persistence, socket events) are out of scope and documented by the host application.
 
 ---
@@ -246,9 +256,9 @@ Create `library/schemas/my_schema.json` to define custom output formats. The sch
 > **The silence gate (v2.2 — A-1).** An agent decides whether to speak based on its schema's gate, in this precedence:
 > 1. **`check_field` present** (e.g. `has_insight`) → the boolean value of that field drives the decision. This is how the built-in `default`, `default_v2`, and `custom1` schemas work.
 > 2. **No `check_field` but `root_key` present** → the model speaks by *presence*: a non-empty root object is the gate (an absent/empty root means silence). This is how `v2_raw`, `ui_control`, and `widget_control` work.
-> 3. **No `check_field` AND no `root_key`** (a gate-less, rootless custom schema) → the documented default is to stay **silent**, so a schema that omits a gate does not spam an insight every turn. To get "speak whenever there is content," opt in explicitly by adding `"speak_without_gate": true` to the mapping.
+> 3. ~~**No `check_field` AND no `root_key`**~~ — **removed in 3.1.0.** A schema with no declared gate rule cannot be registered, and `speak_without_gate` is refused with migration guidance: it was accepted and read by nothing from 2.2 to 3.0.0.
 >
-> If your schema's instruction tells the model to emit a gate field (e.g. `has_insight`) but the mapping forgets to wire it up via `check_field`, `DynamicAgent` logs a **load-time warning** — fix it by adding `check_field`, or opt into the speak-on-content default with `speak_without_gate`.
+> In 3.1.0 the load-time warning this paragraph described is gone, because its condition cannot arise: the gate is declared by the format contract and a structural `mapping` override fails at registration instead of running with a warning nobody reads.
 
 > **Insight robustness (v2.2).** Model-supplied `confidence` is coerced to a float and clamped to `[0, 1]` (defaulting to `1.0` on a non-numeric value), and `expiry`/`action_label` returned by the model are parsed through to the insight — so a malformed value from the LLM no longer turns a good insight into an error or gets silently dropped.
 >

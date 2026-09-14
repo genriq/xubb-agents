@@ -1,11 +1,7 @@
 {
-  "spec_version": "1.2.0",
+  "spec_version": "1.3.0",
   "encoding": "map_entries_v1",
   "domain_channels": {
-    "state_updates": {
-      "encoding": "map_entries_v1",
-      "normalized_type": "object"
-    },
     "variable_updates": {
       "encoding": "map_entries_v1",
       "normalized_type": "object"
@@ -15,10 +11,6 @@
       "normalized_type": "object"
     },
     "memory_updates": {
-      "encoding": "map_entries_v1",
-      "normalized_type": "object"
-    },
-    "data": {
       "encoding": "map_entries_v1",
       "normalized_type": "object"
     },
@@ -78,10 +70,38 @@
           "additionalProperties": false
         }
       }
+    },
+    "ui_actions": {
+      "encoding": "ui_action_array",
+      "provider_shape": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "target_widget": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "payload": {
+              "$ref": "#/$defs/map"
+            }
+          },
+          "required": [
+            "target_widget",
+            "action",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      }
     }
   },
   "notes": [
     "Schema authority for domain transport only. Domain shape, namespace authorization and side-effect permissions require local checks.",
+    "A channel here is MODEL-FACING. `state_updates` and `data` were removed in 3.1.0: they are host-facing projections of AgentResponse, and offering them to a provider required output that no supported format's parser reads (F7).",
+    "Which of these a given run offers is decided by the output format's contract (library/contract/output_formats.json), never by this file alone.",
     "No model-authored source identity, timestamp, acceptance state or confidence_provided.",
     "Zero provider calls performed."
   ]

@@ -3,7 +3,7 @@
 Framework-scope contracts registered in docs/CONTRACTS.yaml:
 
   TYPED-ADAPTER-FLAT-V1               INV-49  `default` registers under typed_v1 through flat_v1
-  TYPED-ADAPTER-ROOT-V2-SIDECAR       INV-49  ui_control / widget_control through root_v2 with the sidecar
+  TYPED-ADAPTER-ROOT-V2-SIDECAR       INV-49  the two UI formats: widget_control canonical, ui_control root
   TYPED-UNSUPPORTED-SCHEMA-NAMED      INV-49  custom1 refused by name; no adapter, no registration
   EVIDENCE-COORDINATES-AND-CITATIONS  INV-50  source_index over the host's list; citations on demand
   ISOLATED-INSTRUCTION-RESULT-ONLY    INV-51  the isolated path's instruction offers the envelope only
@@ -40,6 +40,19 @@ NINE = list(HUMAN_WIRE_VALUES)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def wctx(declared=("goals_widget", "sentiment_meter"), **kw):
+    """A run context whose HOST declares widgets. Since 3.1.0 an action is a host
+    capability: with nothing declared, nothing is authorized (§6.2)."""
+    from xubb_agents import HostWidgetCapabilities, WidgetDeclaration, WidgetActionDeclaration
+    caps = HostWidgetCapabilities(widgets=[
+        WidgetDeclaration(target_widget=name,
+                          actions=[WidgetActionDeclaration(action=a, allow_additional_payload_keys=True)
+                                   for a in ("update", "set", "flash")])
+        for name in declared])
+    ctx = tctx(**kw)
+    return ctx.model_copy(update={"widget_capabilities": caps})
+
 
 def prompt_of(agent):
     return agent.llm.calls[-1]["messages"][0]["content"]
@@ -117,7 +130,7 @@ class TestFlatV1Adapter:
     def test_default_registers_and_instruction_is_candidate_plus_memory(self):
         agent = tagent(None, output_format="default", insight_config={"allowed_types": ["warning", "suggestion"]})
         tengine(agent)
-        assert agent.descriptor["typed_adapter"] == "flat_v1"
+        assert agent.descriptor["typed_adapter"] == "flat"
         run(agent.evaluate(tctx()))
         fmt = output_format_of(prompt_of(agent))
         assert '"has_insight": true | false' in fmt and '"type": "suggestion" | "warning"' in fmt
@@ -174,60 +187,85 @@ class TestFlatV1Adapter:
 # TA-2 — ui_control / widget_control through root_v2 with the sidecar
 # ---------------------------------------------------------------------------
 
-class TestRootV2Sidecar:
+class TestWidgetFormats:
+    """3.1.0 replaces TA-2's `root_v2 + sidecar_instruction` pair with ONE
+    supported UI format on the canonical envelope (`widget_control`) and ONE
+    deprecated adapter that still speaks root-presence (`ui_control`). Both run
+    the same insight validation and the same action contract."""
     ACTION = {"target_widget": "goals_widget", "action": "update", "payload": {"done": 1}}
 
     def widget(self, body, agent_id="w", allowed=("suggestion",), schema="widget_control"):
         return tagent(body, output_format=schema, agent_id=agent_id, insight_config={"allowed_types": list(allowed)})
 
-    @pytest.mark.parametrize("schema", ["widget_control", "ui_control"])
-    def test_registers_and_instruction_names_state_and_sidecar_from_the_mapping(self, schema):
-        agent = self.widget(None, schema=schema)
+    def test_the_supported_format_is_the_canonical_envelope_plus_actions(self):
+        agent = self.widget(None)
         tengine(agent)
-        assert agent.descriptor["typed_adapter"] == "root_v2"
-        run(agent.evaluate(tctx()))
-        prompt = prompt_of(agent)
-        fmt, rules = output_format_of(prompt), rules_of(prompt)
-        assert '"insight": {' in fmt and '"state_snapshot": { "key": "value" }' in fmt and '"ui_actions": [ ... ]' in fmt
-        assert '"ui_actions": ' in rules and "target_widget" in rules
-        assert '"has_insight"' not in fmt and '"memory_updates"' not in fmt
+        assert agent.descriptor["typed_adapter"] == "canonical"
+        run(agent.evaluate(wctx()))
+        fmt, rules = output_format_of(prompt_of(agent)), rules_of(prompt_of(agent))
+        assert '"has_insight": true | false' in fmt and '"insight": null | {' in fmt
+        assert '"variable_updates": {}' in fmt and '"ui_actions": [ ... ]' in fmt
+        assert '"state_snapshot"' not in fmt
+        assert "goals_widget" in rules and "target_widget" in rules
 
-    def test_accepted_result_stages_the_insight_state_and_sidecar(self):
-        body = {"insight": cand(type="suggestion", content="Confirm the approval owner.", urgency="soon"),
-                "ui_actions": [self.ACTION], "state_snapshot": {"phase": "closing"}}
-        final, ctx = turn(tengine(self.widget(body)))
+    def test_the_deprecated_adapter_still_speaks_its_own_shape(self):
+        agent = self.widget(None, schema="ui_control")
+        tengine(agent)
+        assert agent.descriptor["typed_adapter"] == "root"
+        run(agent.evaluate(wctx()))
+        fmt = output_format_of(prompt_of(agent))
+        assert '"insight": {' in fmt and '"state_snapshot": { "key": "value" }' in fmt and '"ui_actions": [ ... ]' in fmt
+        assert '"has_insight"' not in fmt
+
+    @pytest.mark.parametrize("schema,body", [
+        ("widget_control", {"has_insight": True, "insight": None, "ui_actions": None, "variable_updates": {"phase": "closing"}}),
+        ("ui_control", {"insight": None, "ui_actions": None, "state_snapshot": {"phase": "closing"}}),
+    ])
+    def test_accepted_result_stages_the_insight_state_and_sidecar(self, schema, body):
+        body = dict(body)
+        body["ui_actions"] = [self.ACTION]
+        key = "insight"
+        body[key] = cand(type="suggestion", content="Confirm the approval owner.", urgency="soon")
+        final, ctx = turn(tengine(self.widget(body, schema=schema)), wctx())
         assert [i.type for i in final.insights] == [InsightType.SUGGESTION], codes(final)
         assert final.insights[0].id and final.insights[0].contract_version == "typed_v1"
         assert final.data["ui_actions"] == [self.ACTION]
         assert ctx.blackboard.get_var("phase") == "closing"
 
     def test_silence_with_actions_commits_the_sidecar(self):
-        final, _ = turn(tengine(self.widget({"ui_actions": [self.ACTION], "state_snapshot": {}})))
+        """Acting without speaking is the point of the format."""
+        final, _ = turn(tengine(self.widget({"has_insight": False, "insight": None,
+                                             "ui_actions": [self.ACTION]})), wctx())
         assert final.insights == [] and final.acceptance_by_agent["w"] == "accepted_silent"
         assert final.data["ui_actions"] == [self.ACTION]
 
     def test_silence_only_envelope_keeps_the_sidecar(self):
-        agent = self.widget({"ui_actions": [self.ACTION]}, allowed=())
+        agent = self.widget({"has_insight": False, "insight": None, "ui_actions": [self.ACTION]}, allowed=())
         tengine(agent)
-        run(agent.evaluate(tctx()))
+        run(agent.evaluate(wctx()))
         fmt = output_format_of(prompt_of(agent))
-        assert '"ui_actions": []' in fmt and '"state_snapshot": { "key": "value" }' in fmt and '"insight"' not in fmt
+        assert '"has_insight": false' in fmt and '"ui_actions": []' in fmt and '"insight": null' in fmt
 
     def test_v2_raw_instruction_carries_no_sidecar(self):
         agent = tagent(None, output_format="v2_raw", insight_config={"allowed_types": ["warning"]})
         tengine(agent)
-        run(agent.evaluate(tctx()))
+        run(agent.evaluate(wctx()))
         fmt = output_format_of(prompt_of(agent))
         assert fmt.rstrip().endswith('"state_snapshot": { "key": "value" }\n}') and "ui_actions" not in fmt
 
-    def test_control_without_a_sidecar_instruction_no_sidecar_block(self):
-        """NEGATIVE CONTROL: the block is generated from the descriptor, never assumed from the mapping."""
-        agent = self.widget(None)
-        agent.descriptor = {k: v for k, v in agent.descriptor.items() if k != "sidecar_instruction"}
+    def test_control_no_declarations_no_action_block_and_no_authorization(self):
+        """NEGATIVE CONTROL: the action block is generated from the HOST's
+        declarations. With none, the prompt says the agent may not act AND the
+        boundary refuses the action — prompt and parser agree in both directions."""
+        agent = self.widget({"has_insight": False, "insight": None, "ui_actions": [self.ACTION]})
         tengine(agent)
-        run(agent.evaluate(tctx()))
+        resp = run(agent.evaluate(tctx()))                       # no widget_capabilities
         prompt = prompt_of(agent)
-        assert "ui_actions" not in output_format_of(prompt) and "ui_actions" not in rules_of(prompt)
+        assert '"ui_actions": [ ... ]' not in output_format_of(prompt)
+        assert 'Do NOT include "ui_actions"' in rules_of(prompt)
+        assert resp.acceptance_status == "rejected"
+        assert [(d.code, d.classification) for d in resp.diagnostics] == \
+            [("unauthorized_ui_action", "no_widgets_declared")]
 
 
 # ---------------------------------------------------------------------------
@@ -640,32 +678,37 @@ class TestDataByAgent:
     A1 = {"target_widget": "goals_widget", "action": "update", "payload": {"a": 1}}
     A2 = {"target_widget": "sentiment_meter", "action": "set", "payload": {"b": 2}}
 
+    @staticmethod
+    def silent(actions):
+        return {"has_insight": False, "insight": None, "ui_actions": actions}
+
     def widget(self, agent_id, body):
         return tagent(body, output_format="widget_control", agent_id=agent_id, insight_config={"allowed_types": ["suggestion"]})
 
     def test_each_agents_sidecar_is_attributed_and_the_merge_keeps_its_shape(self):
-        w1 = self.widget("w1", {"ui_actions": [self.A1], "state_snapshot": {}})
-        w2 = self.widget("w2", {"ui_actions": [self.A2], "state_snapshot": {}})
-        final, _ = turn(tengine(w1, w2))
+        w1 = self.widget("w1", self.silent([self.A1]))
+        w2 = self.widget("w2", self.silent([self.A2]))
+        final, _ = turn(tengine(w1, w2), wctx())
         assert final.data["ui_actions"] == [self.A1, self.A2]
         assert final.data_by_agent == {"w1": {"ui_actions": [self.A1]}, "w2": {"ui_actions": [self.A2]}}
 
     def test_rejected_agent_contributes_to_neither(self):
-        w1 = self.widget("w1", {"ui_actions": [self.A1], "state_snapshot": {}})
-        bad = self.widget("bad", {"insight": cand(type="praise"), "ui_actions": [self.A2]})    # praise not allowed
-        final, _ = turn(tengine(w1, bad))
+        w1 = self.widget("w1", self.silent([self.A1]))
+        bad = self.widget("bad", {"has_insight": True, "insight": cand(type="praise"),
+                                  "ui_actions": [self.A2]})      # praise not allowed
+        final, _ = turn(tengine(w1, bad), wctx())
         assert final.acceptance_by_agent["bad"] == "rejected"
         assert final.data["ui_actions"] == [self.A1] and "bad" not in final.data_by_agent
 
     def test_per_agent_responses_leave_it_empty(self):
-        agent = self.widget("w1", {"ui_actions": [self.A1]})
+        agent = self.widget("w1", self.silent([self.A1]))
         tengine(agent)
-        resp = run(agent.evaluate(tctx()))
+        resp = run(agent.evaluate(wctx()))
         assert resp.data == {"ui_actions": [self.A1]} and resp.data_by_agent == {}
 
     def test_control_attribution_is_a_copy_not_an_alias(self):
         """NEGATIVE CONTROL: mutating the attribution never changes the merged sidecar."""
-        w1 = self.widget("w1", {"ui_actions": [self.A1], "state_snapshot": {}})
-        final, _ = turn(tengine(w1))
+        w1 = self.widget("w1", self.silent([self.A1]))
+        final, _ = turn(tengine(w1), wctx())
         final.data_by_agent["w1"]["ui_actions"].append({"target_widget": "x", "action": "set", "payload": {}})
         assert final.data["ui_actions"] == [self.A1]

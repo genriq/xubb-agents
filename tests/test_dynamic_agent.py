@@ -377,9 +377,9 @@ class TestPromptAssembly:
 
 def make_gateless_agent(result, *, mapping=None, instruction="", name="Gateless Agent"):
     """Build a DynamicAgent then override its schema to simulate a custom
-    user-authored gate-less schema (no schema file needed — we patch the
-    already-loaded mapping/instruction directly, mirroring what _load_schema
-    would have produced for such a JSON)."""
+    gate-less mapping. Since 3.1.0 such an agent cannot REGISTER (the override
+    is refused), so this constructs one directly to prove the runtime default is
+    still silence — defence in depth behind the registration check."""
     agent = make_agent(result)
     agent.mapping = mapping if mapping is not None else {
         "content_field": "content",
@@ -399,30 +399,22 @@ class TestGatelessSilenceContract:
         resp = run(agent.evaluate(make_context()))
         assert resp.insights == [], "gate-less schema must default to silence (INV-11)"
 
-    @pytest.mark.xfail(reason="KNOWN GAP, raised by 3.0.0 and deliberately not fixed in it: "
-                              "`speak_without_gate` is honoured by resolve_gate_mode, which only the "
-                              "removed legacy staging path called. The typed path's _normalize_typed "
-                              "hard-codes the boolean gate for flat adapters, so the opt-in is silently "
-                              "inert. This is PRE-EXISTING — it was masked because a standalone agent "
-                              "used to construct itself as legacy_v2 — and fixing it changes typed "
-                              "behaviour, which the removal spec puts out of scope (§4). Left failing "
-                              "and visible rather than re-baselined to the broken behaviour.",
-                       strict=True)
-    def test_gateless_schema_speaks_when_opted_in(self):
-        """A schema author can explicitly opt into 'content ⇒ speak' via
-        speak_without_gate: true — then content present DOES emit."""
-        result = {"content": "Intentional speech", "type": "suggestion"}
-        agent = make_gateless_agent(
-            result,
-            mapping={
-                "content_field": "content",
-                "type_field": "type",
-                "speak_without_gate": True,
-            },
-        )
-        resp = run(agent.evaluate(make_context()))
-        assert len(resp.insights) == 1
-        assert resp.insights[0].content == "Intentional speech"
+    # RETIRED (3.1.0). `test_gateless_schema_speaks_when_opted_in` asserted that
+    # `speak_without_gate: true` makes a gate-less schema speak. It was a
+    # strict=True xfail at 3.0.0 with this reason:
+    #
+    #   "`speak_without_gate` is honoured by resolve_gate_mode, which only the
+    #    removed legacy staging path called. The typed path's _normalize_typed
+    #    hard-codes the boolean gate for flat adapters, so the opt-in is silently
+    #    inert. This is PRE-EXISTING ... Left failing and visible rather than
+    #    re-baselined to the broken behaviour."
+    #
+    # 3.1.0 resolves it by removing the option rather than implementing it: the
+    # canonical contract's gate is explicit, and an accepted-but-ignored setting
+    # is exactly what this release exists to end. The escape stays traceable
+    # here, in CHANGELOG [3.1.0] and in the GATELESS-SILENCE registry entry; the
+    # behaviour that replaced it is asserted by
+    # TestGatelessContractRetired::test_speak_without_gate_is_refused_with_migration_guidance.
 
     def test_gated_schema_unaffected_speaks_when_true(self):
         """default_v2 (check_field=has_insight) is UNAFFECTED: has_insight=True
@@ -457,65 +449,51 @@ class TestGatelessSilenceContract:
         assert resp.insights == []
 
 
-class TestGatelessLoadTimeWarning:
-    def test_warning_fires_on_gate_field_in_instruction_but_no_check_field(self, caplog):
-        """A-1 load-time guard: a gate-less, rootless schema whose instruction
-        references a gate field (e.g. has_insight) must WARN at load time —
-        this is the misconfiguration that silently loses the silence contract."""
+class TestGatelessContractRetired:
+    """AMENDED CONTRACT (3.1.0, GATELESS-SILENCE). A-1's load-time warning
+    existed because a user-authored schema could declare a gate in its prose and
+    forget to wire it in its mapping. With every agent on a NAMED format whose
+    gate is declared by the contract, and a structural override refused at
+    registration, that state is unreachable — so the warning is gone and the
+    guarantee is stronger than the warning was.
+
+    What A-1 protected is still true and still tested: nothing speaks without an
+    explicit gate.
+    """
+
+    def test_the_load_time_warning_is_gone_because_its_condition_cannot_arise(self):
         agent = make_agent({"has_insight": False})
-        # Simulate the misconfigured custom schema: instruction mentions the
-        # gate, but the mapping forgot to wire check_field.
-        agent.json_instruction = (
-            'Return {"has_insight": boolean, "content": "..."}'
-        )
-        agent.mapping = {"content_field": "content"}
+        assert not hasattr(agent, "_warn_on_gateless_misconfig")
 
-        with caplog.at_level("WARNING"):
-            agent._warn_on_gateless_misconfig("custom_gateless")
+    def test_every_shipped_format_declares_a_gate(self):
+        """The replacement guarantee: a format with no declared gate rule cannot
+        exist, so no agent can lose its silence contract by omission."""
+        from xubb_agents.core.output_format import all_formats
+        for fid, spec in all_formats().items():
+            assert spec.gate_kind in ("boolean", "root_presence"), fid
+            assert spec.gate_key or spec.insight_key, fid
 
-        assert any(
-            "gate-less" in rec.message.lower() and "has_insight" in rec.message
-            for rec in caplog.records
-        ), "expected a load-time gate-less misconfiguration warning"
+    def test_a_gate_less_mapping_is_refused_rather_than_warned_about(self):
+        """NEGATIVE CONTROL: the exact misconfiguration A-1 warned about — a
+        mapping that drops the gate — now fails registration instead of running
+        with a warning nobody reads."""
+        from xubb_agents import AgentEngine
+        from xubb_agents.core.engine import AgentConfigurationError
+        agent = make_agent({"has_insight": False})
+        agent.mapping = dict(agent.mapping, check_field=None)
+        with pytest.raises(AgentConfigurationError, match="check_field"):
+            AgentEngine(api_key="k").register_agent(agent)
 
-    def test_no_warning_when_check_field_present(self, caplog):
-        """A properly gated schema (default_v2 references has_insight AND wires
-        check_field) must NOT warn."""
-        agent = make_agent({"has_insight": False})  # default_v2
-        with caplog.at_level("WARNING"):
-            agent._warn_on_gateless_misconfig("default_v2")
-        assert not any(
-            "gate-less" in rec.message.lower() for rec in caplog.records
-        ), "gated schema must not trigger the A-1 warning"
+    def test_speak_without_gate_is_refused_with_migration_guidance(self):
+        """F3: the opt-in was accepted and inert for three releases. It is now a
+        named configuration error, never a setting that does nothing."""
+        from xubb_agents import AgentEngine
+        from xubb_agents.core.engine import AgentConfigurationError
+        agent = make_agent({"has_insight": False})
+        agent.mapping = dict(agent.mapping, speak_without_gate=True)
+        with pytest.raises(AgentConfigurationError, match="speak_without_gate"):
+            AgentEngine(api_key="k").register_agent(agent)
 
-    def test_no_warning_when_rootkey_present(self, caplog):
-        """A root-keyed gate-less schema (v2_raw) is properly gated by presence
-        and must NOT warn."""
-        agent = make_agent({"insight": {}}, output_format="v2_raw")
-        with caplog.at_level("WARNING"):
-            agent._warn_on_gateless_misconfig("v2_raw")
-        assert not any(
-            "gate-less" in rec.message.lower() for rec in caplog.records
-        )
-
-    def test_no_warning_when_gateless_but_instruction_has_no_gate_field(self, caplog):
-        """A deliberately gate-less schema whose prose does NOT promise a gate
-        is a valid (opt-in) design — no warning, to avoid noise."""
-        agent = make_agent({"content": "x"})
-        agent.json_instruction = 'Return {"content": "...", "type": "..."}'
-        agent.mapping = {"content_field": "content", "speak_without_gate": True}
-        with caplog.at_level("WARNING"):
-            agent._warn_on_gateless_misconfig("opted_in")
-        assert not any(
-            "gate-less" in rec.message.lower() for rec in caplog.records
-        )
-
-
-# ---------------------------------------------------------------------------
-# Interval trigger config: trigger_config.trigger_interval must reach
-# AgentConfig.trigger_interval — previously never parsed, so interval-mode
-# host-authored agents could never fire (the host gates on `if interval and ...`).
-# ---------------------------------------------------------------------------
 
 class TestIntervalTriggerConfig:
     def test_trigger_interval_is_parsed_into_config(self):

@@ -34,7 +34,10 @@ from .insight_validation import (
     RESERVED_VAR_PREFIX, LEGACY_MEMORY_PREFIX, bounded,
     EffectiveTypes, effective_types_for_run,
     HUMAN_WIRE_VALUES, MISSING, resolve_urgency, validate_answers, validate_correction_target,
-    validate_typed_candidate, validate_response_channels, ReferenceContext,
+    validate_typed_candidate, validate_response_channels, validate_ui_actions, ReferenceContext,
+)
+from .output_format import (
+    deprecated_names, override_violations, removal_release, supported_names,
 )
 from .provider_schema import STRUCTURED_OUTPUT_MODES, DEFAULT_STRUCTURED_OUTPUTS
 from .agent import BaseAgent
@@ -192,7 +195,8 @@ class AgentEngine:
                  strict_reasoning_config: bool = True,
                  structured_outputs: str = DEFAULT_STRUCTURED_OUTPUTS,
                  fallback_signatures: Optional[List[Dict[str, Any]]] = None,
-                 content_limits: Optional[Dict[str, Any]] = None):
+                 content_limits: Optional[Dict[str, Any]] = None,
+                 widget_payload_validator: Optional[Any] = None):
         """Initialize the AgentEngine.
 
         Args:
@@ -205,6 +209,9 @@ class AgentEngine:
                 (EN-1). Unset knobs keep the LLMClient defaults. The resolved
                 set is stored and REUSED by ``update_api_key`` (INV-18) — key
                 rotation never resets the client to module defaults.
+            widget_payload_validator: optional host hook validating a UI
+                action's payload (§6.2), called as ``validator(action) -> str | None``
+                after the run's widget declarations have authorized it.
             strict_reasoning_config: VL-1 rule-1 severity (D-1 ruling). True
                 (default): registering an agent whose model looks
                 reasoning-capable without an explicit ``reasoning_effort``
@@ -236,6 +243,12 @@ class AgentEngine:
         # (live_max_output_tokens / live_max_timeout_seconds) and optional global
         # character caps. Injected into agents at registration.
         self.content_limits: Dict[str, Any] = dict(content_limits or {})
+        # §6.2: the host's optional payload hook for UI actions. It runs at the
+        # final acceptance boundary AFTER the declaration checks pass, for payload
+        # rules a key list cannot express. A non-empty string it returns is the
+        # rejection's bounded classification; a raising hook rejects rather than
+        # crashing the turn. It can only NARROW what the declarations permit.
+        self.widget_payload_validator = widget_payload_validator
         # C2 / §14.6.1: bounded shared-provider admission for isolated content
         # tasks (default 1). It bounds content-task concurrency only — it does NOT
         # reserve provider capacity for the live turn — and keeps
@@ -408,7 +421,16 @@ class AgentEngine:
         if descriptor is None:
             return violations                      # custom BaseAgent: no schema to check
         schema = getattr(agent.config, "output_format", "?")
-        adapters = "Typed adapters: insight_v1, default_v2, v2_raw, default, ui_control, widget_control."
+        adapters = ("Supported output formats: " + ", ".join(supported_names()) + ". Deprecated (removed in "
+                    + removal_release() + "): " + ", ".join(deprecated_names()) + ".")
+        # §9 item 2: a structural override either controls generation AND parsing,
+        # or it fails loudly here. It used to change the parser without changing
+        # the generated prompt (F2a/F2b), and `speak_without_gate` was accepted
+        # and inert for three releases (F3).
+        spec = getattr(agent, "format_spec", None)
+        if spec is not None:
+            violations += [f"Agent '{agent_id}': {p}"
+                           for p in override_violations(spec, getattr(agent, "mapping", None), descriptor)]
         if not descriptor.get("typed_adapter"):
             # v2.8 (INV-49), 3.0.0: a schema without a typed adapter cannot be
             # registered at all — there is no second regime to fall back to. A
@@ -477,6 +499,8 @@ class AgentEngine:
         # Inject the LLM client and the content limits into the agent.
         agent.llm = self.llm_client
         agent.content_limits = self.content_limits
+        if hasattr(agent, "widget_validator"):
+            agent.widget_validator = self.widget_payload_validator
 
         with self._agents_lock:
             # Track registration order for deterministic merge ordering. Cache
@@ -530,6 +554,8 @@ class AgentEngine:
             for index, agent in enumerate(agents):
                 agent.llm = self.llm_client
                 agent.content_limits = self.content_limits
+                if hasattr(agent, "widget_validator"):
+                    agent.widget_validator = self.widget_payload_validator
                 new_index[agent.config.id] = index
                 new_meta[agent.config.id] = (agent.config.priority, index)
                 new_agents.append(agent)
@@ -986,6 +1012,7 @@ class AgentEngine:
             # run and propagated through EVERY phase-context copy (Phase 1 and 2).
             principal_id=context.principal_id,
             insight_capabilities=context.insight_capabilities.model_copy(deep=True),
+            widget_capabilities=context.widget_capabilities.model_copy(deep=True),
             insight_reference_context=context.insight_reference_context.model_copy(deep=True),
             # only the VALIDATED answers reach agents (§11.2)
             insight_answers=[a.model_copy(deep=True) for a in getattr(self, "_validated_answers", [])],
@@ -1311,6 +1338,20 @@ class AgentEngine:
         # error rejects the whole response in both contracts (D-LR).
         if response.acceptance_status != "rejected":
             fatal = [diag(i.code, i.field_path, i.classification) for i in validate_response_channels(response)]
+            # §6.3: the SAME action contract at the ONE boundary every producer
+            # passes — DynamicAgent staging, custom BaseAgent subclasses and
+            # callback-modified responses alike. A host cannot be handed an
+            # action no declaration authorized, whoever put it on the response.
+            # `data` itself may be any shape here (a custom producer or a
+            # callback can have replaced it); validate_response_channels above
+            # owns that check, so only look inside a real dict.
+            actions = response.data.get("ui_actions") if isinstance(response.data, dict) else None
+            if actions is not None:
+                caps = getattr(context, "widget_capabilities", None) if context is not None else None
+                _, action_issues = validate_ui_actions(
+                    actions, authorization=(caps.authorization_map() if caps is not None else {}),
+                    validator=self.widget_payload_validator, field_path="data.ui_actions")
+                fatal += [diag(i.code, i.field_path, i.classification) for i in action_issues]
             if fatal:
                 self._reject_whole(response, fatal)
                 return

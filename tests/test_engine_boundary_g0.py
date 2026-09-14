@@ -167,16 +167,39 @@ class TestStrictBooleanGate:
         with pytest.raises(AgentConfigurationError, match="custom1"):
             make_agent({"sales_tip": "x"}, output_format="custom1")
 
-    def test_an_unrecognised_schema_name_still_falls_back(self):
-        """NEGATIVE CONTROL for the refusal above: the exception is scoped to the
-        removed name. Every other unknown name keeps resolving to `default`, which
-        is what lets an embedder's own schema name work."""
-        agent = make_agent({"has_insight": True, "type": "warning", "content": "x"},
-                           output_format="an-embedders-own-schema")
-        # It constructs (no refusal) and resolves to `default` — same descriptor,
-        # same adapter — which is exactly the behaviour custom1 must NOT get.
-        assert agent.descriptor.get("typed_adapter") == "flat_v1"
-        assert agent.mapping.get("check_field") == "has_insight"
+    def test_an_unrecognised_schema_name_is_refused_too(self):
+        """INVERTED IN 3.1.0 (F6). This used to assert that an unknown name kept
+        resolving to `default`, so the custom1 refusal had to be scoped to that
+        one identifier. That fallback WAS the defect: a typo re-homed an agent
+        into a different envelope with different channels, silently. Every
+        unresolved name now raises, and the message names the supported formats.
+        """
+        from xubb_agents.core.engine import AgentConfigurationError
+        with pytest.raises(AgentConfigurationError, match="Unknown output_format"):
+            make_agent({"has_insight": True, "type": "warning", "content": "x"},
+                       output_format="an-embedders-own-schema")
+
+    @pytest.mark.parametrize("value,expected", [
+        (None, "output_format is null"),
+        ("", "output_format is empty"),
+        ("   ", "output_format is empty"),
+        (7, "output_format must be a string"),
+        (["insight_v1"], "output_format must be a string"),
+    ])
+    def test_every_other_unresolved_value_raises_with_its_own_message(self, value, expected):
+        """NEGATIVE CONTROL for the resolution order: an OMITTED key is the only
+        value that inherits the implicit default. Explicit null, empty,
+        whitespace and non-string values are distinct errors, not silent
+        synonyms for it."""
+        from xubb_agents.core.engine import AgentConfigurationError
+        with pytest.raises(AgentConfigurationError, match=expected):
+            make_agent({"has_insight": False}, output_format=value)
+
+    def test_an_omitted_key_inherits_the_implicit_default(self):
+        from xubb_agents.core.output_format import implicit_default
+        agent = DynamicAgent({"id": "implicit", "name": "implicit", "text": "t",
+                              "trigger_config": {"cooldown": 0}})
+        assert agent.config.output_format == implicit_default()
 
 
 # ---------------------------------------------------------------------------

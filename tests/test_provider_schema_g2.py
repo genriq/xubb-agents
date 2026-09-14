@@ -101,8 +101,9 @@ STRICT_ENVELOPE = {
     "queue_pushes": {"entries": [{"key": "followups", "value": ["ask finance"]}]},
     "facts": [{"type": "approval", "key": "finance", "value": {"entries": [{"key": "status", "value": "unscheduled"}]}, "confidence": 0.6}],
     "memory_updates": {"entries": [{"key": "seen", "value": True}]},
-    "state_updates": {"entries": []},
-    "data": {"entries": []},
+    # 3.1.0 (F7): `state_updates` and `data` are gone from the model-facing
+    # envelope. insight_v1's parser read neither, so requiring them of the
+    # provider invited output that was then discarded.
 }
 
 
@@ -222,12 +223,17 @@ class TestCodec:
                 if data["insight"] is not None:
                     data["insight"]["metadata"] = {"nested": {"items": [True, None, 3.5, "value"]}, "entries": "ordinary key preserved"}
                 if full:
-                    for n in ["state_updates", "variable_updates", "queue_pushes", "memory_updates", "data"]:
+                    # 3.1.0: `state_updates` and `data` are host-facing projections
+                    # and are no longer model-facing channels (F7); `ui_actions` is,
+                    # and its payload is a nested map like any other.
+                    for n in ["variable_updates", "queue_pushes", "memory_updates"]:
                         data[n] = {}
                     data["variable_updates"] = {"budget": {"currency": "USD", "amount": 60000}, "approval": None}
                     data["queue_pushes"] = {"pending": [{"question": "Who approves?"}]}
                     data["facts"] = [{"type": "budget", "key": "primary", "value": {"amount": 60000}, "confidence": .8}]
                     data["events"] = [{"name": "budget_changed", "payload": {"prior": None, "current": 60000}}]
+                    data["ui_actions"] = [{"target_widget": "goals_widget", "action": "update",
+                                           "payload": {"done": 1, "nested": {"a": [1, None]}}}]
                 wire = encode_response(data, full=full)
                 assert validator.is_valid(wire), (f["id"], full)
                 expected = deepcopy(data)
@@ -425,3 +431,51 @@ class TestEngineStrictTransport:
         from tests.test_dynamic_agent import run
         resp = run(agent.evaluate(tctx()))
         assert resp.usage == {"prompt_tokens": 11, "completion_tokens": 7}
+
+
+class TestWidgetControlStrictTransport:
+    """3.1.0 claims `strict` for BOTH supported formats, so both need a projection,
+    a decoder and a real strict turn — the claim and the implementation ship
+    together or not at all (SPEC_OUTPUT_FORMAT_CONSOLIDATION §7)."""
+
+    ACTION = {"target_widget": "goals_widget", "action": "update",
+              "payload": {"entries": [{"key": "done", "value": 1},
+                                      {"key": "nested", "value": {"entries": [{"key": "k", "value": [1, None]}]}}]}}
+    ENVELOPE = {
+        "has_insight": False,
+        "insight": None,
+        "events": [],
+        "variable_updates": {"entries": [{"key": "phase", "value": "closing"}]},
+        "queue_pushes": {"entries": []},
+        "facts": [],
+        "memory_updates": {"entries": []},
+        "ui_actions": [ACTION],
+    }
+
+    def wctx(self):
+        from xubb_agents import HostWidgetCapabilities, WidgetDeclaration, WidgetActionDeclaration
+        return tctx().model_copy(update={"widget_capabilities": HostWidgetCapabilities(widgets=[
+            WidgetDeclaration(target_widget="goals_widget", actions=[
+                WidgetActionDeclaration(action="update", allow_additional_payload_keys=True)])])})
+
+    def test_a_strict_widget_turn_projects_decodes_and_stages(self):
+        llm, comp = make_client([ok_response(self.ENVELOPE)], structured_outputs="strict")
+        agent = typed_agent(schema="widget_control", agent_id="w")
+        final, ctx = turn(typed_engine(agent, llm, structured_outputs="strict"), self.wctx())
+        assert final.acceptance_by_agent["w"] == "accepted_silent", [d.code for d in final.diagnostics]
+        # the payload map decoded losslessly, nested map included
+        assert final.data["ui_actions"] == [{"target_widget": "goals_widget", "action": "update",
+                                             "payload": {"done": 1, "nested": {"k": [1, None]}}}]
+        assert ctx.blackboard.get_var("phase") == "closing"
+        schema = comp.calls[0]["response_format"]["json_schema"]["schema"]
+        assert "ui_actions" in schema["properties"] and "state_updates" not in schema["properties"]
+        assert schema_issues(schema) == []
+
+    def test_control_the_projection_for_insight_v1_offers_no_action_channel(self):
+        """NEGATIVE CONTROL: the projection is per FORMAT, not one envelope for
+        every agent — offering `ui_actions` to a format whose parser refuses it
+        is the F7 defect in the other direction."""
+        llm, comp = make_client([ok_response(STRICT_ENVELOPE)], structured_outputs="strict")
+        turn(typed_engine(typed_agent(), llm, structured_outputs="strict"))
+        schema = comp.calls[0]["response_format"]["json_schema"]["schema"]
+        assert "ui_actions" not in schema["properties"]

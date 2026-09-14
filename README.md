@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-**Version:** 3.0.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+**Version:** 3.1.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
 
 📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
 
@@ -161,7 +161,26 @@ gone with it — typed asks for an exact value and reports what the model wrote.
 See [SPEC_REMOVE_LEGACY_CONTRACT](docs/SPEC_REMOVE_LEGACY_CONTRACT.md) and the
 [CHANGELOG](CHANGELOG.md) for the migration table.
 
-**v2.8 — typed reach.** Every shipped schema but `custom1` now registers under the typed contract — `default` through a `flat_v1` adapter, `ui_control` and `widget_control` through `root_v2` with their `ui_actions` sidecar — and `custom1` says why it cannot. Typed cards carry evidence coordinates (`EvidenceRef.source_index`: the segment's position in the list the host passed, before trimming) and a host may ask for citation markers on every run (`evidence_citations`); the isolated content path's instruction is result-only; `urgency_provided` says whether the model authored the urgency; `await handle.result()` returns only after the content slot is released (`handle.released`); `PriorInsightRecord.correctable` controls what may be corrected; `data_by_agent` attributes sidecars per agent. Additive; the legacy contract is untouched. See [SPEC_V2_8_TYPED_REACH](docs/SPEC_V2_8_TYPED_REACH.md). 2.8.1 adds one diagnostic detail: when no JSON object arrives, `invalid_envelope` carries the model client's failure category (`timeout`, `refusal`, `malformed`, …) instead of `none`.
+**3.1.0 — two output formats, and seven contract disagreements repaired.** Authoring
+consolidates onto **`insight_v1`** (insight + state) and **`widget_control`** (insight +
+state + validated UI actions), both on one canonical envelope: an explicit Boolean
+`has_insight` gate and a nested `insight`. `default`, `default_v2`, `v2_raw` and
+`ui_control` become thin input adapters over the same validation pipeline — deprecated
+here, **removed in 4.0.0** — and every format's gate, keys and channels now come from one
+authority (`library/contract/output_formats.json`) that the generated prompt, the provider
+projection and the parser are all derived from. Repaired with it: `default` published
+`message` while the parser read `content`; a custom gate or root name changed the parser
+but not the prompt; `speak_without_gate` was accepted and inert; an undeclared channel was
+committed when an agent stayed silent and rejected when it spoke; a UI action could be any
+shape; an unknown format name silently became `default`; and the provider projection
+required `state_updates` and `data` of the model on a format whose parser read neither.
+UI actions are now a host capability — `AgentContext.widget_capabilities` declares the
+permitted targets, actions and payload keys, missing declarations authorize nothing, and
+the instruction the model gets is built from those declarations. See
+[SPEC_OUTPUT_FORMAT_CONSOLIDATION](docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md) and
+[MIGRATION_OUTPUT_FORMATS](docs/MIGRATION_OUTPUT_FORMATS.md).
+
+**v2.8 — typed reach.** Every shipped schema but `custom1` registers under the typed contract, and `custom1` says why it cannot. *(3.1.0 supersedes the adapter names in this paragraph: the three envelope shapes are now `canonical`, `flat` and `root`, and `widget_control` is canonical.)* Typed cards carry evidence coordinates (`EvidenceRef.source_index`: the segment's position in the list the host passed, before trimming) and a host may ask for citation markers on every run (`evidence_citations`); the isolated content path's instruction is result-only; `urgency_provided` says whether the model authored the urgency; `await handle.result()` returns only after the content slot is released (`handle.released`); `PriorInsightRecord.correctable` controls what may be corrected; `data_by_agent` attributes sidecars per agent. Additive; the legacy contract is untouched. See [SPEC_V2_8_TYPED_REACH](docs/SPEC_V2_8_TYPED_REACH.md). 2.8.1 adds one diagnostic detail: when no JSON object arrives, `invalid_envelope` carries the model client's failure category (`timeout`, `refusal`, `malformed`, …) instead of `none`.
 
 **v2.7 — the insight contract (XUBB-ITC-1 1.2.0) and the hardening audit.** Nine human-facing insight purposes (`fact`/information, `observation`, `suggestion`, `warning`, `opportunity`, `praise`, `reply`, `correction`, `question`) behind an opt-in typed contract — `AgentEngine(insight_contract="typed_v1")` — with strict local validation, whole-response atomic rejection, engine-minted identity, evidence catalogs, permissioned replies and questions with a correlated answer channel, a correction lifecycle with arbitration, provider structured outputs derived from the shipped contract, the negotiated `long_form_v1` content contract, and isolated active-session content tasks. The legacy contract stays the default and keeps its wire shape, but is safer: unknown types are rejected rather than relabelled, recoverable insight errors commit valid channels with an explicit `partial` status, and framework ERROR cards are sanitized. An independent audit then drove three hardening increments: one acceptance boundary for every producer (custom agents and callback-modified responses included), per-agent answer scoping, present-and-matching principal identity for interactive operations, typed failures as diagnostics, entrypoint admission and explicit lifecycle for content tasks, contract-derived prompts, strict content-policy primitives, and a clean-wheel CI job. The audit's own regression suite is adopted verbatim and passes. See the changelog for the migration notes.
 
@@ -502,7 +521,7 @@ Define preconditions that must be satisfied:
   
   "text": "Your system prompt here with {{ jinja2 }} templating",
 
-  "output_format": "default | v2_raw | custom_schema_name",
+  "output_format": "insight_v1 | widget_control",
 
   "include_context": true
 }
@@ -528,7 +547,7 @@ Define preconditions that must be satisfied:
 | `model_config.max_tokens` | int | null | v2.6: per-agent token cap (wire: `max_completion_tokens`; includes reasoning tokens — deep-effort agents need ≥ 4096, OpenAI suggests ~25000). |
 | `model_config.model_params` | object | {} | v2.6: verbatim Chat-Completions passthrough (e.g. `verbosity`). Framework-owned keys are rejected at load; not transport-portable. |
 | `text` | string | required | System prompt (Jinja2) |
-| `output_format` | string | "default" | Output schema name |
+| `output_format` | string | "default" (3.1.0; **becomes `"insight_v1"` in 4.0.0**) | Output format. Supported: `insight_v1`, `widget_control`. Deprecated and removed in 4.0.0: `default`, `default_v2`, `v2_raw`, `ui_control`. An unknown, null, empty or non-string value raises at registration — there is no fallback. See [MIGRATION_OUTPUT_FORMATS](docs/MIGRATION_OUTPUT_FORMATS.md). |
 | `include_context` | bool | true | Inject user profile & RAG docs into prompt. Set `false` for widget trackers and agents that don't need user/session context. Language directive always injected. |
 
 ---
@@ -901,7 +920,7 @@ class AgentConfig:
         silence_threshold: Optional[int] = None,            # For SILENCE trigger
         trigger_interval: Optional[int] = None,             # For INTERVAL trigger
         priority: int = 0,                                  # Merge priority (higher wins)
-        output_format: str = "default",                     # Output schema name
+        output_format: str = "default",                     # Output format (3.1.0: -> "insight_v1" in 4.0.0)
         trigger_conditions: Optional[Dict] = None,          # Blackboard preconditions
         subscribed_events: Optional[List[str]] = None,      # For EVENT trigger
         # v2.6 — per-agent LLM-call config (declarative on custom subclasses:

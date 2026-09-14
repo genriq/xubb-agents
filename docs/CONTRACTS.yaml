@@ -143,11 +143,32 @@ contracts:
     status: covered   # v2.2 R-1 landed: timeout + bounded retries + max_tokens + typed errors.
 
   - id: INV-11-gateless-silence
-    statement: "A gate-less schema follows the documented safe default; absence of a gate never forces speech."
-    source: ["docs/SPEC_V2_2_HARDENING.md: INV-11"]
+    # AMENDED 2026-09-14 (3.1.0). It previously read:
+    #   "A gate-less schema follows the documented safe default; absence of a gate
+    #    never forces speech."
+    # and named a load-time warning as its mechanism. That statement described a
+    # world in which a schema could omit a gate: user-authored schemas, and the
+    # `speak_without_gate` opt-in meant to restore speech deliberately. Neither
+    # exists now — every agent runs a NAMED format whose gate the contract
+    # declares, a structural override is refused at registration, and
+    # `speak_without_gate` (accepted and inert since 2.2 — see the retired xfail
+    # quoted in tests/test_dynamic_agent.py) is a named configuration error. The
+    # guarantee is stronger than the warning was, so the statement is amended
+    # rather than deleted, and the warning's tests are replaced by the refusal's.
+    statement: >
+      Every output format declares a gate rule and every normalized response carries an
+      explicit Boolean gate; a schema with no declared gate rule cannot be registered, and
+      absence of a gate never forces speech.
+    source:
+      - "docs/SPEC_V2_2_HARDENING.md: INV-11 (original A-1 statement)"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §9.3"
+      - "src/xubb_agents/core/output_format.py: FormatSpec.gate_kind"
     invariant: INV-11
     test: "tests/test_dynamic_agent.py::TestGatelessSilenceContract::test_gateless_rootless_schema_stays_silent_by_default"
-    status: covered   # v2.2 A-1 landed: gate-less+rootless schemas default to silence; load-time warning.
+    test_declared: "tests/test_dynamic_agent.py::TestGatelessContractRetired::test_every_shipped_format_declares_a_gate"
+    test_refused: "tests/test_dynamic_agent.py::TestGatelessContractRetired::test_a_gate_less_mapping_is_refused_rather_than_warned_about"
+    test_retired_option: "tests/test_dynamic_agent.py::TestGatelessContractRetired::test_speak_without_gate_is_refused_with_migration_guidance"
+    status: covered   # 3.1.0: the mechanism moved from a warning to a refusal.
 
   - id: INV-12-context-mutation-restored
     statement: "Engine mutation of host-owned context (trigger_type, phase) is always restored, even on exception."
@@ -1408,24 +1429,39 @@ contracts:
     status: covered   # v2.8 TA-1
 
   - id: TYPED-ADAPTER-ROOT-V2-SIDECAR
+    # AMENDED 2026-09-14 (3.1.0). It previously read:
+    #   "ui_control and widget_control register under typed_v1 through root_v2: the
+    #    generated instruction names the state block by the mapping's
+    #    variable_updates_field and the sidecar block by its data_field with the
+    #    descriptor's sidecar_instruction; ... The block is generated from the
+    #    descriptor, never assumed."
+    # Two things it asserted are deliberately gone: `widget_control` moved to the
+    # CANONICAL envelope (SPEC_OUTPUT_FORMAT_CONSOLIDATION §3), and the action
+    # block is generated from the HOST's widget declarations rather than a static
+    # `sidecar_instruction` string in a descriptor — a descriptor could not say
+    # which widgets exist, which is why any action shape was accepted (F5). What
+    # survives unchanged is asserted below: both UI formats register, the state
+    # block is named by the format contract, an accepted result stages insight,
+    # state and sidecar, silence may still act, and v2_raw renders no sidecar.
     statement: >
-      ui_control and widget_control register under typed_v1 through root_v2: the
-      generated instruction names the state block by the mapping's variable_updates_field
-      and the sidecar block by its data_field with the descriptor's sidecar_instruction;
-      an accepted result stages insight, state and sidecar; silence may still act; v2_raw
-      renders no sidecar. The block is generated from the descriptor, never assumed.
+      The two UI formats register and run: widget_control on the canonical envelope and
+      ui_control on the deprecated root-presence adapter. For both, the generated instruction
+      names the state block from the format contract and the action block from the host's
+      widget declarations; an accepted result stages insight, state and sidecar; silence may
+      still act; v2_raw renders no sidecar.
     source:
-      - "src/xubb_agents/library/schemas/ui_control.json: descriptor"
-      - "src/xubb_agents/library/schemas/widget_control.json: descriptor"
-      - "src/xubb_agents/library/dynamic.py: _typed_instruction (root_v2)"
-      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.2"
+      - "src/xubb_agents/library/contract/output_formats.json"
+      - "src/xubb_agents/library/dynamic.py: _typed_instruction, _widget_instruction"
+      - "docs/SPEC_V2_8_TYPED_REACH.md: §3.2 (superseded in part)"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §3, §6.2"
     invariant: INV-49
-    test: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_accepted_result_stages_the_insight_state_and_sidecar"
-    test_instruction: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_registers_and_instruction_names_state_and_sidecar_from_the_mapping"
-    test_silence_acts: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_silence_with_actions_commits_the_sidecar"
-    test_silence_envelope: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_silence_only_envelope_keeps_the_sidecar"
-    test_v2_raw: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_v2_raw_instruction_carries_no_sidecar"
-    test_control: "tests/test_typed_reach_2_8.py::TestRootV2Sidecar::test_control_without_a_sidecar_instruction_no_sidecar_block"
+    test: "tests/test_typed_reach_2_8.py::TestWidgetFormats::test_accepted_result_stages_the_insight_state_and_sidecar"
+    test_instruction: "tests/test_typed_reach_2_8.py::TestWidgetFormats::test_the_supported_format_is_the_canonical_envelope_plus_actions"
+    test_deprecated_shape: "tests/test_typed_reach_2_8.py::TestWidgetFormats::test_the_deprecated_adapter_still_speaks_its_own_shape"
+    test_silence_acts: "tests/test_typed_reach_2_8.py::TestWidgetFormats::test_silence_with_actions_commits_the_sidecar"
+    test_silence_envelope: "tests/test_typed_reach_2_8.py::TestWidgetFormats::test_silence_only_envelope_keeps_the_sidecar"
+    test_v2_raw: "tests/test_typed_reach_2_8.py::TestWidgetFormats::test_v2_raw_instruction_carries_no_sidecar"
+    test_control: "tests/test_typed_reach_2_8.py::TestWidgetFormats::test_control_no_declarations_no_action_block_and_no_authorization"
     status: covered   # v2.8 TA-2
 
   - id: TYPED-UNSUPPORTED-SCHEMA-NAMED
@@ -1580,12 +1616,225 @@ contracts:
     test_control: "tests/test_envelope_failure_category.py::TestEnvelopeFailureCategory::test_control_non_object_body_keeps_its_type_name"
     status: covered   # v2.8.1
 
+  # ---- 3.1.0 output-format consolidation (docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md) ----
+
+  - id: OUTPUT-FORMAT-REGISTRY
+    statement: >
+      One authority defines every output format. Two formats are supported (insight_v1,
+      widget_control) and four are deprecated aliases removed in 4.0.0 (default, default_v2,
+      v2_raw, ui_control); every channel a format binds reaches a defined sink, and the
+      packaged schemas/*.json documents must agree with the contract they document.
+    source:
+      - "src/xubb_agents/library/contract/output_formats.json"
+      - "src/xubb_agents/core/output_format.py"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §3, §5"
+    test: "tests/test_output_formats.py::TestRegistry::test_two_supported_formats_and_four_deprecated_aliases"
+    test_conformance: "tests/test_output_formats.py::TestRegistry::test_the_packaged_schema_files_agree_with_the_contract"
+    test_sinks: "tests/test_output_formats.py::TestRegistry::test_every_binding_reaches_a_defined_sink"
+    test_control: "tests/test_output_formats.py::TestRegistry::test_control_a_divergent_document_is_detected"
+    status: covered   # 3.1.0
+
+  - id: OUTPUT-FORMAT-RESOLUTION
+    statement: >
+      An OMITTED output_format resolves to the implicit runtime default and then follows the
+      same path as an explicit name; an explicit null, an empty or whitespace-only string, a
+      non-string value, a removed name and an unknown name each raise AgentConfigurationError
+      naming the supported formats. There is no fallback to another contract, and a failed
+      resolution never modifies the registry.
+    source:
+      - "src/xubb_agents/core/output_format.py: resolve"
+      - "src/xubb_agents/library/dynamic.py: __init__"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §9 item 1"
+    test: "tests/test_output_formats.py::TestResolution::test_every_other_unresolved_value_raises_its_own_error"
+    test_omitted: "tests/test_output_formats.py::TestResolution::test_an_omitted_key_inherits_the_implicit_default"
+    test_registry_untouched: "tests/test_output_formats.py::TestResolution::test_a_failed_resolution_never_reaches_the_registry"
+    test_probe: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF6UnknownFormatNames::test_an_unknown_name_is_refused_by_name"
+    status: covered   # 3.1.0 (F6)
+
+  - id: OUTPUT-FORMAT-NO-OVERRIDES
+    statement: >
+      A structural mapping or descriptor override — a different gate key, root key, content
+      field, channel key or adapter identifier — and the retired speak_without_gate flag each
+      fail at registration with a named migration error, before any registry mutation. No
+      supported option is accepted and ignored.
+    source:
+      - "src/xubb_agents/core/output_format.py: override_violations"
+      - "src/xubb_agents/core/engine.py: _validate_insight_config"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §9 item 2, §9.3"
+    test: "tests/test_output_formats.py::TestNoStructuralOverrides::test_a_structural_override_or_retired_flag_fails_at_registration"
+    test_all_or_nothing: "tests/test_output_formats.py::TestNoStructuralOverrides::test_replace_agents_stays_all_or_nothing"
+    test_control: "tests/test_output_formats.py::TestNoStructuralOverrides::test_control_the_contracts_own_mapping_registers"
+    test_probe: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF2StructuralOverrides::test_a_structural_override_fails_at_registration"
+    status: covered   # 3.1.0 (F2a, F2b, F3)
+
+  - id: OUTPUT-FORMAT-PROMPT-PARSER
+    statement: >
+      For every supported format and retained compatibility adapter, the GENERATED output
+      instruction names exactly the gate key and channel keys its parser accepts, and nothing
+      another format binds; a body shaped like the instruction is accepted.
+    source:
+      - "src/xubb_agents/library/dynamic.py: _typed_instruction, _normalize_typed"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §5"
+    test: "tests/test_output_formats.py::TestPromptParserAgreement::test_the_generated_prompt_names_exactly_the_keys_the_parser_reads"
+    test_reverse: "tests/test_output_formats.py::TestPromptParserAgreement::test_a_body_shaped_like_the_prompt_is_accepted"
+    test_probe: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF1ContentAliasDisagreement::test_the_generated_prompt_names_the_field_the_parser_reads"
+    status: covered   # 3.1.0 (F1, F2b)
+
+  - id: OUTPUT-FORMAT-CHANNEL-PERMS
+    statement: >
+      Channel permissions come from the format's bindings and are identical whether the agent
+      speaks or stays silent: a channel key the format does not bind is undeclared_channel and
+      rejects the whole response with nothing committed, and an unknown top-level key on a
+      nested envelope is invalid_field/unknown_envelope_key. A speech gate never grants a
+      write permission.
+    source:
+      - "src/xubb_agents/core/insight_validation.py: validate_domain_channels"
+      - "src/xubb_agents/library/dynamic.py: _stage_typed"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §4.2"
+    test: "tests/test_output_formats.py::TestChannelPermissions::test_permissions_do_not_depend_on_the_gate"
+    test_unknown_key: "tests/test_output_formats.py::TestChannelPermissions::test_an_unknown_envelope_key_is_refused_on_a_nested_format"
+    test_control: "tests/test_output_formats.py::TestChannelPermissions::test_valid_silence_still_commits_its_permitted_channels"
+    test_probe: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF4GateDoesNotGrantWritePermission::test_an_undeclared_channel_is_refused_under_either_gate"
+    status: covered   # 3.1.0 (F4)
+
+  - id: OUTPUT-FORMAT-DEPRECATION
+    statement: >
+      A deprecated output format still runs and emits a DeprecationWarning naming the agent,
+      the requested format, its replacement and its removal version; a supported format emits
+      none. An omitted key inherits the implicit default's warning with it.
+    source:
+      - "src/xubb_agents/core/output_format.py: deprecation_message"
+      - "docs/MIGRATION_OUTPUT_FORMATS.md"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §8.2"
+    test: "tests/test_output_formats.py::TestDeprecation::test_a_deprecated_name_warns_naming_agent_format_replacement_and_removal"
+    test_still_runs: "tests/test_output_formats.py::TestDeprecation::test_a_deprecated_name_still_runs"
+    test_control: "tests/test_output_formats.py::TestDeprecation::test_a_supported_name_does_not_warn"
+    status: covered   # 3.1.0
+
+  - id: OUTPUT-FORMAT-MIGRATION
+    statement: >
+      A compatibility adapter translates the accepted old envelope into the canonical form and
+      runs the same validation: representative old and new agents produce equivalent normalized
+      insights and permitted state effects, including private memory; root-presence silence
+      becomes the canonical gate; state_snapshot becomes variable_updates; the documented
+      `message` alias is accepted and a conflicting body is refused. No verified defect survives
+      the translation.
+    source:
+      - "src/xubb_agents/library/dynamic.py: _normalize_typed"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §8.3"
+    test: "tests/test_output_formats.py::TestMigrationEquivalence::test_the_normalized_insight_is_the_same_across_formats"
+    test_memory: "tests/test_output_formats.py::TestMigrationEquivalence::test_private_memory_survives_the_migration"
+    test_silence: "tests/test_output_formats.py::TestMigrationEquivalence::test_root_presence_silence_translates_to_the_canonical_gate"
+    test_alias: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF1ContentAliasDisagreement::test_a_body_written_against_the_published_contract_is_accepted"
+    test_control: "tests/test_output_formats.py::TestMigrationEquivalence::test_control_a_tightened_input_is_refused_not_quietly_migrated"
+    status: covered   # 3.1.0 (F1)
+
+  - id: OUTPUT-FORMAT-LEGACY-WIDGET-WINDOW
+    statement: >
+      During the compatibility window widget_control accepts both envelopes under one total,
+      deterministic rule: a top-level has_insight selects the canonical envelope, its absence
+      selects the legacy root-presence one and warns. The rule decides for every body.
+    source:
+      - "src/xubb_agents/core/output_format.py: select_shape"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §8.3"
+    test: "tests/test_output_formats.py::TestLegacyWidgetShapeWindow::test_the_legacy_shape_is_accepted_and_warns"
+    test_canonical: "tests/test_output_formats.py::TestLegacyWidgetShapeWindow::test_the_canonical_shape_is_selected_by_has_insight_and_does_not_warn"
+    test_control: "tests/test_output_formats.py::TestLegacyWidgetShapeWindow::test_the_selection_rule_is_total"
+    status: covered   # 3.1.0
+
+  - id: OUTPUT-FORMAT-ROLLBACK-SAFE
+    statement: >
+      The recorded rollback-safe subset (tests/fixtures/rollback_safe_3_0) — one configuration
+      and envelope per format that existed at 3.0.0 — produces the same normalized insight and
+      the same committed channels at 3.1.0, so a pin-only rollback is a tested claim. Fixtures
+      using the new host surface are excluded by construction.
+    source:
+      - "tests/fixtures/rollback_safe_3_0/fixtures.json"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §13.1"
+    test: "tests/test_output_formats.py::TestRollbackSafeSubset::test_each_fixture_behaves_as_recorded"
+    test_coverage: "tests/test_output_formats.py::TestRollbackSafeSubset::test_the_set_covers_every_format_that_existed_at_3_0_0"
+    test_control: "tests/test_output_formats.py::TestRollbackSafeSubset::test_control_the_new_surface_is_not_in_the_rollback_safe_set"
+    status: covered   # 3.1.0
+
+  - id: WIDGET-ACTION-CONTRACT
+    statement: >
+      ui_actions is an array of objects carrying exactly target_widget (non-empty string),
+      action (non-empty string) and payload (object). Shape precedes authorization: a malformed
+      array or item is invalid_ui_action and no authorization check runs on it. An invalid or
+      unauthorized action rejects the whole originating response — its insight and its proposed
+      state effects — through EVERY producer path: dynamic agent, custom BaseAgent and
+      callback-modified response.
+    source:
+      - "src/xubb_agents/core/insight_validation.py: validate_ui_actions"
+      - "src/xubb_agents/core/engine.py: _enforce_acceptance"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §6.1, §6.3"
+    test: "tests/test_output_formats.py::TestWidgetActionsThroughEveryProducer::test_a_custom_producers_action_is_validated_at_the_same_boundary"
+    test_callback: "tests/test_output_formats.py::TestWidgetActionsThroughEveryProducer::test_a_callback_modified_action_is_validated_too"
+    test_atomic: "tests/test_output_formats.py::TestWidgetActionsThroughEveryProducer::test_an_invalid_action_rejects_the_insight_and_the_state_with_it"
+    test_shapes: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF5WidgetActionsAreValidated::test_malformed_and_unauthorized_actions_reject_the_whole_response"
+    test_control: "tests/test_output_formats.py::TestWidgetActionsThroughEveryProducer::test_control_the_same_producers_valid_action_passes"
+    status: covered   # 3.1.0 (F5)
+
+  - id: WIDGET-HOST-DECLARATIONS
+    statement: >
+      Permitted widget targets, actions and payload keys come from the host's per-run
+      declarations (AgentContext.widget_capabilities) and an optional engine-level payload
+      validator; the model cannot grant itself a capability. Missing declarations authorize
+      NOTHING, and the generated instruction says so instead of inviting actions the boundary
+      will reject.
+    source:
+      - "src/xubb_agents/core/models.py: HostWidgetCapabilities"
+      - "src/xubb_agents/library/dynamic.py: _widget_instruction"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §6.2"
+    test: "tests/test_output_formats.py::TestWidgetActionsThroughEveryProducer::test_declarations_shape_the_prompt"
+    test_hook: "tests/test_output_formats.py::TestWidgetActionsThroughEveryProducer::test_the_host_hook_runs_at_the_boundary_for_every_producer"
+    test_nothing_declared: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF5WidgetActionsAreValidated::test_an_undeclared_host_authorizes_nothing"
+    test_control: "tests/test_output_formats.py::TestWidgetActionsThroughEveryProducer::test_control_no_declarations_no_invitation"
+    status: covered   # 3.1.0
+
+  - id: PROVIDER-PROJECTION-CHANNELS
+    statement: >
+      The provider projection offers exactly the channels the run's output format binds, and
+      every offered key is required and decodable. state_updates and data are host-facing
+      projections of AgentResponse and are not model-facing channels; ui_actions is, with its
+      payload carried by the lossless map codec.
+    source:
+      - "src/xubb_agents/core/provider_schema.py: compile_schema(channels=...)"
+      - "src/xubb_agents/library/contract/provider_response_contract.json"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §5.1, §7"
+    test: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF7ProviderOffersOnlyWhatItReads::test_the_projection_offers_exactly_the_channels_the_format_binds"
+    test_removed: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF7ProviderOffersOnlyWhatItReads::test_state_updates_and_data_are_no_longer_model_facing"
+    test_roundtrip: "tests/test_provider_schema_g2.py::TestCodec::test_packaged_positive_examples_round_trip_through_both_projections"
+    test_strict_widget: "tests/test_provider_schema_g2.py::TestWidgetControlStrictTransport::test_a_strict_widget_turn_projects_decodes_and_stages"
+    test_per_format: "tests/test_provider_schema_g2.py::TestWidgetControlStrictTransport::test_control_the_projection_for_insight_v1_offers_no_action_channel"
+    test_control: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF7ProviderOffersOnlyWhatItReads::test_no_supported_format_offers_a_channel_it_cannot_consume"
+    status: covered   # 3.1.0 (F7)
+
+  - id: OUTPUT-FORMAT-MIGRATION-TOOL
+    statement: >
+      The inventory tool identifies, per agent configuration, the current format (naming the
+      ones that inherit the implicit default), the target, and the work it cannot do: a
+      handwritten envelope in the prompt body, a widget agent needing host declarations, a
+      structural override, a retired flag, an unresolvable name. --dry-run changes no file;
+      --write sets output_format explicitly and touches nothing else, leaving unresolved names
+      for a person.
+    source:
+      - "tools/migrate_output_formats.py"
+      - "docs/MIGRATION_OUTPUT_FORMATS.md"
+      - "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md: §8.4"
+    test: "tests/test_output_formats.py::TestMigrationTool::test_it_flags_every_kind_of_manual_work"
+    test_implicit: "tests/test_output_formats.py::TestMigrationTool::test_it_names_the_implicit_default_configurations"
+    test_dry_run: "tests/test_output_formats.py::TestMigrationTool::test_a_dry_run_changes_no_file"
+    test_write: "tests/test_output_formats.py::TestMigrationTool::test_write_sets_output_format_explicitly_and_touches_nothing_else"
+    test_control: "tests/test_output_formats.py::TestMigrationTool::test_control_an_already_migrated_agent_needs_nothing"
+    status: covered   # 3.1.0
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:       89   (every contract & invariant names a passing, rule-asserting test)
+# covered:      102   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:         89
+# total:        102
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6
