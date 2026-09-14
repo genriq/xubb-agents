@@ -1,5 +1,9 @@
 {
-  "instruction": "\nIMPORTANT: You must return a valid JSON object.\n\nOUTPUT FORMAT:\n{\n    \"has_insight\": boolean,\n    \"type\": \"suggestion\" | \"warning\" | \"opportunity\" | \"fact\" | \"praise\",\n    \"content\": \"Your advice/insight here\",\n    \"confidence\": 0.0-1.0,\n    \"metadata\": {},\n    \"events\": [\n        {\"name\": \"event_name\", \"payload\": {\"key\": \"value\"}}\n    ],\n    \"variable_updates\": {\"key\": \"value\"},\n    \"queue_pushes\": {\"queue_name\": [{\"item\": \"data\"}]},\n    \"facts\": [\n        {\"type\": \"fact_type\", \"key\": \"optional_key\", \"value\": \"extracted_value\", \"confidence\": 0.9}\n    ],\n    \"memory_updates\": {\"key\": \"value\"}\n}\n\nNOTES:\n- Set has_insight=true only if you have meaningful advice to share\n- events: Use to trigger other agents (e.g., \"question_detected\")\n- variable_updates: Update shared session state\n- queue_pushes: Add items to work queues\n- facts: Extract knowledge like budget, timeline, stakeholders\n- memory_updates: Update your private scratchpad\n",
+  "id": "default_v2",
+  "status": "deprecated",
+  "description": "Flat legacy envelope with the five state channels at the top level.",
+  "contract": "library/contract/output_formats.json \u2014 THE authority. This file is documentation; its mapping and descriptor are conformance-tested against the contract and are not read at run time.",
+  "instruction": "\nDEPRECATED since 3.1.0, removed in 4.0.0 \u2014 move to insight_v1.\n\nIMPORTANT: You must return a valid JSON object.\n\nOUTPUT FORMAT:\n{\n    \"has_insight\": boolean,\n    \"type\": \"suggestion\" | \"warning\" | \"opportunity\" | \"fact\" | \"praise\",\n    \"content\": \"Your advice/insight here\",\n    \"confidence\": 0.0-1.0,\n    \"metadata\": {},\n    \"events\": [ {\"name\": \"event_name\", \"payload\": {\"key\": \"value\"}} ],\n    \"variable_updates\": {\"key\": \"value\"},\n    \"queue_pushes\": {\"queue_name\": [{\"item\": \"data\"}]},\n    \"facts\": [ {\"type\": \"fact_type\", \"key\": \"optional_key\", \"value\": \"extracted_value\", \"confidence\": 0.9} ],\n    \"memory_updates\": {\"key\": \"value\"}\n}\n",
   "mapping": {
     "root_key": null,
     "check_field": "has_insight",
@@ -11,20 +15,13 @@
     "variable_updates_field": "variable_updates",
     "queue_field": "queue_pushes",
     "facts_field": "facts",
-    "memory_field": "memory_updates",
-    "state_field": null
+    "memory_field": "memory_updates"
   },
   "descriptor": {
-    "schema_version": "legacy_v2",
     "gate_mode": "boolean",
-    "typed_adapter": "flat_v2",
-    "supported_insight_types": [
-      "suggestion",
-      "warning",
-      "opportunity",
-      "fact",
-      "praise"
-    ],
+    "typed_adapter": "flat",
+    "output_format": "default_v2",
+    "status": "deprecated",
     "typed_supported_insight_types": [
       "fact",
       "observation",
@@ -53,6 +50,18 @@
     "supported_transports": [
       "json_object"
     ],
-    "supported_content_contracts": []
+    "supported_content_contracts": [],
+    "channels": {
+      "events": "events",
+      "variable_updates": "variable_updates",
+      "queue_pushes": "queue_pushes",
+      "facts": "facts",
+      "memory_updates": "memory_updates"
+    }
+  },
+  "deprecation": {
+    "deprecated_in": "3.1.0",
+    "removed_in": "4.0.0",
+    "replacement": "insight_v1"
   }
 }

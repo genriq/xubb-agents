@@ -1,0 +1,137 @@
+{
+  "purpose": "SPEC_OUTPUT_FORMAT_CONSOLIDATION.md §13.1 — the rollback-safe subset.",
+  "notes": [
+    "One configuration + envelope per output format that existed at 3.0.0, chosen so",
+    "that 3.0.0 and 3.1.0 produce the SAME normalized insight and the SAME committed",
+    "channels. An integration entirely inside this set can roll its library pin back",
+    "with no configuration change (§13.1); anything outside it — a host passing",
+    "widget_capabilities or widget_payload_validator, or a widget agent moved to the",
+    "canonical envelope — needs the coordinated procedure in §13.2.",
+    "Deliberately absent: ui_actions and widget declarations. They are the new",
+    "surface, and a fixture using them would make the claim untrue."
+  ],
+  "baseline": "3.0.0 (d9a8b32577fcc353a80240f7206d0b5f41bd163f)",
+  "cases": [
+    {
+      "id": "insight_v1_speaking",
+      "config": {"output_format": "insight_v1", "allowed_types": ["warning"]},
+      "envelope": {
+        "has_insight": true,
+        "insight": {"type": "warning", "content": "The date depends on an approval.", "confidence": 0.7},
+        "variable_updates": {"phase": "risk"},
+        "memory_updates": {"seen": 1}
+      },
+      "expected": {
+        "acceptance": "accepted",
+        "insights": ["The date depends on an approval."],
+        "variables": {"phase": "risk"},
+        "memory": {"seen": 1}
+      }
+    },
+    {
+      "id": "insight_v1_silent_with_state",
+      "config": {"output_format": "insight_v1", "allowed_types": ["warning"]},
+      "envelope": {"has_insight": false, "insight": null, "variable_updates": {"phase": "closing"}},
+      "expected": {
+        "acceptance": "accepted_silent",
+        "insights": [],
+        "variables": {"phase": "closing"},
+        "memory": {}
+      }
+    },
+    {
+      "id": "default_speaking_with_memory",
+      "config": {"output_format": "default", "allowed_types": ["suggestion"]},
+      "envelope": {
+        "has_insight": true,
+        "type": "suggestion",
+        "content": "Confirm the approval owner.",
+        "confidence": 0.6,
+        "memory_updates": {"seen": 1}
+      },
+      "expected": {
+        "acceptance": "accepted",
+        "insights": ["Confirm the approval owner."],
+        "variables": {},
+        "memory": {"seen": 1}
+      }
+    },
+    {
+      "id": "implicit_default_silent",
+      "config": {"allowed_types": ["suggestion"]},
+      "envelope": {"has_insight": false},
+      "expected": {"acceptance": "accepted_silent", "insights": [], "variables": {}, "memory": {}}
+    },
+    {
+      "id": "default_v2_speaking_with_channels",
+      "config": {"output_format": "default_v2", "allowed_types": ["warning"]},
+      "envelope": {
+        "has_insight": true,
+        "type": "warning",
+        "content": "The quoted date has no approval behind it.",
+        "confidence": 0.8,
+        "variable_updates": {"phase": "risk"},
+        "memory_updates": {"seen": 2}
+      },
+      "expected": {
+        "acceptance": "accepted",
+        "insights": ["The quoted date has no approval behind it."],
+        "variables": {"phase": "risk"},
+        "memory": {"seen": 2}
+      }
+    },
+    {
+      "id": "v2_raw_speaking_with_state_snapshot",
+      "config": {"output_format": "v2_raw", "allowed_types": ["suggestion"]},
+      "envelope": {
+        "insight": {"type": "suggestion", "content": "Offer the later date.", "confidence": 0.5},
+        "state_snapshot": {"phase": "closing"}
+      },
+      "expected": {
+        "acceptance": "accepted",
+        "insights": ["Offer the later date."],
+        "variables": {"phase": "closing"},
+        "memory": {}
+      }
+    },
+    {
+      "id": "v2_raw_silent_by_absence",
+      "config": {"output_format": "v2_raw", "allowed_types": ["suggestion"]},
+      "envelope": {"state_snapshot": {"phase": "discovery"}},
+      "expected": {
+        "acceptance": "accepted_silent",
+        "insights": [],
+        "variables": {"phase": "discovery"},
+        "memory": {}
+      }
+    },
+    {
+      "id": "ui_control_speaking_without_actions",
+      "config": {"output_format": "ui_control", "allowed_types": ["fact"]},
+      "envelope": {
+        "insight": {"type": "fact", "content": "The counterpart named a 60k budget.", "confidence": 0.9},
+        "state_snapshot": {"budget": "60k"}
+      },
+      "expected": {
+        "acceptance": "accepted",
+        "insights": ["The counterpart named a 60k budget."],
+        "variables": {"budget": "60k"},
+        "memory": {}
+      }
+    },
+    {
+      "id": "widget_control_speaking_without_actions",
+      "config": {"output_format": "widget_control", "allowed_types": ["fact"]},
+      "envelope": {
+        "insight": {"type": "fact", "content": "The goal list is out of date.", "confidence": 0.4},
+        "state_snapshot": {"goals_stale": true}
+      },
+      "expected": {
+        "acceptance": "accepted",
+        "insights": ["The goal list is out of date."],
+        "variables": {"goals_stale": true},
+        "memory": {}
+      }
+    }
+  ]
+}

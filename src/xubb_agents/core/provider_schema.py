@@ -113,13 +113,18 @@ def project(node: Any) -> Any:
 
 
 def compile_schema(*, full: bool = False, content_extension: bool = True,
-                   allowed_types: Optional[List[str]] = None) -> Dict[str, Any]:
+                   allowed_types: Optional[List[str]] = None,
+                   channels: Optional[List[str]] = None) -> Dict[str, Any]:
     """The provider projection for one run.
 
     ``allowed_types`` restricts the type enum to the effective set (None = the
     contract's nine). An EMPTY set produces a silence-only envelope
     (``insight: null``, ``has_insight: false``) — never an empty enum (§7.3).
-    ``full`` adds the domain channels from the response-contract descriptor.
+    ``full`` adds domain channels from the response-contract descriptor.
+    ``channels`` restricts them to the wire keys the run's OUTPUT FORMAT binds
+    (``None`` = every channel the descriptor knows). Offering a channel the
+    format's parser does not read would make the provider require output that is
+    then discarded, which is the defect this parameter closes (F7).
     """
     local = load_normalized_schema()
     source = local["$defs"]["candidate"]
@@ -148,7 +153,14 @@ def compile_schema(*, full: bool = False, content_extension: bool = True,
         props["has_insight"]["enum"] = [False]
     if full:
         descriptor = load_response_contract()
-        for name, item in descriptor["domain_channels"].items():
+        known = descriptor["domain_channels"]
+        if channels is not None:
+            unknown = [c for c in channels if c not in known]
+            if unknown:
+                raise ValueError(f"unprojectable_channel:{unknown[0]}")
+        for name, item in known.items():
+            if channels is not None and name not in channels:
+                continue
             if item["encoding"] == "map_entries_v1":
                 props[name] = {"$ref": "#/$defs/map"}
             else:
@@ -242,7 +254,8 @@ def _row_field(channel: str) -> str:
 
 
 def encode_response(response: Dict[str, Any], *, full: bool = False,
-                    content_extension: bool = True) -> Dict[str, Any]:
+                    content_extension: bool = True,
+                    channels: Optional[List[str]] = None) -> Dict[str, Any]:
     out = deepcopy(response)
     candidate = out.get("insight")
     if candidate is not None:
@@ -252,6 +265,8 @@ def encode_response(response: Dict[str, Any], *, full: bool = False,
             candidate.setdefault("content_format", "plain_text")
     if full:
         for name, item in load_response_contract()["domain_channels"].items():
+            if channels is not None and name not in channels:
+                continue
             if item["encoding"] == "map_entries_v1":
                 out[name] = encode_value(out.get(name, {}))
             else:

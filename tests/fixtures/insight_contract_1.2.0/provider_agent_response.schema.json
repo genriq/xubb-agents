@@ -14,9 +14,6 @@
         }
       ]
     },
-    "state_updates": {
-      "$ref": "#/$defs/map"
-    },
     "variable_updates": {
       "$ref": "#/$defs/map"
     },
@@ -24,9 +21,6 @@
       "$ref": "#/$defs/map"
     },
     "memory_updates": {
-      "$ref": "#/$defs/map"
-    },
-    "data": {
       "$ref": "#/$defs/map"
     },
     "facts": {
@@ -77,18 +71,40 @@
         ],
         "additionalProperties": false
       }
+    },
+    "ui_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target_widget": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/map"
+          }
+        },
+        "required": [
+          "target_widget",
+          "action",
+          "payload"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [
     "has_insight",
     "insight",
-    "state_updates",
     "variable_updates",
     "queue_pushes",
     "memory_updates",
-    "data",
     "facts",
-    "events"
+    "events",
+    "ui_actions"
   ],
   "additionalProperties": false,
   "$defs": {

@@ -3,6 +3,16 @@
 
 **Version:** dated to the v2.2 code analysis (2026-06); revision note added 2026-08-19.
 
+> **SUPERSEDED IN 3.1.0 — output formats.** Everything below about *which* output
+> formats exist, how a schema's `mapping` shapes the envelope, gate-less schemas and
+> `speak_without_gate` is superseded by
+> [SPEC_OUTPUT_FORMAT_CONSOLIDATION.md](SPEC_OUTPUT_FORMAT_CONSOLIDATION.md) and
+> [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md). In 3.1.0 there are
+> two supported formats (`insight_v1`, `widget_control`) and four deprecated aliases
+> removed in 4.0.0; every format's gate, keys and channels come from one contract file;
+> a structural `mapping` override and `speak_without_gate` are refused at registration;
+> and an unknown format name raises instead of falling back to `default`.
+
 > **Accuracy note (2026-08-19).** This playbook's patterns remain valid through v2.6, but three things in it predate the current tree: file paths are pre-`src/`-layout (every `core/...` and `library/...` path now lives under `src/xubb_agents/...`), model guidance predates the v2.6 two-lane model policy (see `prompt_engineering_guide.md` §9 for current model names), and quoted marketing lines may no longer appear in their cited documents. Where this document and `CONTRACTS.yaml` or `technical_spec_agents.md` disagree, they win. A full revision is queued.
 
 **For:** engineers building a live HUD/overlay copilot on the `xubb_agents` framework — something that listens to a conversation as it happens, understands it, and surfaces the *right* insight at the *right* moment. Grounded in a deep analysis of the real code under `src/xubb_agents/`; core patterns date to v2.2 and remain current through v2.6.
@@ -176,7 +186,7 @@ The framework is engineered, top to bottom, so that **saying nothing is the natu
 
 - **Cooldowns** (`trigger_config.cooldown`, enforced in `BaseAgent.process()`) mean an agent physically cannot fire again for N seconds even if it wants to. Restraint is wired into the clock.
 - **Trigger conditions fail closed** (C-1, v2.2): a typo'd or unknown operator now evaluates to `False`, so a misconfigured agent stays *silent* rather than firing every turn. The framework biases every ambiguity toward silence.
-- **Gate-less schemas default to silence** (A-1, v2.2): a custom output schema with no gate field and no root key stays silent unless it explicitly opts in with `speak_without_gate: true`. You have to *earn the right to speak* by declaring you mean to.
+- **Nothing speaks without an explicit gate** (A-1, v2.2; strengthened in 3.1.0): a schema with no declared gate rule cannot be registered at all, and `speak_without_gate` — which was accepted and inert from 2.2 to 3.0.0 — is refused with migration guidance. You have to *earn the right to speak* by declaring you mean to; now the framework refuses to let you forget.
 - **Separation of observe vs. speak:** an agent can return a perfectly valid `AgentResponse` with rich `facts`, `events`, and `variable_updates` and **zero `insights`**. It updated the shared understanding without spending a single photon of the user's attention. This is the most underused move in the framework — see §5.
 
 So the design intent is: **agents observe constantly and accumulate quietly; they surface an insight only when one is genuinely earned.** An insight is "earned" when the accumulated state on the board crosses a threshold that the human actually needs to know about *right now*. The job of a good agent team is mostly to *not* show things.
@@ -554,7 +564,7 @@ A subtle `DynamicAgent` capability worth knowing. A schema's *silence gate* is w
 
 - **`check_field` present** (e.g. `default`, `default_v2` use `has_insight`): the boolean drives it — `false` ⇒ silence.
 - **`root_key` present, no `check_field`** (e.g. `v2_raw` with `root_key: "insight"`): presence of a non-empty root object *is* the gate.
-- **Neither** (a custom gate-less, rootless schema): the **documented default is to stay silent**. To opt into "speak whenever there's content," you must explicitly set `"speak_without_gate": true` in the mapping.
+- ~~**Neither** (a custom gate-less, rootless schema)~~ — **removed in 3.1.0.** There is no third case: every output format declares a gate, a schema without one cannot be registered, and `speak_without_gate` is refused. See [SPEC_OUTPUT_FORMAT_CONSOLIDATION.md](SPEC_OUTPUT_FORMAT_CONSOLIDATION.md) §9.3.
 
 `DynamicAgent` even logs a one-time warning at load if your schema's *instruction* mentions a gate field like `has_insight` but the mapping forgot to wire `check_field` — the exact misconfiguration that silently turns an agent into a HUD spammer. **Restraint is the default; you have to opt out of it.** That's the framework's philosophy encoded in a parser.
 
@@ -1570,7 +1580,7 @@ Every field maps to constructor logic in `DynamicAgent.__init__`:
 | `model_config.max_tokens` | v2.6. Per-agent token cap (wire: `max_completion_tokens`; **includes reasoning tokens** — deep-effort agents need `>= 4096`, ~25000 for real headroom). |
 | `model_config.model_params` | v2.6. Verbatim Chat-Completions passthrough dict (e.g. `{"verbosity": "low"}`). Framework-owned keys rejected at load; documented as wire-shaped, **not** transport-portable. |
 | `include_context` | Gates user-profile + RAG injection (default `true`). |
-| `output_format` | Schema filename in `library/schemas/`. Missing file → falls back to `default.json` (with a warning). |
+| `output_format` | The agent's output format. **3.1.0:** `insight_v1` or `widget_control` (supported), or one of `default` / `default_v2` / `v2_raw` / `ui_control` (deprecated, removed in 4.0.0). An unknown, null, empty or non-string value raises at registration — the missing-file fallback to `default.json` this row used to describe is gone, because a typo silently re-homing an agent into a different envelope was the defect. |
 
 **Secret formula — the agent IS the config.** Treat `text`, `trigger_config`, `trigger_conditions`, and `output_format` as four orthogonal dials. Persona is one dial; *when* it fires is another; *what shape* it speaks in is a third; *whether it's even allowed to think* (conditions) is the fourth. Tuning a copilot is tuning dials across a roster of these dicts — never editing Python.
 
@@ -1631,7 +1641,7 @@ elif self.mapping.get("root_key"):
     should_speak = bool(root_data)
 else:
     # (c) gate-less + rootless: SILENT unless opted in
-    should_speak = bool(self.mapping.get("speak_without_gate", False))
+    should_speak = bool(self.mapping.get("speak_without_gate", False))   # REMOVED in 3.1.0
 ```
 
 - **Case (a) — explicit gate.** `default`, `default_v2`, `custom1`. The model returns `has_insight: false` and the agent says nothing. A *missing* gate field also reads as `False` (safe default). This is the workhorse: most agents should use it and return `{ "has_insight": false }` on the vast majority of turns.
@@ -1642,11 +1652,13 @@ else:
 "mapping": { "content_field": "tip", "speak_without_gate": true }
 ```
 
+> **3.1.0:** this mapping is now an `AgentConfigurationError`. Use `insight_v1`, whose gate is declared and enforced.
+
 Even when the gate is open, **`content` must be truthy** — an empty `content_field` produces no insight. Speaking is gate-open *and* content-present.
 
 ### The load-time misconfig warning (A-1 / INV-11)
 
-`_warn_on_gateless_misconfig` runs once at construction. If your `mapping` has **no** `check_field` and **no** `root_key`, but the `instruction` text mentions a gate word (`has_insight`, `should_speak`, `speak`, `is_relevant`), `DynamicAgent` logs a warning: you *told the model* to emit a gate but never *wired it up*, so the model's intended silence will be silently dropped. The fix is in the warning: add `check_field`, or set `speak_without_gate: true` to acknowledge the speak-on-content default on purpose.
+**3.1.0: this warning is gone, because its condition cannot arise** — the gate comes from the format contract and a structural `mapping` override fails at registration instead of running with a warning nobody reads. Historical description follows. `_warn_on_gateless_misconfig` ran once at construction. If your `mapping` has **no** `check_field` and **no** `root_key`, but the `instruction` text mentions a gate word (`has_insight`, `should_speak`, `speak`, `is_relevant`), `DynamicAgent` logs a warning: you *told the model* to emit a gate but never *wired it up*, so the model's intended silence will be silently dropped. The fix is in the warning: add `check_field`, or set `speak_without_gate: true` to acknowledge the speak-on-content default on purpose.
 
 > **Secret formula — gate ruthlessly, then trust the gate.** Pick a gated schema (`default_v2`) or a presence schema (`v2_raw`) deliberately; never ship a gate-less custom schema by accident. Then write the prompt so silence is the *easy* path: tell the model, in the instruction, that `{ "has_insight": false }` is the correct answer when the conversation is flowing. A copilot that whispers once is worth more than one that narrates constantly.
 
@@ -1763,7 +1775,7 @@ Rules of thumb:
 
 ## 10. Anti-patterns
 
-- **No silence gate → HUD spam.** Shipping a gate-less, rootless custom schema and relying on "the model will know when to stay quiet." It won't, and case (c) defaults to silence precisely to protect you — but if you slap `speak_without_gate: true` on without a `check_field`, you get a card every turn there's any content. **Fix:** use `check_field` (case a) or a `root_key` presence gate (case b).
+- **No silence gate → HUD spam.** Shipping a schema with no gate and relying on "the model will know when to stay quiet." It won't. **3.1.0 removes the foot-gun rather than warning about it:** such a schema cannot be registered, and `speak_without_gate` is refused. **Fix:** use `insight_v1` (or `widget_control`), whose Boolean gate is declared and enforced.
 
 - **Over-stuffed schemas.** Cramming events, facts, queues, ui_actions, state, *and* insight into one schema that every agent loads. Most agents need a gate + content + maybe one sidecar. Every extra field in `instruction` is per-call token cost and a chance for the model to hallucinate structure. **Fix:** minimal schema per role; reach for `default_v2` and only add the sidecars you actually consume.
 
@@ -1790,7 +1802,7 @@ evaluate:
   3. assemble = [user_profile?] [language?] rendered_prompt [MEMORY] [RAG?] [trigger?] [instruction]
   4. call     = llm.generate_json(model, messages)   (JSON mode)
   5. root     = result[root_key] or result
-  6. GATE     = check_field | root presence | speak_without_gate
+  6. GATE     = the gate the format DECLARES (3.1.0: boolean, or root-presence on a deprecated adapter)
   7. insight  = content + type + confidence(clamp) + expiry + action_label + metadata
   8. sidecars = state_field | data_field | events | variable_updates | queues | facts | memory
 ```
@@ -2275,7 +2287,7 @@ elif self.mapping.get("root_key"):
     should_speak = bool(root_data)
 else:
     # (c) Gate-less + rootless: default to silence unless opted in.
-    should_speak = bool(self.mapping.get("speak_without_gate", False))
+    should_speak = bool(self.mapping.get("speak_without_gate", False))   # REMOVED in 3.1.0
 ```
 
 Read the three cases as three HUD philosophies:
@@ -2290,7 +2302,7 @@ Read the three cases as three HUD philosophies:
   object *is* the act of speaking; an empty/absent root ⇒ silence. Good when the
   voice insight is optional alongside silent UI actions.
 - **(c) Gate-less + rootless** — a custom schema with neither. The **documented
-  default is silence**, full stop. You must `"speak_without_gate": true` to opt
+  default is silence**, full stop. *(3.1.0: `speak_without_gate` is refused — a format with no declared gate cannot be registered at all.)* You must `"speak_without_gate": true` to opt
   into "content present ⇒ speak." And the framework *warns you at load time*
   (`_warn_on_gateless_misconfig`, INV-11/A-1) if your instruction text mentions
   a gate field like `has_insight` but your mapping forgot to wire it — the exact
@@ -2537,7 +2549,7 @@ prevent — these are the ways teams defeat their own framework.
 - **Gate-less agents that always speak.** A custom schema with no `check_field`
   and no `root_key`, relying on "there's content ⇒ show it." v2.2 defaults this
   to *silence* (INV-11 case (c)) and warns at load time — do not "fix" the
-  warning by flipping `speak_without_gate: true` to make the noise come back.
+  warning by flipping `speak_without_gate: true` to make the noise come back. *(3.1.0: that flag is now a configuration error.)*
   **Fix:** wire an explicit `check_field` gate.
 - **Low-confidence noise.** Treating `confidence` as decoration and rendering
   everything. The A-3 clamp keeps bad values from crashing, but it can't filter
@@ -2840,7 +2852,7 @@ Two structural gate styles, both real and both load-bearing for restraint:
 - **Boolean gate** (`check_field`): the model must explicitly raise `has_insight: true`. Silence is the default; speech is opt-in.
 - **Presence gate** (`root_key`, no `check_field`): emitting a non-empty root object *is* the decision to speak; an absent/empty object means silence.
 
-And the trap the framework warns you about: a **gate-less + rootless** custom schema (no `check_field`, no `root_key`) has *no structural gate*. The documented default is to **stay silent** unless the mapping sets `"speak_without_gate": true`. `DynamicAgent` even emits a one-time load-time warning (`_warn_on_gateless_misconfig`) when your instruction *mentions* a gate field like `has_insight` but the mapping forgot to wire `check_field` — the exact misconfiguration that silently turns a polite agent into a HUD spammer. **If you author a schema, wire a gate.** Restraint is a feature; a missing gate quietly removes it.
+And the trap the framework used to warn you about — **3.1.0 refuses it instead**: a **gate-less + rootless** custom schema (no `check_field`, no `root_key`) has *no structural gate*. The documented default is to **stay silent** unless the mapping sets `"speak_without_gate": true`. `DynamicAgent` even emits a one-time load-time warning (`_warn_on_gateless_misconfig`) when your instruction *mentions* a gate field like `has_insight` but the mapping forgot to wire `check_field` — the exact misconfiguration that silently turns a polite agent into a HUD spammer. **If you author a schema, wire a gate.** Restraint is a feature; a missing gate quietly removes it.
 
 > ### 🔑 Secret formula — One studio, many products
 > Keep agents as **rows** (a dict per agent) and output contracts as **schema files**. A "sales copilot," a "support copilot," and a "tutoring copilot" are then three *catalogs of config over the same `DynamicAgent` engine* — not three codebases. New agent = new row. New output shape = new schema file. New persona for a customer = an `instructions_append` Role. The Python stops changing; the product keeps moving.
@@ -2903,7 +2915,7 @@ One caution: this is also why the **engine ID key** matters so much. Recomputing
 
 **Cross-agent override contamination — i.e., the wrong key.** The framework gives you isolation for free (each agent reads only `overrides.get(self.config.id)`), so the only way to "contaminate" is to **key the dict wrong**: putting agent B's tuning under agent A's ID, or keying by a *role* name instead of the *engine* agent ID. The override then either silently misfires onto the wrong agent or no-ops entirely. There is no runtime error. Audit your Role keys against the registered `agent.config.id`s — make that a test.
 
-**Gate-less custom schemas.** Authoring a new schema with neither `check_field` nor `root_key` (and not deliberately setting `speak_without_gate`) removes the silence contract. The shipped warning will tell you; don't ignore it. Every schema you write should declare *how the agent stays quiet*, because in a real-time HUD, quiet is the default the user is paying for.
+**Gate-less custom schemas.** *(3.1.0: no longer possible — such a schema is refused at registration.)* Authoring a new schema with neither `check_field` nor `root_key` removed the silence contract. The shipped warning will tell you; don't ignore it. Every schema you write should declare *how the agent stays quiet*, because in a real-time HUD, quiet is the default the user is paying for.
 
 ---
 
@@ -4229,7 +4241,7 @@ Three of these agents must stay silent on the HUD. The silence gate in `dynamic.
 
 1. **`check_field` present** (e.g. `has_insight`) → the boolean drives speech. Missing/false ⇒ silence. This is `default_v2`.
 2. **`root_key` present, no `check_field`** → presence of a non-empty root object is the gate.
-3. **Neither** → defaults to **silence** unless you set `"speak_without_gate": true`. (A-1/INV-11. Don't do this here.)
+3. ~~**Neither**~~ — removed in 3.1.0: a format with no declared gate cannot be registered, and `speak_without_gate` is refused. (A-1/INV-11, amended.)
 
 The detector and extractor must emit **events/queues/facts but never an insight**. The trick: use a schema whose `check_field` gate stays `false`, while events/queue/facts are parsed from the **result root** regardless of the gate (steps 6–9 in `evaluate` run unconditionally, independent of `should_speak`). So we reuse `default_v2.json` and instruct the model to keep `has_insight=false`.
 
@@ -4572,7 +4584,7 @@ assert against exactly these surfaces.
    - **`root_key` present, no `check_field`** (e.g. `v2_raw` → `insight`): a
      non-empty root object is the gate. Empty/absent ⇒ **silence**.
    - **neither** (a hand-rolled custom schema): default policy is **silence**
-     unless the author sets `speak_without_gate: true`.
+     unless the author sets `speak_without_gate: true`. *(3.1.0: refused.)*
 
 **The only thing you mock is `generate_json`.** It is an `async` method that
 returns a parsed `dict` (or `None`). Everything downstream — gating, confidence

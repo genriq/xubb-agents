@@ -1,27 +1,29 @@
 {
   "id": "widget_control",
-  "description": "Protocol Envelope for Widget Controllers (Hands). Maps ui_actions to the data sidecar.",
-  "instruction": "\nIMPORTANT: You are a Widget Controller. You must output a JSON object with a 'ui_actions' array.\n\nOUTPUT FORMAT ENVELOPE:\n{\n  \"ui_actions\": [\n    {\n      \"target_widget\": \"goals_widget\" | \"sentiment_meter\" | \"...\",\n      \"action\": \"update\" | \"set\" | \"...\",\n      \"payload\": { ...Object matching the specific widget schema... }\n    }\n  ],\n  \"insight\": { ...Optional voice... },\n  \"state_snapshot\": { ...Optional memory... }\n}\n",
+  "status": "supported",
+  "description": "The single UI-action format: the canonical envelope plus a ui_actions channel whose items are validated against the host's widget declarations.",
+  "contract": "library/contract/output_formats.json \u2014 THE authority. This file is documentation; its mapping and descriptor are conformance-tested against the contract and are not read at run time.",
+  "instruction": "\nIMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n{\n  \"has_insight\": true | false,\n  \"insight\": null | { ...the same candidate insight_v1 defines... },\n  \"events\": [], \"variable_updates\": {}, \"queue_pushes\": {}, \"facts\": [], \"memory_updates\": {},\n  \"ui_actions\": [\n    { \"target_widget\": \"<a widget the host declared>\", \"action\": \"<an action it declared>\", \"payload\": { } }\n  ]\n}\n\nNOTES:\n- You may act without speaking: has_insight false with a non-empty ui_actions array is valid.\n- Only the targets and actions the host declared for this run exist. Anything else rejects\n  your whole response, insight included. With no declarations you may not act at all.\n",
   "mapping": {
     "root_key": "insight",
-    "check_field": null,
+    "check_field": "has_insight",
     "content_field": "content",
     "type_field": "type",
     "confidence_field": "confidence",
-    "state_field": null,
-    "variable_updates_field": "state_snapshot",
+    "metadata_field": "metadata",
+    "events_field": "events",
+    "variable_updates_field": "variable_updates",
+    "queue_field": "queue_pushes",
+    "facts_field": "facts",
+    "memory_field": "memory_updates",
     "data_field": "ui_actions",
     "data_key": "ui_actions"
   },
   "descriptor": {
-    "schema_version": "legacy_v2",
-    "gate_mode": "root_presence",
-    "typed_adapter": "root_v2",
-    "supported_insight_types": [
-      "suggestion",
-      "warning",
-      "fact"
-    ],
+    "gate_mode": "boolean",
+    "typed_adapter": "canonical",
+    "output_format": "widget_control",
+    "status": "supported",
     "typed_supported_insight_types": [
       "fact",
       "observation",
@@ -48,9 +50,17 @@
       "metadata"
     ],
     "supported_transports": [
+      "json_schema",
       "json_object"
     ],
     "supported_content_contracts": [],
-    "sidecar_instruction": "an array of widget actions, each {\"target_widget\": \"goals_widget\" | \"sentiment_meter\" | \"...\", \"action\": \"update\" | \"set\" | \"...\", \"payload\": { ...object matching the specific widget schema... }}; you may act without speaking, and you return [] only when no widget should change."
+    "channels": {
+      "events": "events",
+      "variable_updates": "variable_updates",
+      "queue_pushes": "queue_pushes",
+      "facts": "facts",
+      "memory_updates": "memory_updates",
+      "ui_actions": "ui_actions"
+    }
   }
 }

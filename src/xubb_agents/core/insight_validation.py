@@ -75,9 +75,18 @@ DIAGNOSTIC_CODES: Tuple[str, ...] = (
     "completion_unknown",
     # framework additions (documented in CHANGELOG)
     "invalid_envelope",
+    # 3.1.0 output-format consolidation (SPEC_OUTPUT_FORMAT_CONSOLIDATION §4.3)
+    "undeclared_channel",        # a channel key this format/run does not offer
+    "invalid_ui_action",         # malformed ui_actions array or item
+    "unauthorized_ui_action",    # well-formed, but the host declared no such capability
 )
 
-GATE_MODES: Tuple[str, ...] = ("boolean", "root_presence", "content_presence", "gateless", "state_only")
+#: The two gate kinds an output format may declare. ``boolean`` is the canonical
+#: gate and the only kind a SUPPORTED format declares; ``root_presence`` is
+#: declared by the compatibility adapters, which translate presence into the
+#: canonical Boolean gate before validation. A format with no declared gate rule
+#: cannot be registered (3.1.0; amends A-1 / INV-11, see docs/CONTRACTS.yaml).
+GATE_MODES: Tuple[str, ...] = ("boolean", "root_presence")
 
 # Engine-reserved variable namespace (INV-4). A model proposing a write here is
 # a fatal ``reserved_state_write`` under D-LR (the whole response rejects).
@@ -766,75 +775,13 @@ def bounded(value: Any) -> Optional[str]:
 # Gate
 # ---------------------------------------------------------------------------
 
-def resolve_gate_mode(mapping: Dict[str, Any], descriptor: Optional[Dict[str, Any]] = None) -> str:
-    """Resolve the declared gate mode for a schema (§8.2).
-
-    A versioned descriptor wins. Otherwise the mode is inferred from the
-    mapping exactly as the A-1 precedence documented it: ``check_field`` ⇒
-    boolean; ``root_key`` ⇒ root presence; ``speak_without_gate`` ⇒ content
-    presence (the explicit opt-in); nothing ⇒ gate-less (silent).
-    """
-    declared = (descriptor or {}).get("gate_mode")
-    # A declared mode is honoured only when the mapping can support it: a
-    # "boolean" descriptor without a check_field (or "root_presence" without a
-    # root_key) is a mis-declaration, and the safe answer is the A-1 inference,
-    # never a gate that can only ever read "missing".
-    if declared == "boolean" and mapping.get("check_field"):
-        return declared
-    if declared == "root_presence" and mapping.get("root_key"):
-        return declared
-    if declared == "content_presence" and (mapping.get("check_field") or mapping.get("content_field")):
-        return declared
-    if declared in ("gateless", "state_only"):
-        return declared
-    if mapping.get("check_field"):
-        return "boolean"
-    if mapping.get("root_key"):
-        return "root_presence"
-    if mapping.get("speak_without_gate"):
-        return "content_presence"
-    return "gateless"
-
-
-def evaluate_gate(mode: str, mapping: Dict[str, Any], result: Dict[str, Any],
-                  root_data: Dict[str, Any]) -> Tuple[bool, Optional[Issue]]:
-    """Return ``(speak, issue)``.
-
-    ``speak`` is True only for an unambiguous gate. An ``issue`` (always
-    ``invalid_gate``) means the gate was present but malformed; the response
-    then follows the recoverable-insight-error path (never speaks).
-    """
-    if mode == "boolean":
-        key = mapping.get("check_field") or "has_insight"
-        value = root_data.get(key, _MISSING)
-        if value is True:
-            return True, None
-        if value is False:
-            return False, None
-        classification = "missing" if value is _MISSING else bounded(value)
-        return False, Issue("invalid_gate", key, classification)
-
-    if mode == "root_presence":
-        key = mapping.get("root_key") or "insight"
-        root = result.get(key, _MISSING)
-        if root is _MISSING or root is None or root == {}:
-            return False, None
-        if isinstance(root, dict):
-            return True, None
-        return False, Issue("invalid_gate", key, bounded(root))
-
-    if mode == "content_presence":
-        key = mapping.get("check_field") or mapping.get("content_field") or "content"
-        value = root_data.get(key, _MISSING)
-        if value is _MISSING or value is None or value == "":
-            return False, None
-        if isinstance(value, str) and value.strip():
-            return True, None
-        return False, Issue("invalid_gate", key, bounded(value))
-
-    # "gateless" and "state_only": there is no structural gate — silence.
-    return False, None
-
+# ``resolve_gate_mode`` and ``evaluate_gate`` were REMOVED in 3.1.0. They
+# inferred a gate from a schema's mapping and implemented two further modes
+# (``content_presence``, ``gateless``) that no live path reached once 3.0.0
+# deleted the legacy staging that called them — which is exactly why
+# ``speak_without_gate`` could be accepted and be inert (F3). The gate is now
+# DECLARED by the format contract (``core/output_format.py``) and translated to
+# the canonical Boolean gate before ``evaluate_typed_gate`` below sees it.
 
 
 @dataclass
@@ -936,107 +883,227 @@ def _reserved_keys(mapping_dict: Dict[str, Any], exclude_memory: bool = False) -
     return keys
 
 
-def validate_domain_channels(result: Dict[str, Any], mapping: Dict[str, Any]
-                             ) -> Tuple[DomainChannels, List[Issue]]:
-    """Shape-check every mapped domain channel independently of the insight.
+_UI_ACTION_KEYS = frozenset({"target_widget", "action", "payload"})
 
-    Absent or ``None`` channels are simply empty. A channel that is present
-    with the wrong shape is ``invalid_domain_payload`` (fatal). A proposed
-    write to the engine-reserved ``sys.*`` namespace is ``reserved_state_write``
-    (fatal). Presence-validated content stays an untrusted proposal.
+
+def validate_ui_actions(raw, *, authorization, validator=None, field_path="ui_actions"):
+    """Validate a UI-action channel (spec §6).
+
+    Two checks in a fixed precedence, so a diagnostic always says which one
+    failed:
+
+    1. **Shape** — an array of objects carrying exactly ``target_widget``
+       (non-empty string), ``action`` (non-empty string) and ``payload``
+       (object). Anything else is ``invalid_ui_action``, and NO authorization
+       check runs on that item.
+    2. **Authorization** — the item is checked against the HOST's declarations
+       for the run. The model cannot grant itself a capability, and *missing
+       declarations authorize nothing*: with no declarations every item is
+       ``unauthorized_ui_action`` (``no_widgets_declared``).
+
+    ``authorization`` maps target -> action -> ``{"required", "optional",
+    "allow_additional"}``. ``validator`` is the host's optional payload hook; it
+    runs only after the declaration checks pass, and a non-empty string it
+    returns becomes the rejection's bounded classification.
+
+    Returns ``(actions, issues)``. Every issue is fatal: an invalid or
+    unauthorized action rejects the whole originating response, its insight and
+    its proposed state effects included.
     """
-    issues: List[Issue] = []
+    issues = []
+    if raw is None:
+        return None, issues
+
+    def fatal(code, path, classification):
+        text = (classification or "")[:_CLASSIFICATION_MAX]
+        issues.append(Issue(code, path, text or None, fatal=True))
+
+    if not isinstance(raw, list):
+        fatal("invalid_ui_action", field_path, "not_an_array:" + type(raw).__name__)
+        return None, issues
+    if not raw:
+        return None, issues          # an empty array is "no proposal", like an absent key
+
+    auth = authorization if authorization is not None else {}
+    accepted = []
+    for i, item in enumerate(raw):
+        path = "%s[%d]" % (field_path, i)
+        if not isinstance(item, dict):
+            fatal("invalid_ui_action", path, "not_an_object:" + type(item).__name__)
+            continue
+        keys = set(item)
+        if keys != _UI_ACTION_KEYS:
+            missing = sorted(_UI_ACTION_KEYS - keys)
+            extra = sorted(keys - _UI_ACTION_KEYS)
+            fatal("invalid_ui_action", path,
+                  ("missing_key:" + ",".join(missing)) if missing else ("unexpected_key:" + ",".join(extra)))
+            continue
+        target, action, payload = item["target_widget"], item["action"], item["payload"]
+        if not _nonblank(target):
+            fatal("invalid_ui_action", path + ".target_widget", bounded(target))
+            continue
+        if not _nonblank(action):
+            fatal("invalid_ui_action", path + ".action", bounded(action))
+            continue
+        if not isinstance(payload, dict) or not all(isinstance(k, str) for k in payload):
+            fatal("invalid_ui_action", path + ".payload", bounded(payload))
+            continue
+        if not auth:
+            fatal("unauthorized_ui_action", path, "no_widgets_declared")
+            continue
+        declared_actions = auth.get(target)
+        if declared_actions is None:
+            fatal("unauthorized_ui_action", path + ".target_widget", "unknown_target")
+            continue
+        rule = declared_actions.get(action)
+        if rule is None:
+            fatal("unauthorized_ui_action", path + ".action", "unknown_action")
+            continue
+        missing_keys = sorted(set(rule.get("required") or ()) - set(payload))
+        if missing_keys:
+            fatal("unauthorized_ui_action", path + ".payload", "missing_payload_key:" + missing_keys[0])
+            continue
+        if not rule.get("allow_additional"):
+            allowed = set(rule.get("required") or ()) | set(rule.get("optional") or ())
+            unexpected = sorted(set(payload) - allowed)
+            if unexpected:
+                fatal("unauthorized_ui_action", path + ".payload", "unexpected_payload_key:" + unexpected[0])
+                continue
+        if validator is not None:
+            try:
+                verdict = validator(dict(item))
+            except Exception as exc:                  # a host hook must never crash a turn
+                fatal("unauthorized_ui_action", path, "validator_error:" + type(exc).__name__)
+                continue
+            if verdict:
+                fatal("unauthorized_ui_action", path, str(verdict))
+                continue
+        accepted.append(dict(item))
+    return (accepted or None), issues
+
+
+def validate_domain_channels(result, spec, *, offered=None,
+                             widget_authorization=None, widget_validator=None):
+    """Shape-check and AUTHORIZE every channel the envelope carries.
+
+    ``spec`` is the run's :class:`~xubb_agents.core.output_format.FormatSpec`: it
+    owns which wire keys exist and which sink each reaches. ``offered``
+    optionally narrows the sinks for this run (the isolated content path offers
+    none); ``None`` means "everything the format binds".
+
+    Three rules, in this order:
+
+    * a key whose name the framework knows as a channel but which this format or
+      run does not offer is ``undeclared_channel`` — **whatever the gate says**.
+      A speech gate never grants a write permission, and a false gate never
+      smuggles one past the insight field checks (F4);
+    * a top-level key that is neither defined by the envelope nor a known channel
+      name is ``invalid_field`` / ``unknown_envelope_key``. Skipped for flat
+      envelopes, whose insight fields legitimately sit at the top level and are
+      checked by the candidate validator instead;
+    * a bound key present with the wrong shape is ``invalid_domain_payload``, and
+      a proposed write to the engine-reserved ``sys.*`` namespace is
+      ``reserved_state_write``.
+
+    Presence-validated content stays an untrusted proposal. Every issue is fatal.
+    """
+    from .output_format import envelope_key_kind   # local: avoids an import cycle
+
+    issues = []
     ch = DomainChannels()
 
-    def fatal(code: str, path: str, value: Any = None) -> None:
+    def fatal(code, path, value=None):
         issues.append(Issue(code, path, bounded(value), fatal=True))
 
-    # events: list of dict (with a string name) or plain strings
-    events_field = mapping.get("events_field", "events")
-    raw_events = result.get(events_field)
-    if raw_events is not None:
-        if not isinstance(raw_events, list):
-            fatal("invalid_domain_payload", events_field, raw_events)
-        else:
-            for i, evt in enumerate(raw_events):
+    bound = dict(getattr(spec, "channels", {}) or {})
+    available = {wire: sink for wire, sink in bound.items()
+                 if offered is None or sink in offered}
+
+    # --- undeclared channels and unknown envelope keys --------------------
+    for key in result:
+        if key in available:
+            continue
+        if key in bound:                    # bound by the format, withdrawn for this run
+            fatal("undeclared_channel", key, "not_offered_in_this_run")
+            continue
+        kind = envelope_key_kind(spec, key)
+        if kind == "defined":
+            continue                        # the gate key or the insight key
+        if kind == "channel":
+            fatal("undeclared_channel", key, "not_declared_by:" + str(getattr(spec, "id", "?")))
+        elif getattr(spec, "envelope", None) != "flat":
+            issues.append(Issue("invalid_field", "$." + str(key)[:64], "unknown_envelope_key", fatal=True))
+
+    # --- the bound, offered channels --------------------------------------
+    for wire, sink in available.items():
+        raw = result.get(wire)
+        if raw is None:
+            continue
+        if sink == "events":
+            if not isinstance(raw, list):
+                fatal("invalid_domain_payload", wire, raw)
+                continue
+            for i, evt in enumerate(raw):
                 if isinstance(evt, str):
                     continue
                 if not isinstance(evt, dict) or not isinstance(evt.get("name", ""), str):
-                    fatal("invalid_domain_payload", f"{events_field}[{i}]", evt)
-            ch.events = list(raw_events)
-
-    # variable_updates: dict; sys.* keys are reserved
-    var_field = mapping.get("variable_updates_field", "variable_updates")
-    raw_vars = result.get(var_field)
-    if raw_vars is not None:
-        if not isinstance(raw_vars, dict):
-            fatal("invalid_domain_payload", var_field, raw_vars)
-        else:
-            for key in _reserved_keys(raw_vars):
-                fatal("reserved_state_write", f"{var_field}.{key}", key)
-            ch.variable_updates = dict(raw_vars)
-
-    # queue_pushes: dict[str, list]
-    queue_field = mapping.get("queue_field", "queue_pushes")
-    raw_queues = result.get(queue_field)
-    if raw_queues is not None:
-        if not isinstance(raw_queues, dict):
-            fatal("invalid_domain_payload", queue_field, raw_queues)
-        else:
-            for name, items in raw_queues.items():
+                    fatal("invalid_domain_payload", "%s[%d]" % (wire, i), evt)
+            ch.events = list(raw)
+        elif sink == "variable_updates":
+            if not isinstance(raw, dict):
+                fatal("invalid_domain_payload", wire, raw)
+                continue
+            for key in _reserved_keys(raw):
+                fatal("reserved_state_write", "%s.%s" % (wire, key), key)
+            ch.variable_updates = dict(raw)
+        elif sink == "queue_pushes":
+            if not isinstance(raw, dict):
+                fatal("invalid_domain_payload", wire, raw)
+                continue
+            for name, items in raw.items():
                 if not isinstance(items, list):
-                    fatal("invalid_domain_payload", f"{queue_field}.{name}", items)
-            ch.queue_pushes = {k: list(v) for k, v in raw_queues.items() if isinstance(v, list)}
-
-    # facts: list of dicts; confidence (if present) must be a finite number in [0,1]
-    facts_field = mapping.get("facts_field", "facts")
-    raw_facts = result.get(facts_field)
-    if raw_facts is not None:
-        if not isinstance(raw_facts, list):
-            fatal("invalid_domain_payload", facts_field, raw_facts)
-        else:
-            for i, f in enumerate(raw_facts):
+                    fatal("invalid_domain_payload", "%s.%s" % (wire, name), items)
+            ch.queue_pushes = {k: list(v) for k, v in raw.items() if isinstance(v, list)}
+        elif sink == "facts":
+            if not isinstance(raw, list):
+                fatal("invalid_domain_payload", wire, raw)
+                continue
+            for i, f in enumerate(raw):
                 if not isinstance(f, dict):
-                    fatal("invalid_domain_payload", f"{facts_field}[{i}]", f)
+                    fatal("invalid_domain_payload", "%s[%d]" % (wire, i), f)
                     continue
                 conf = f.get("confidence", 1.0)
                 if isinstance(conf, bool) or not isinstance(conf, (int, float)) \
                         or conf != conf or not (0.0 <= conf <= 1.0):
-                    fatal("invalid_domain_payload", f"{facts_field}[{i}].confidence", conf)
+                    fatal("invalid_domain_payload", "%s[%d].confidence" % (wire, i), conf)
                 if "type" in f and not isinstance(f["type"], str):
-                    fatal("invalid_domain_payload", f"{facts_field}[{i}].type", f["type"])
-            ch.facts = [dict(f) for f in raw_facts if isinstance(f, dict)]
-
-    # memory_updates (v2): dict
-    memory_field = mapping.get("memory_field", "memory_updates")
-    raw_memory = result.get(memory_field)
-    if raw_memory is not None:
-        if not isinstance(raw_memory, dict):
-            fatal("invalid_domain_payload", memory_field, raw_memory)
-        else:
-            ch.memory_updates = dict(raw_memory)
-
-    # legacy state_field: dict; when it is not the memory alias, sys.* is reserved
-    state_key = mapping.get("state_field")
-    if state_key:
-        raw_state = result.get(state_key)
-        if raw_state is not None:
-            if not isinstance(raw_state, dict):
-                fatal("invalid_domain_payload", state_key, raw_state)
-            else:
-                ch.state = dict(raw_state)
-                ch.state_is_memory = state_key == "memory_updates"
-                if not ch.state_is_memory:
-                    for key in _reserved_keys(raw_state, exclude_memory=True):
-                        fatal("reserved_state_write", f"{state_key}.{key}", key)
-
-    # data sidecar: any shape; it is action-bearing and never partially accepted
-    data_field = mapping.get("data_field")
-    if data_field:
-        payload = result.get(data_field)
-        if payload:
-            ch.data = payload
-
+                    fatal("invalid_domain_payload", "%s[%d].type" % (wire, i), f["type"])
+            ch.facts = [dict(f) for f in raw if isinstance(f, dict)]
+        elif sink == "memory_updates":
+            if not isinstance(raw, dict):
+                fatal("invalid_domain_payload", wire, raw)
+                continue
+            for key in raw:
+                if not isinstance(key, str):
+                    fatal("invalid_domain_payload", "%s.%s" % (wire, bounded(key)), key)
+            ch.memory_updates = dict(raw)
+        elif sink == "private_memory":
+            # The `default` adapter's scratchpad. Staged as the MERGED
+            # committed-plus-new view under state_updates["memory_<id>"] — a host
+            # compatibility projection, preserved exactly (§5.1).
+            if not isinstance(raw, dict):
+                fatal("invalid_domain_payload", wire, raw)
+                continue
+            for key in raw:
+                if not isinstance(key, str):
+                    fatal("invalid_domain_payload", "%s.%s" % (wire, bounded(key)), key)
+            ch.state = dict(raw)
+            ch.state_is_memory = True
+        elif sink == "ui_actions":
+            actions, action_issues = validate_ui_actions(
+                raw, authorization=widget_authorization, validator=widget_validator, field_path=wire)
+            issues.extend(action_issues)
+            ch.data = actions
     return ch, issues
 
 

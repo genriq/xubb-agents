@@ -7,6 +7,18 @@
 
 ---
 
+> **SUPERSEDED IN 3.1.0 — output formats.** Everything below about *which* output
+> formats exist, how a schema's `mapping` shapes the envelope, gate-less schemas and
+> `speak_without_gate` is superseded by
+> [SPEC_OUTPUT_FORMAT_CONSOLIDATION.md](SPEC_OUTPUT_FORMAT_CONSOLIDATION.md) and
+> [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md). In 3.1.0 there are
+> two supported formats (`insight_v1`, `widget_control`) and four deprecated aliases
+> removed in 4.0.0; every format's gate, keys and channels come from one contract file;
+> a structural `mapping` override and `speak_without_gate` are refused at registration;
+> and an unknown format name raises instead of falling back to `default`.
+
+---
+
 ## 1. Executive Summary
 
 The **Xubb Agents Framework** is a standalone, event-driven Python library designed to power real-time conversational intelligence. It provides the infrastructure for creating, managing, and executing autonomous AI agents that "listen" to a conversation and intervene with context-aware insights.
@@ -536,7 +548,7 @@ The `DynamicAgent` is the primary implementation used for user-defined agents.
 5.  **Response Processing:**
     - Extracts insights, events, variable_updates, queue_pushes, facts, memory_updates
     - Maps v1.0 `state_updates` to `variable_updates` for compatibility
-    - **Silence gate (v2.2 — A-1, INV-11):** whether the agent speaks is decided by the schema's gate, in precedence order: (a) `check_field` present → the boolean gate drives the decision; (b) no `check_field` but `root_key` present → a non-empty root object is the gate; (c) gate-less **and** rootless → defaults to **silence** unless the schema opts in via `"speak_without_gate": true`. A load-time warning fires if the instruction references a gate field but the mapping omits `check_field`.
+    - **Silence gate (v2.2 — A-1, INV-11; amended in 3.1.0):** whether the agent speaks is decided by the gate its output FORMAT declares, not by anything inferred from a mapping: (a) a `boolean` gate (every supported format) speaks only on an actual `true`; (b) a `root_presence` gate (the deprecated compatibility adapters) speaks on a non-empty root object and is translated to the canonical boolean decision before validation. Case (c) — a gate-less, rootless schema with a `speak_without_gate` opt-in — no longer exists: such a schema cannot be registered, and the flag is refused. See SPEC_OUTPUT_FORMAT_CONSOLIDATION.md §9.3.
     - **v2.2 (A-3):** model-supplied `confidence` is coerced to float and clamped to `[0, 1]` (default `1.0` on a non-numeric value) so a bad value never turns a good insight into a validation error.
     - **v2.2 (S-1):** `expiry` and `action_label` returned by the model are parsed and passed through to the `AgentInsight` (previously requested by schemas but dropped).
     - **v2.2 (A-2, INV-13):** `Event`/`Fact` timestamps are stamped session-relative (derived from the most recent transcript segment) rather than wall-clock epoch.
@@ -557,7 +569,7 @@ Located in `library/schemas/` (shipped: `default`, `default_v2`, `v2_raw`, `ui_c
 
 > **v2.2 (S-3):** all v2 schemas route state through `variable_updates_field`, so a v2-only host reading `variable_updates` no longer misses updates that previously went only through the v1 `state_updates` path. The dead `is_state_at_root` key (S-2) was removed from all schemas — it was never read by the parser.
 
-> **v2.2 (A-1):** a custom schema that has neither a `check_field` gate nor a `root_key` defaults to **silence**; set `"speak_without_gate": true` in its mapping to opt into "speak whenever there is content." See §6.1 step 5.
+> **v2.2 (A-1), amended in 3.1.0:** a schema with no declared gate rule cannot be registered, and `speak_without_gate` is refused with migration guidance rather than accepted and ignored. See §6.1 step 5 and SPEC_OUTPUT_FORMAT_CONSOLIDATION.md §9.3.
 
 ---
 

@@ -15,7 +15,8 @@ import sys
 
 def main() -> int:
     import xubb_agents
-    from xubb_agents import AgentEngine, AgentContext, Blackboard, DynamicAgent, HostInsightCapabilities
+    from xubb_agents import (AgentEngine, AgentContext, Blackboard, DynamicAgent, HostInsightCapabilities,
+                             HostWidgetCapabilities, WidgetDeclaration, WidgetActionDeclaration)
     from xubb_agents.core.agent import AgentConfig, BaseAgent
     from xubb_agents.core.llm import LLMResult
     from xubb_agents.core.models import (
@@ -97,17 +98,18 @@ def main() -> int:
     if ctx.blackboard.get_var("sys.turn_count") != 1:
         print("FAIL: content task touched the live board")
         return 6
-    # 5. v2.8 typed reach: the legacy `default` schema registers under typed_v1
-    #    through its flat_v1 adapter, and a widget controller's sidecar is
-    #    attributed per agent on the aggregated response.
+    # 5. Typed reach: a deprecated flat format still registers through its
+    #    compatibility adapter, and a widget controller acting silently on the
+    #    canonical envelope has its sidecar attributed per agent — with the
+    #    action authorized by the HOST's declaration, never by the model.
     flat = DynamicAgent({"id": "flat", "name": "flat", "text": "t", "output_format": "default",
                          "trigger_config": {"cooldown": 0}, "insight_config": {"allowed_types": ["warning", "suggestion"]}})
     flat.llm = Fake({"has_insight": True, "type": "suggestion", "content": "Confirm the approval owner.", "confidence": 0.6,
                      "memory_updates": {"seen": 1}})
     widget = DynamicAgent({"id": "widget", "name": "widget", "text": "t", "output_format": "widget_control",
                            "trigger_config": {"cooldown": 0}, "insight_config": {"allowed_types": ["fact"]}})
-    widget.llm = Fake({"ui_actions": [{"target_widget": "goals_widget", "action": "update", "payload": {"done": 1}}],
-                       "state_snapshot": {"phase": "closing"}})
+    widget.llm = Fake({"has_insight": False, "insight": None, "variable_updates": {"phase": "closing"},
+                       "ui_actions": [{"target_widget": "goals_widget", "action": "update", "payload": {"done": 1}}]})
     reach = AgentEngine(api_key="not-a-real-key", structured_outputs="json_object")
     for a in (flat, widget):
         keep = a.llm
@@ -115,6 +117,9 @@ def main() -> int:
         a.llm = keep
     ctx2 = AgentContext(session_id="s2", turn_count=1, blackboard=Blackboard(), principal_id="p",
                         insight_capabilities=HostInsightCapabilities(supported_types=["warning", "suggestion", "fact"]),
+                        widget_capabilities=HostWidgetCapabilities(widgets=[WidgetDeclaration(
+                            target_widget="goals_widget",
+                            actions=[WidgetActionDeclaration(action="update", optional_payload_keys=["done"])])]),
                         recent_segments=[TranscriptSegment(speaker="CLIENT", text="Who owns the approval?", timestamp=1.0)])
     final2 = asyncio.run(reach.process_turn(ctx2))
     kinds = [(i.agent_id, i.type) for i in final2.insights]

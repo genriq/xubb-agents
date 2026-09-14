@@ -1,0 +1,164 @@
+{
+  "spec_version": "1.0.0",
+  "source": "docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md §4–§9",
+  "notes": [
+    "THE authority for every output format's envelope: the gate, the insight key, the",
+    "allowed top-level keys and the channel bindings. The generated output instruction,",
+    "the provider projection and the parser are all derived from this file; the packaged",
+    "schemas/*.json files are documentation whose agreement with it is conformance-tested.",
+    "A channel's presence in this vocabulary grants nothing: a format writes a channel",
+    "only if it binds it below, and a run may narrow that further."
+  ],
+  "implicit_default": "default",
+  "implicit_default_after_removal": "insight_v1",
+  "removal_release": "4.0.0",
+  "channel_sinks": [
+    "events",
+    "variable_updates",
+    "queue_pushes",
+    "facts",
+    "memory_updates",
+    "private_memory",
+    "ui_actions"
+  ],
+  "known_channel_wire_keys": [
+    "events",
+    "variable_updates",
+    "queue_pushes",
+    "facts",
+    "memory_updates",
+    "state_snapshot",
+    "state_updates",
+    "ui_actions",
+    "data"
+  ],
+  "insight_fields": [
+    "type",
+    "content",
+    "confidence",
+    "urgency",
+    "observation_kind",
+    "evidence_refs",
+    "rationale",
+    "validation_step",
+    "assumptions",
+    "correction",
+    "question",
+    "metadata"
+  ],
+  "insight_types": [
+    "fact",
+    "observation",
+    "suggestion",
+    "warning",
+    "opportunity",
+    "praise",
+    "reply",
+    "correction",
+    "question"
+  ],
+  "formats": {
+    "insight_v1": {
+      "status": "supported",
+      "description": "The canonical insight + state envelope: an explicit Boolean gate, a nested candidate carrying the full typed field set, and the five standard state channels.",
+      "envelope": "canonical",
+      "gate": {"kind": "boolean", "key": "has_insight"},
+      "insight_key": "insight",
+      "channels": {
+        "events": "events",
+        "variable_updates": "variable_updates",
+        "queue_pushes": "queue_pushes",
+        "facts": "facts",
+        "memory_updates": "memory_updates"
+      },
+      "transports": ["json_schema", "json_object"],
+      "content_contracts": ["long_form_v1"]
+    },
+    "widget_control": {
+      "status": "supported",
+      "description": "The single UI-action format: the canonical envelope plus a ui_actions channel whose items are validated against the host's widget declarations.",
+      "envelope": "canonical",
+      "gate": {"kind": "boolean", "key": "has_insight"},
+      "insight_key": "insight",
+      "channels": {
+        "events": "events",
+        "variable_updates": "variable_updates",
+        "queue_pushes": "queue_pushes",
+        "facts": "facts",
+        "memory_updates": "memory_updates",
+        "ui_actions": "ui_actions"
+      },
+      "transports": ["json_schema", "json_object"],
+      "content_contracts": [],
+      "legacy_wire_shape": {
+        "accepted_until": "4.0.0",
+        "selected_when": "the top-level object has no 'has_insight' key",
+        "envelope": "root",
+        "gate": {"kind": "root_presence", "key": "insight"},
+        "insight_key": "insight",
+        "channels": {
+          "state_snapshot": "variable_updates",
+          "ui_actions": "ui_actions"
+        }
+      }
+    },
+    "default": {
+      "status": "deprecated",
+      "description": "Flat legacy envelope. Its published contract advertised 'message' while the parser read 'content'; the adapter accepts either, with an explicit conflict rule.",
+      "envelope": "flat",
+      "gate": {"kind": "boolean", "key": "has_insight"},
+      "insight_key": null,
+      "content_alias": "message",
+      "channels": {
+        "memory_updates": "private_memory"
+      },
+      "transports": ["json_object"],
+      "content_contracts": [],
+      "deprecation": {"deprecated_in": "3.1.0", "removed_in": "4.0.0", "replacement": "insight_v1"}
+    },
+    "default_v2": {
+      "status": "deprecated",
+      "description": "Flat legacy envelope with the five state channels at the top level.",
+      "envelope": "flat",
+      "gate": {"kind": "boolean", "key": "has_insight"},
+      "insight_key": null,
+      "channels": {
+        "events": "events",
+        "variable_updates": "variable_updates",
+        "queue_pushes": "queue_pushes",
+        "facts": "facts",
+        "memory_updates": "memory_updates"
+      },
+      "transports": ["json_object"],
+      "content_contracts": [],
+      "deprecation": {"deprecated_in": "3.1.0", "removed_in": "4.0.0", "replacement": "insight_v1"}
+    },
+    "v2_raw": {
+      "status": "deprecated",
+      "description": "Root-presence legacy envelope: a nested insight whose absence is silence, and a state_snapshot variable channel.",
+      "envelope": "root",
+      "gate": {"kind": "root_presence", "key": "insight"},
+      "insight_key": "insight",
+      "channels": {
+        "state_snapshot": "variable_updates"
+      },
+      "transports": ["json_object"],
+      "content_contracts": [],
+      "deprecation": {"deprecated_in": "3.1.0", "removed_in": "4.0.0", "replacement": "insight_v1"}
+    },
+    "ui_control": {
+      "status": "deprecated",
+      "description": "Root-presence legacy envelope with a ui_actions sidecar. Consolidated into widget_control, which keeps the action channel under host declarations.",
+      "envelope": "root",
+      "gate": {"kind": "root_presence", "key": "insight"},
+      "insight_key": "insight",
+      "channels": {
+        "state_snapshot": "variable_updates",
+        "ui_actions": "ui_actions"
+      },
+      "transports": ["json_object"],
+      "content_contracts": [],
+      "deprecation": {"deprecated_in": "3.1.0", "removed_in": "4.0.0", "replacement": "widget_control"}
+    }
+  }
+}

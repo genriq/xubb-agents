@@ -316,6 +316,52 @@ class HostInsightCapabilities(BaseModel):
                     raise ValueError(f"insight_capabilities.{name} must be a positive int when content contracts are enabled")
 
 
+# ---- Widget capabilities (SPEC_OUTPUT_FORMAT_CONSOLIDATION §6.2) ----
+
+class WidgetActionDeclaration(BaseModel):
+    """One action a host permits on one widget, and its payload rule."""
+    model_config = ConfigDict(extra="forbid")
+
+    action: str = Field(..., min_length=1)
+    required_payload_keys: List[str] = Field(default_factory=list)
+    optional_payload_keys: List[str] = Field(default_factory=list)
+    #: Off by default: a payload key the host did not declare is refused, so a
+    #: widget contract cannot widen itself by the model writing into it.
+    allow_additional_payload_keys: bool = False
+
+
+class WidgetDeclaration(BaseModel):
+    """One widget a host can drive, and the actions it accepts."""
+    model_config = ConfigDict(extra="forbid")
+
+    target_widget: str = Field(..., min_length=1)
+    actions: List[WidgetActionDeclaration] = Field(default_factory=list)
+
+
+class HostWidgetCapabilities(BaseModel):
+    """What the HOST declares its UI can do (§6.2). A host input, never model
+    output, and never inferred: an empty declaration authorizes NOTHING rather
+    than everything, so a widget format that reaches an undeclared host is
+    silent instead of dangerous."""
+    model_config = ConfigDict(extra="forbid")
+
+    widgets: List[WidgetDeclaration] = Field(default_factory=list)
+
+    def authorization_map(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """target -> action -> rule, the shape the validator and the prompt
+        generator both read, so neither can drift from the declaration."""
+        out: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        for widget in self.widgets:
+            actions = out.setdefault(widget.target_widget, {})
+            for declared in widget.actions:
+                actions[declared.action] = {
+                    "required": list(declared.required_payload_keys),
+                    "optional": list(declared.optional_payload_keys),
+                    "allow_additional": declared.allow_additional_payload_keys,
+                }
+        return out
+
+
 # ---- XUBB-ITC-1 §6.4 trusted reference context (G2) ----
 
 class EvidenceCatalogEntry(BaseModel):
@@ -427,6 +473,10 @@ class AgentContext(BaseModel):
     # Host capability declaration (safe defaults). Frozen per run and propagated
     # through every phase-context copy (§6.4, ITC-14).
     insight_capabilities: HostInsightCapabilities = Field(default_factory=HostInsightCapabilities)
+    # §6.2: the host's widget declarations for this run. Empty (the default)
+    # authorizes no UI action at all; the generated instruction then tells the
+    # agent it may not act, so prompt and boundary agree.
+    widget_capabilities: HostWidgetCapabilities = Field(default_factory=HostWidgetCapabilities)
     # Host-supplied reference records (§6.4). The framework adds its own per-agent
     # snapshot catalog on top at run time; hosts need not populate this for
     # ordinary observations.

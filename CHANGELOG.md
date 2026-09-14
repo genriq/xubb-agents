@@ -15,6 +15,96 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [3.1.0] - 2026-09-14
+
+### Changed — output formats consolidated onto two, and seven contract disagreements repaired
+
+The library shipped six output formats. They were not six views of one contract but six
+partly-specified contracts whose prompt, schema file, parser and validator disagreed.
+Spec: [`docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md`](docs/SPEC_OUTPUT_FORMAT_CONSOLIDATION.md).
+Migration: [`docs/MIGRATION_OUTPUT_FORMATS.md`](docs/MIGRATION_OUTPUT_FORMATS.md).
+
+**Two supported formats.** `insight_v1` (insight + state) and `widget_control` (insight +
+state + validated UI actions), both on the same canonical envelope: an explicit Boolean
+`has_insight` gate and a nested `insight`. `default`, `default_v2`, `v2_raw` and
+`ui_control` are **deprecated** and become thin input adapters over the same validation
+and acceptance pipeline. They keep working in 3.1.0 and are **removed in 4.0.0**.
+
+**One authority per format.** `library/contract/output_formats.json` now defines every
+format's gate, insight key, allowed top-level keys and channel bindings. The generated
+output instruction, the provider projection and the parser are all derived from it; the
+packaged `schemas/*.json` files became documentation whose agreement is conformance-tested.
+
+**The seven repairs** (each reproduced through the real engine at 3.0.0 `d9a8b32` first,
+and each now a permanent probe in `tests/qa_probes/test_probe_output_format_disagreements.py`):
+
+| | Was | Now |
+|---|---|---|
+| F1 | `default` published `message`; the parser read `content`, so an agent authored against the published contract emitted nothing | one correct contract; `message` accepted as an input alias, a conflicting body refused with `content_alias_conflict` |
+| F2 | a custom `check_field` was ignored by prompt and parser alike; a custom `root_key` was honoured by the parser while the prompt still asked for `insight` | a structural override fails at registration with a named migration error |
+| F3 | `speak_without_gate` was documented, accepted, and read by nothing (a `strict=True` xfail at 3.0.0) | refused at registration with migration guidance |
+| F4 | `default` accepted an undeclared `events` channel while **silent** and rejected it while speaking — a speech gate decided a write permission | channel permissions are checked before the insight is normalized and are identical under both gates (`undeclared_channel`) |
+| F5 | a `ui_actions` payload could be any shape and was published to the host verbatim | a validated action contract, authorized by host declarations, enforced at the one acceptance boundary |
+| F6 | an unknown format name silently fell back to `default` | every unresolved name raises, naming the supported formats |
+| F7 | the provider projection made `state_updates` and `data` **required** of the model for `insight_v1`, whose parser read neither | the projection offers exactly the channels the format binds |
+
+### Added
+
+- `HostWidgetCapabilities` / `WidgetDeclaration` / `WidgetActionDeclaration` and
+  `AgentContext.widget_capabilities` — host-owned declarations of permitted widget
+  targets, actions and payload keys. **Missing declarations authorize nothing**, and the
+  generated instruction says so rather than inviting actions the boundary will reject.
+- `AgentEngine(widget_payload_validator=...)` — an optional host hook for payload rules a
+  key list cannot express. It can only narrow what the declarations permit.
+- Diagnostic codes `undeclared_channel`, `invalid_ui_action`, `unauthorized_ui_action`.
+  All are fatal; a host that ignores unknown codes sees a rejection, never a silent accept.
+- `tools/migrate_output_formats.py` — an offline inventory and dry-run migration tool that
+  names every configuration inheriting the implicit default and every one needing a person.
+- `tests/fixtures/rollback_safe_3_0/` — the configurations and envelopes that behave
+  identically on 3.0.0 and 3.1.0, so "roll the pin back" is a tested claim (§13.1).
+
+### Deprecated
+
+- Output formats `default`, `default_v2`, `v2_raw` and `ui_control`. Each emits a
+  `DeprecationWarning` naming the agent, the format, its replacement and `4.0.0`.
+- `widget_control`'s legacy root-presence wire shape, accepted during the window under one
+  deterministic rule: a top-level `has_insight` selects the canonical envelope, its absence
+  selects the legacy one.
+- The **implicit runtime default** stays `default` in 3.1.0 and becomes `insight_v1` in
+  4.0.0. An omitted `output_format` resolves to it *before* name validation and inherits
+  its deprecation warning, so existing configurations keep registering and still get told.
+
+### Removed
+
+- `resolve_gate_mode` and `evaluate_gate` (and with them the `content_presence`,
+  `gateless` and `state_only` gate modes). They inferred a gate from a mapping and had no
+  live caller once 3.0.0 deleted the legacy staging — which is exactly why
+  `speak_without_gate` could be accepted and be inert.
+- `DynamicAgent._warn_on_gateless_misconfig` and the missing-file fallback in
+  `_load_schema`, including its hard-coded emergency envelope.
+- `state_updates` and `data` from the model-facing provider response contract, and the
+  literal `supported_insight_types` enum from every schema descriptor.
+
+### Amended contracts
+
+- `INV-11-gateless-silence` (A-1) — amended **in place** in `docs/CONTRACTS.yaml`, old
+  statement and reason preserved in a dated comment. A-1's load-time warning protected a
+  world where a schema could omit a gate; with every agent on a named format whose gate is
+  declared, and overrides refused at registration, that state is unreachable and the
+  guarantee is stronger than the warning was. The `speak_without_gate` xfail's reason text
+  is quoted in `tests/test_dynamic_agent.py` so the escape stays traceable.
+- `TYPED-ADAPTER-ROOT-V2-SIDECAR` (INV-49) — amended in place: `widget_control` moved to
+  the canonical envelope, and the action block is generated from the host's declarations
+  rather than a static `sidecar_instruction` in a descriptor (a descriptor could not say
+  which widgets exist, which is why any action shape was accepted).
+
+### Compatibility
+
+Registry: 102 contracts, 100% covered, strict gate green. Suite: 1053 passed. Offline
+only — no live-provider claim is made. Configurations valid at 3.0.0 remain valid, with
+three named exceptions that were already broken then and now fail loudly: an unknown
+format name, `speak_without_gate`, and a structural mapping override.
+
 ## [3.0.0] - 2026-09-13
 
 ### Removed — BREAKING: the `legacy_v2` insight contract

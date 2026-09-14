@@ -1,0 +1,20 @@
+{
+  "verdict": "APPROVED",
+  "summary": "The revision resolves the previous registration, rollback, gate terminology, and widget diagnostic findings. The implementation contract is sufficiently concrete to proceed; one minor wording inconsistency remains around isolated-content channel availability.",
+  "findings": [
+    {
+      "id": "F5",
+      "severity": "minor",
+      "section": "§6.2 precedence rule 1; §4.2",
+      "issue": "The statement that ui_actions is available in “every run” conflicts with the explicit isolated-content restriction in §4.2. The intended distinction between host declarations and run-level restrictions is otherwise clear.",
+      "why_it_matters": "Read literally, the new precedence rule could cause an implementer to overlook the existing isolated-content exception.",
+      "suggested_fix": "Say that widget declarations do not determine channel availability, while format availability remains subject to run-level narrowing, including the isolated-content prohibition."
+    }
+  ],
+  "resolved_from_previous_round": [
+    "F1",
+    "F2",
+    "F3",
+    "F4"
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "The spec gives envelope ownership, atomic validation, compatibility adapters, and regression coverage clear treatment. Changes are required because registration rules contradict the retained implicit default, and the rollback promise does not account for newly introduced host APIs and wire shapes.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "major",
+      "section": "§9 item 1; §8.2; §14 item 1",
+      "issue": "Registration rejects a missing format name, while the release plan explicitly preserves omission as the implicit default for 93 configurations. The spec does not distinguish an omitted output_format from an explicitly null, empty, or malformed value.",
+      "why_it_matters": "An implementation following §9 literally will reject the primary installed configuration population, defeating the stated compatibility strategy.",
+      "suggested_fix": "Define omission as resolving to default in 3.1.0 and insight_v1 in 4.0.0 before name validation. Separately specify rejection of explicit null, empty, non-string, and unknown values, and test each case."
+    },
+    {
+      "id": "F2",
+      "severity": "major",
+      "section": "§13 Rollback; §6.2; §8.3; §9 item 2",
+      "issue": "The unconditional pin-only rollback claim is unsupported. Migrated hosts can use new widget_capabilities and widget_payload_validator APIs, and migrated widget agents can produce the new canonical envelope. The spec provides no backward translation or rollback procedure for those changes. Its forward-compatibility claim also omits structural mapping overrides, which §9 explicitly makes newly invalid.",
+      "why_it_matters": "After migration, reverting only the library can leave host construction or widget decoding incompatible. Operators would follow a documented recovery procedure that may not restore service.",
+      "suggested_fix": "Scope pin-only rollback to unchanged integrations. Document the coordinated host/configuration rollback needed after adoption of new APIs or wire shapes, include structural overrides among configuration tightenings, and add a rollback compatibility fixture for the supported recovery path."
+    },
+    {
+      "id": "F3",
+      "severity": "minor",
+      "section": "§9.3 A-1 / INV-11; §8.3",
+      "issue": "The proposed registry statement says every format declares an explicit Boolean gate, but the retained v2_raw, ui_control, and legacy widget adapters accept root-presence envelopes without one.",
+      "why_it_matters": "The amended contract would misdescribe the supported compatibility inputs and invite a refusal test that accidentally rejects them.",
+      "suggested_fix": "State that every format has a declared gate rule and every normalized response has an explicit Boolean gate; distinguish supported root-presence adapters from unsupported gate-less schema overrides."
+    },
+    {
+      "id": "F4",
+      "severity": "minor",
+      "section": "§6.2; §14 item 2",
+      "issue": "Missing widget declarations have conflicting diagnostic requirements: §6.2 first specifies unauthorized_ui_action for every item, then specifies undeclared-channel rejection of the entire key; §14 again promises unauthorized_ui_action per action.",
+      "why_it_matters": "Hosts and acceptance tests cannot rely on a single diagnostic for the documented migration failure.",
+      "suggested_fix": "Choose one precedence rule for absent capabilities, distinguish it from an unknown action within a declared channel, and use that rule consistently in the migration documentation and tests."
+    }
+  ],
+  "resolved_from_previous_round": []
+}

@@ -42,11 +42,13 @@ SCHEMAS_WITH_DEAD_KEY = [
     "widget_control",
 ]
 
-# v2 schemas standardized onto variable_updates_field (S-3).
+# Schemas standardized onto variable_updates_field (S-3). In 3.1.0
+# `widget_control` moved to the CANONICAL envelope, where the variable channel is
+# named `variable_updates` outright; the two deprecated adapters still carry
+# `state_snapshot` and translate it.
 V2_STATE_SCHEMAS = [
     "v2_raw",
     "ui_control",
-    "widget_control",
 ]
 
 # Every schema file shipped in library/schemas/.
@@ -93,7 +95,16 @@ def _make_agent(output_format: str, llm_payload: dict) -> DynamicAgent:
     return agent
 
 
-def _minimal_context() -> AgentContext:
+def _widget_caps(enabled: bool):
+    from xubb_agents import HostWidgetCapabilities, WidgetDeclaration, WidgetActionDeclaration
+    if not enabled:
+        return HostWidgetCapabilities()
+    return HostWidgetCapabilities(widgets=[WidgetDeclaration(
+        target_widget="goals_widget",
+        actions=[WidgetActionDeclaration(action="update", optional_payload_keys=["x"])])])
+
+
+def _minimal_context(widgets: bool = False) -> AgentContext:
     return AgentContext(
         session_id="schema_test_session",
         recent_segments=[],
@@ -101,6 +112,7 @@ def _minimal_context() -> AgentContext:
         trigger_type=TriggerType.TURN_BASED,
         turn_count=1,
         phase=1,
+        widget_capabilities=_widget_caps(widgets),
     )
 
 
@@ -143,6 +155,14 @@ def test_s3_declares_variable_updates_field(schema_name):
     assert var_field == "state_snapshot", (
         f"{schema_name}.json should route 'state_snapshot' through variable_updates_field"
     )
+
+
+def test_s3_widget_control_names_the_variable_channel_outright():
+    """3.1.0: the surviving UI format is on the canonical envelope, so S-3's
+    routing is no longer a translation — the channel is simply itself."""
+    mapping = _load_schema("widget_control").get("mapping", {})
+    assert mapping.get("variable_updates_field") == "variable_updates"
+    assert "state_snapshot" not in mapping.values()
 
 
 @pytest.mark.parametrize("schema_name", V2_STATE_SCHEMAS)
@@ -250,26 +270,48 @@ async def test_s3_v2_raw_state_lands_in_variable_updates():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("schema_name", ["ui_control", "widget_control"])
-async def test_s3_ui_schemas_state_lands_in_variable_updates(schema_name):
-    """ui_control / widget_control also route state_snapshot to variable_updates."""
-    payload = {
-        "insight": {
-            "type": "suggestion",
-            "content": "Try updating the goals widget.",
-            "confidence": 0.8,
-        },
-        "ui_actions": [
-            {"target_widget": "goals_widget", "action": "update", "payload": {"x": 1}}
-        ],
-        "state_snapshot": {"active_widget": "goals_widget"},
-    }
-    agent = _make_agent(schema_name, payload)
+@pytest.mark.parametrize("schema_name,body", [
+    # the deprecated adapter still speaks root-presence + state_snapshot ...
+    ("ui_control", {"insight": {"type": "suggestion", "content": "Try updating the goals widget.",
+                                "confidence": 0.8},
+                    "ui_actions": [{"target_widget": "goals_widget", "action": "update", "payload": {"x": 1}}],
+                    "state_snapshot": {"active_widget": "goals_widget"}}),
+    # ... and the supported format speaks the canonical envelope.
+    ("widget_control", {"has_insight": True,
+                        "insight": {"type": "suggestion", "content": "Try updating the goals widget.",
+                                    "confidence": 0.8},
+                        "ui_actions": [{"target_widget": "goals_widget", "action": "update", "payload": {"x": 1}}],
+                        "variable_updates": {"active_widget": "goals_widget"}}),
+])
+async def test_s3_ui_schemas_state_lands_in_variable_updates(schema_name, body):
+    """Both UI formats land their state in variable_updates — one by
+    translation, one by name — and both publish the sidecar only when the HOST
+    declared the widget."""
+    agent = _make_agent(schema_name, body)
 
-    response = await agent.evaluate(_minimal_context())
+    response = await agent.evaluate(_minimal_context(widgets=True))
 
     assert response is not None
     assert response.variable_updates == {"active_widget": "goals_widget"}
     assert response.state_updates == {} or response.state_updates is None
-    # sidecar data still flows through the data_field mapping.
+    # sidecar data still flows through the format's ui_actions channel.
     assert response.data.get("ui_actions")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("schema_name,body", [
+    ("ui_control", {"insight": None,
+                    "ui_actions": [{"target_widget": "goals_widget", "action": "update", "payload": {"x": 1}}]}),
+    ("widget_control", {"has_insight": False, "insight": None,
+                        "ui_actions": [{"target_widget": "goals_widget", "action": "update", "payload": {"x": 1}}]}),
+])
+async def test_an_undeclared_widget_authorizes_nothing(schema_name, body):
+    """NEGATIVE CONTROL for the test above: the identical action, with no host
+    declaration, is refused — the sidecar is a host capability, not a model one."""
+    agent = _make_agent(schema_name, body)
+
+    response = await agent.evaluate(_minimal_context(widgets=False))
+
+    assert response.acceptance_status == "rejected"
+    assert response.data == {}
+    assert [d.code for d in response.diagnostics] == ["unauthorized_ui_action"]

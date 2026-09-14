@@ -1,27 +1,23 @@
 {
   "id": "v2_raw",
-  "description": "Structured schema with separated insight and state.",
-  "instruction": "\nIMPORTANT: You are in RAW MODE. You must output a valid JSON object strictly adhering to this schema:\n\n{\n  \"insight\": {\n    \"type\": \"warning\" | \"opportunity\" | \"suggestion\" | \"fact\",\n    \"content\": \"Short, punchy text for the HUD.\",\n    \"confidence\": 0.0 to 1.0,\n    \"expiry\": 15,\n    \"metadata\": { \"key\": \"value\" }\n  },\n  \"state_snapshot\": {\n    \"key\": \"value\" \n    // Optional: Updates to persistent blackboard state (Zone B)\n  }\n}\n",
+  "status": "deprecated",
+  "description": "Root-presence legacy envelope: a nested insight whose absence is silence, and a state_snapshot variable channel.",
+  "contract": "library/contract/output_formats.json \u2014 THE authority. This file is documentation; its mapping and descriptor are conformance-tested against the contract and are not read at run time.",
+  "instruction": "\nDEPRECATED since 3.1.0, removed in 4.0.0 \u2014 move to insight_v1.\n\nIMPORTANT: Output a valid JSON object strictly adhering to this schema:\n\n{\n  \"insight\": {\n    \"type\": \"warning\" | \"opportunity\" | \"suggestion\" | \"fact\",\n    \"content\": \"Short, punchy text for the HUD.\",\n    \"confidence\": 0.0 to 1.0,\n    \"expiry\": 15,\n    \"metadata\": { \"key\": \"value\" }\n  },\n  \"state_snapshot\": { \"key\": \"value\" }\n}\n\nNOTES:\n- Omitting \"insight\" (or sending null / {}) is silence. The framework translates\n  that presence gate into the canonical boolean gate before validating.\n",
   "mapping": {
     "root_key": "insight",
-    "check_field": null,
+    "check_field": "insight",
     "content_field": "content",
     "type_field": "type",
     "confidence_field": "confidence",
-    "state_field": null,
-    "variable_updates_field": "state_snapshot",
-    "metadata_field": "metadata"
+    "metadata_field": "metadata",
+    "variable_updates_field": "state_snapshot"
   },
   "descriptor": {
-    "schema_version": "legacy_v2",
     "gate_mode": "root_presence",
-    "typed_adapter": "root_v2",
-    "supported_insight_types": [
-      "warning",
-      "opportunity",
-      "suggestion",
-      "fact"
-    ],
+    "typed_adapter": "root",
+    "output_format": "v2_raw",
+    "status": "deprecated",
     "typed_supported_insight_types": [
       "fact",
       "observation",
@@ -50,6 +46,14 @@
     "supported_transports": [
       "json_object"
     ],
-    "supported_content_contracts": []
+    "supported_content_contracts": [],
+    "channels": {
+      "state_snapshot": "variable_updates"
+    }
+  },
+  "deprecation": {
+    "deprecated_in": "3.1.0",
+    "removed_in": "4.0.0",
+    "replacement": "insight_v1"
   }
 }

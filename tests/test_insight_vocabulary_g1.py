@@ -375,30 +375,38 @@ class TestContextPropagation:
 # ---------------------------------------------------------------------------
 
 class TestDescriptorInstructionAgreement:
+    """3.1.0: a schema file no longer DECLARES anything — it documents a format
+    whose contract lives in library/contract/output_formats.json, and the
+    descriptor it carries is the one derived from that contract. The literal
+    `supported_insight_types` enum went with the static instruction that used
+    it: the type list sent to a model is generated per run from the effective
+    set, so a second, staler list in a file could only ever disagree.
+
+    Full prompt/parser/contract conformance is asserted in
+    tests/test_output_formats.py; this keeps the descriptor-honesty checks that
+    still have meaning.
+    """
     SCHEMAS = Path(xubb_agents.__file__).parent / "library" / "schemas"
 
-    @pytest.mark.parametrize("name", ["default", "default_v2", "v2_raw", "ui_control"])
-    def test_descriptor_types_match_the_types_the_instruction_offers(self, name):
-        data = json.loads((self.SCHEMAS / f"{name}.json").read_text(encoding="utf-8"))
-        offered = set(re.findall(r'"(suggestion|warning|opportunity|fact|praise|observation|reply|correction|question|error)"',
-                                 data["instruction"]))
-        assert offered == set(data["descriptor"]["supported_insight_types"]), name
-        assert "error" not in data["descriptor"]["supported_insight_types"]
+    def test_no_schema_file_reintroduces_a_literal_type_enum(self):
+        """NEGATIVE CONTROL for the drift this class was written to catch: a
+        second vocabulary in a schema file, able to disagree with the generated
+        one, must not come back."""
+        for path in self.SCHEMAS.glob("*.json"):
+            d = json.loads(path.read_text(encoding="utf-8"))["descriptor"]
+            assert "supported_insight_types" not in d, f"{path.name}: literal enum is back"
+            assert "supported_contracts" not in d, f"{path.name}: the key went with the second contract"
 
     def test_shipped_descriptors_declare_their_contracts_honestly(self):
-        """3.0.0: EVERY shipped schema declares a typed adapter, because a schema
-        without one can no longer be registered at all. `supported_contracts` is
-        gone from the descriptors — there is one contract, so declaring it said
-        nothing — and `custom1`, which declared only the removed one, is gone with
-        it. Typed offerings are the nine purposes."""
-        adapters = {"insight_v1", "flat_v2", "flat_v1", "root_v2"}
+        """Every shipped schema declares a typed adapter (3.0.0: one without it
+        cannot be registered) and offers the nine typed purposes."""
+        adapters = {"canonical", "flat", "root"}
         seen = set()
         for path in self.SCHEMAS.glob("*.json"):
             d = json.loads(path.read_text(encoding="utf-8"))["descriptor"]
             seen.add(path.stem)
-            assert "supported_contracts" not in d, f"{path.name}: the key went with the second contract"
             assert d.get("typed_adapter") in adapters, path.name
             assert tuple(d["typed_supported_insight_types"]) == HUMAN_WIRE_VALUES, path.name
-            assert set(d["supported_insight_types"]) <= set(HUMAN_WIRE_VALUES), path.name
+            assert d["status"] in ("supported", "deprecated"), path.name
         assert "custom1" not in seen, "custom1 declared only legacy_v2 and is removed in 3.0.0"
         assert seen == {"insight_v1", "default", "default_v2", "v2_raw", "ui_control", "widget_control"}
