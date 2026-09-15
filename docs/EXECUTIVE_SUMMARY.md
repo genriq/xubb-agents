@@ -1,6 +1,6 @@
 # Xubb Agents — Overview
 
-**Version:** 2.8.1
+**Version:** 3.1.5 — *but note:* this summary's narrative was written at 2.8.1 and predates the 3.0.0 contract removal and the 3.1.x output-format consolidation. For current behaviour see the [changelog](../CHANGELOG.md) and [DESIGN_GUIDE.md](DESIGN_GUIDE.md).
 
 A developer-facing overview of what the framework does and how it is put together. For
 the deep design guide see [PLAYBOOK.md](PLAYBOOK.md); for the API and data models see
@@ -181,4 +181,4 @@ For a complete, runnable example (including a no-key offline variant), see the
 
 ---
 
-**Version:** 2.8.1 · **Status:** Beta, production-hardened (see the contract registry) · **License:** MIT
+**Version:** 3.1.5 · **Status:** Beta, production-hardened (see the contract registry) · **License:** MIT

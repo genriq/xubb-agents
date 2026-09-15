@@ -1928,18 +1928,29 @@ contracts:
   # ---- 3.1.3 documentation accuracy (design review 2026-09-15) ----
 
   - id: README-EXAMPLES-NOT-DEPRECATED
+    # AMENDED 2026-09-15 (3.1.5): the README examples were restructured into the
+    # reader journey, so the tests are renamed; and the LLM-backed example is now
+    # exercised through the REAL engine with only the provider substituted. The
+    # earlier version replaced AgentEngine.process_turn wholesale, so it proved
+    # the block constructed and printed while generation, parsing, validation and
+    # acceptance never ran — it could not have caught an example whose envelope
+    # the engine rejects.
     statement: >
-      A CURRENT runnable example in the README teaches no practice the engine deprecates: executing
-      the Quickstart and the offline example raises none of this library's own deprecation warnings.
-      A deliberately historical example is instead tested for the warning it is expected to raise.
+      A CURRENT runnable example in the README teaches no practice the engine deprecates, and the
+      LLM-backed example is executed through the real engine with only the provider boundary
+      substituted, so an example the engine would refuse fails the build. The offline example runs
+      verbatim. A deliberately historical example is instead tested for the warning it is expected
+      to raise.
     source:
-      - "README.md: Quickstart"
+      - "README.md: Run it now / With a model"
       - "docs/PROCESS.md: docs are code"
-      - "the 2026-09-15 documentation design review"
-    test: "tests/test_readme_quickstart.py::test_readme_quickstart_emits_no_engine_deprecation_warning"
+      - "the 2026-09-15 documentation design review, SS5"
+    test: "tests/test_readme_quickstart.py::test_readme_model_example_emits_no_engine_deprecation_warning"
+    test_real_engine: "tests/test_readme_quickstart.py::test_readme_model_example_runs_through_the_real_engine"
+    test_substitution: "tests/test_readme_quickstart.py::test_the_model_example_really_exercises_the_engine"
     test_offline: "tests/test_readme_quickstart.py::test_readme_offline_example_emits_no_engine_deprecation_warning"
     test_control: "tests/test_readme_quickstart.py::test_control_the_detector_catches_a_deprecated_example"
-    status: covered   # 3.1.3
+    status: covered   # 3.1.3; strengthened 3.1.5
 
   - id: API-REFERENCE-COVERAGE
     statement: >
@@ -1990,12 +2001,27 @@ contracts:
     test_control: "tests/test_api_docs_gate.py::test_a5_knows_which_codes_the_source_still_emits"
     status: covered   # 3.1.4
 
+  - id: GUIDE-RECIPES-VERIFIED
+    statement: >
+      Every example in the current guides that claims to run, runs. A fenced python block marked
+      `<!-- runnable -->` is executed in CI against the real engine with the provider substituted,
+      and must emit none of this library's deprecation warnings; an unmarked block is illustrative
+      and is not executed. A recipe labelled current is therefore one that ran.
+    source:
+      - "docs/DESIGN_GUIDE.md and docs/guides/"
+      - "tests/test_guides_runnable.py"
+      - "the 2026-09-15 documentation design review, SS2"
+    test: "tests/test_guides_runnable.py::test_guide_example_runs"
+    test_not_deprecated: "tests/test_guides_runnable.py::test_guide_example_emits_no_engine_deprecation_warning"
+    test_control: "tests/test_guides_runnable.py::test_the_guides_carry_runnable_examples"
+    status: covered   # 3.1.5
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:      108   (every contract & invariant names a passing, rule-asserting test)
+# covered:      109   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:        108
+# total:        109
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6

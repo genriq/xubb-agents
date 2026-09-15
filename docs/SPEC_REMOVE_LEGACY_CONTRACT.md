@@ -1,6 +1,6 @@
 # SPEC — Remove the `legacy_v2` insight contract
 
-- **Status:** APPROVED v1.1 — ready to build
+- **Status:** SHIPPED — merged as PR #41 (2026-09-13), released as 3.0.0, tagged `v3.0.0` at `d9a8b32`
 - **Reviewed —** APPROVED round 3 (round 1: 3 majors + 1 minor; round 2 re-reported them after a failed patch wrote nothing; round 3 clean. Nothing contested — each finding was verified against the code before folding.)
 - **Target release:** 3.0.0 (breaking)
 - **Supersedes:** the contract-selection mechanism introduced with XUBB-ITC-1 §7.1
