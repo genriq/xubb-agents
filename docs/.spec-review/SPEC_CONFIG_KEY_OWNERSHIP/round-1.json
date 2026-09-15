@@ -1,0 +1,15 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "The spec identifies a concrete configuration-loss problem and provides a useful migration path with construction-path tests. However, the 3.2.0 warning rule contradicts existing mandatory refusals and must be scoped before implementation.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "blocker",
+      "section": "§4 Closed blocks; §7 Migration; §8 Test plan",
+      "issue": "Section 7 says that in 3.2.0 closed blocks only warn and “Nothing is refused,” while §4 includes insight_config, mapping, and descriptor, whose unknown keys already reject. Section 8 likewise requires both refusal for every closed block and warning without refusal, without limiting the latter to the newly closed blocks. These instructions require incompatible behavior for the same input.",
+      "why_it_matters": "Following the warning rule literally would reopen the accepted-and-discarded configuration defects repaired in 3.1.2 and weaken existing insight configuration validation. Preserving existing refusals instead would violate the stated 3.2.0 acceptance criterion. The current constructor already rejects these inputs in dynamic.py through InsightConfig validation and override_violations.",
+      "suggested_fix": "State that the 3.2.0 warning window applies only to newly detected unknown keys in model_config and trigger_config. Preserve all existing refusals, including insight_config, mapping, descriptor, and reserved model_params collisions. Split the test matrix by block and release so each input has exactly one expected disposition."
+    }
+  ],
+  "resolved_from_previous_round": []
+}

@@ -1,0 +1,6 @@
+{
+  "verdict": "APPROVED",
+  "summary": "The revision resolves the release-policy contradiction: only model_config and trigger_config enter the warning window, while existing refusals remain intact. The release-by-block test matrix makes those requirements concrete and testable. No blocker or major findings remain.",
+  "findings": [],
+  "resolved_from_previous_round": ["F1"]
+}
