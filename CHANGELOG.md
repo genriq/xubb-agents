@@ -13,7 +13,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A written release procedure** — [docs/PROCESS.md](docs/PROCESS.md#releasing), linked
+  from `CONTRIBUTING.md`. There was none, and the cost showed: nine tagged versions
+  (`v2.8.0` through `v3.1.5`, including the breaking `v3.0.0`) had been tagged and pushed
+  but never published as GitHub Releases, so the Releases page advertised **`v2.7.0` as
+  Latest** while the library shipped 3.1.6. The nine have since been published
+  retrospectively from their changelog entries, with only `v3.1.6` marked Latest.
+
+  The procedure requires publishing the release against the **existing** tag (never letting
+  the release form create or move one), **verifying the install** from a clean checkout by
+  the method the README documents, and **pinning documentation links to that release's
+  tag** rather than `main` — a release page is a historical record, and links to `main`
+  silently re-point as the docs change.
+
+  No version bump: this is a release-record cleanup, and the runtime is unchanged.
 
 ## [3.1.6] - 2026-09-15
 
