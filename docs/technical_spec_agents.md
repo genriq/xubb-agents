@@ -3,7 +3,7 @@
 **Version:** 2.8.1
 **Status:** Beta — production-hardened (contract-gated; see docs/PROCESS.md)
 **Scope:** `xubb_agents` Library
-**Compatibility:** Backward compatible with v1.0/v2.0 agents, with one deliberate v2.2 contract correction (fact conflict resolution, F-1). See [SPEC_V2_1_HARDENING.md](archive/SPEC_V2_1_HARDENING.md) (archived) for v2.1 behavioral normalizations and [SPEC_V2_2_HARDENING.md](SPEC_V2_2_HARDENING.md) for the v2.2 hardening items and migration notes.
+**Compatibility:** *(This line describes the state at 2.8.1 and predates the deliberate 3.0.0 break.)* As of 3.0.0 the `legacy_v2` insight contract and the `insight_contract=` parameter are **removed**, and 3.1.0 consolidated the output formats; a v1.0/v2.0 agent is no longer compatible without the migration in [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md). Historically: backward compatible with v1.0/v2.0 agents, with one deliberate v2.2 contract correction (fact conflict resolution, F-1). See [SPEC_V2_1_HARDENING.md](archive/SPEC_V2_1_HARDENING.md) (archived) for v2.1 behavioral normalizations and [SPEC_V2_2_HARDENING.md](SPEC_V2_2_HARDENING.md) for the v2.2 hardening items and migration notes.
 
 ---
 

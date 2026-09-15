@@ -67,6 +67,11 @@ DIAGNOSTIC_CODES: Tuple[str, ...] = (
     "missing_principal", "capability_unavailable", "invalid_correction_target",
     "correction_conflict", "invalid_question_contract", "invalid_input_reference",
     "no_supported_insight_types", "invalid_domain_payload", "reserved_state_write",
+    # LEGACY / RETIRED EMISSION. 3.0.0 removed every path that emits
+    # `partial_legacy_response` with the legacy contract it served, but the name stays
+    # in the registered vocabulary: removing runtime vocabulary is a compatibility
+    # decision for hosts that may still branch on it, not a documentation cleanup.
+    # Do not delete it as tidying — retire it deliberately or leave it.
     "partial_legacy_response", "unsupported_structured_output", "provider_schema_error",
     "content_execution_not_allowed", "invalid_content_execution_context",
     "content_contract_unavailable", "invalid_content_policy", "unsupported_depth",

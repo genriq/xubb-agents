@@ -1,12 +1,21 @@
 # Host conformance kit — 1.2.0
 
+> **Partial historical reference snapshot.** 8 of the 31 files named by the original
+> source manifest are included here; **the executable runner (`host_conformance_kit.py`)
+> and the sample adapter (`sample_host_adapter.py`) are not shipped in this repository.**
+> The run instructions below are preserved as historical documentation of the 1.2.0
+> package and require that separate archive. `MANIFEST.sha256` belongs to that original
+> package, not to this directory: source-archive verification does not certify this
+> checkout or any host implementation. The contract JSON here is a 1.2.0 freeze; the
+> runtime ships 1.3.0.
+
 ## Scope
 
 This kit tests a named host adapter; it does not automatically certify Xubb or another host. Parent requirements and unique leaf scopes are in CONTRACT_OWNERSHIP.json. An actual run needs a host name, version, immutable build digest, and an adapter driving that build.
 
 `host_conformance_kit.py` declares the adapter interface and eight deterministic cases. `sample_host_adapter.py` is an inert, in-memory self-test, not the desktop UI. No actual adopting host is exercised by the packaged report. The negative self-test exports only a preview; the runner must detect the loss of the full body.
 
-## Run
+## Run (historical — requires the separate 1.2.0 source package)
 
 ```bash
 python host_conformance_kit.py --adapter your_host_adapter:create_adapter --output host-results.json

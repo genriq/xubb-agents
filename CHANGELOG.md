@@ -15,6 +15,58 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [3.1.3] - 2026-09-15
+
+### Fixed — documentation that misled a current reader
+
+A documentation design review of 3.1.2 found the reference-level docs several releases
+behind the code. This is **tier 1 of its delivery order**: the things a newcomer or an
+integrator hits first. The API-reference rebuild and the diagnostics reference are tier 2
+and are not in this release.
+
+- **The flagship Quickstart no longer teaches a deprecated practice.** It did not set
+  `output_format`, so it inherited the deprecated `default` and warned at the first code a
+  newcomer copied. It now sets `insight_v1` explicitly. `README-EXAMPLES-NOT-DEPRECATED`
+  registers the rule, with a negative control proving the detector fires — the previous
+  state passed CI precisely because nothing asserted this.
+- **`AgentEngine(api_key=…)` was documented as required.** The constructor defaults it to
+  `None`. Corrected, and the API Reference now carries a standing note that it covers
+  roughly half the public surface and is being rebuilt — a reader should not have to
+  discover that by being wrong.
+- **The docs index presented a removed parameter as current API.** Its
+  implementation-status paragraph is a 2.8.1 snapshot; it is now labelled as one, with
+  `insight_contract=` (removed in 3.0.0, raises `TypeError`) and the renamed adapters
+  called out explicitly.
+- **The prompt guide recommended a deprecated format for new agents.** Its schema table
+  now leads with `insight_v1` and `widget_control`, marks the other four as removed in
+  4.0.0, and replaces the "typed contract (v2.8)" note, which described a selectable
+  contract that no longer exists.
+- **The 4.0.0 output-format plan contradicted the approved spec.** The README said the
+  implicit default *changes to* `insight_v1`; `SPEC_CONFIG_KEY_OWNERSHIP` §5.3 amends that
+  — the key becomes **required**. Current behaviour, approved-but-unshipped behaviour and
+  history are now labelled separately.
+- **The technical spec's blanket backward-compatibility claim** predated the deliberate
+  3.0.0 break and now says so.
+
+### Changed
+
+- `docs/reference/insight_types_1.2.0/` is labelled a **partial historical snapshot**: 8 of
+  the 31 files named by the original source manifest are present, and the executable
+  conformance runner and sample adapter are not shipped here. Its run instructions are
+  marked historical, and the docs index no longer describes it as "manifest-verified" —
+  source-archive verification does not certify this checkout or any host. Nothing was
+  deleted and the original manifest and provenance are preserved.
+- `SPEC_V3_LIVE_ASSISTANCE.md` uses generic terminology for the embedding host.
+
+### Not changed, deliberately
+
+- **`partial_legacy_response` stays in `DIAGNOSTIC_CODES`.** 3.0.0 removed every path that
+  emits it, but removing registered runtime vocabulary is a compatibility decision for
+  hosts that may branch on it — not documentation tidying. It now carries a comment saying
+  so, and a lifecycle status belongs in the tier-2 diagnostics reference.
+- **`SECURITY.md`'s support table** lists 3.1.x and `< 3.0` and leaves 3.0.x unstated. That
+  is the maintainer's policy to record, not an editor's to invent.
+
 ## [3.1.2] - 2026-09-14
 
 ### Fixed — R2's repair was incomplete, in the same shape as the defect it fixed
