@@ -1680,7 +1680,17 @@ contracts:
     test_probe: "tests/qa_probes/test_probe_output_format_disagreements.py::TestProbeOF2StructuralOverrides::test_a_structural_override_fails_at_registration"
     test_config_path: "tests/test_output_formats.py::TestConfigurationOverridesAreRefused::test_catalog_configuration_overrides_are_refused"
     test_config_control: "tests/test_output_formats.py::TestConfigurationOverridesAreRefused::test_control_the_contracts_own_mapping_is_not_an_override"
-    status: covered   # 3.1.0 (F2a, F2b, F3); config path added 3.1.1 (R2)
+    # AMENDED AGAIN 2026-09-14 (3.1.2), follow-up review. 3.1.1 validated the
+    # supplied MAPPING in full but the supplied DESCRIPTOR only for
+    # `typed_adapter`, so gate_mode, channels, supported_transports and any
+    # invented key were still accepted and silently replaced. The enumeration of
+    # "structural keys" was itself the defect; the rule is now "what you supply
+    # must equal what the contract derives, and an undefined key is refused",
+    # which needs no list and cannot go stale.
+    test_descriptor_path: "tests/test_output_formats.py::TestDescriptorOverridesAreRefused::test_supplied_descriptor_overrides_are_refused"
+    test_unenumerated_mapping: "tests/test_output_formats.py::TestDescriptorOverridesAreRefused::test_supplied_mapping_keys_outside_the_old_enumeration_are_refused"
+    test_descriptor_control: "tests/test_output_formats.py::TestDescriptorOverridesAreRefused::test_control_the_contracts_own_descriptor_is_not_an_override"
+    status: covered   # 3.1.0 (F2a, F2b, F3); config path 3.1.1 (R2); whole-block rule 3.1.2
 
   - id: OUTPUT-FORMAT-PROMPT-PARSER
     # AMENDED 2026-09-14 (3.1.1), post-implementation review. The STATEMENT was
@@ -1871,6 +1881,16 @@ contracts:
     test_write: "tests/test_output_formats.py::TestMigrationTool::test_write_sets_output_format_explicitly_and_touches_nothing_else"
     test_manual_unchanged: "tests/test_output_formats.py::TestMigrationTool::test_manual_migration_records_are_unchanged"
     test_write_control: "tests/test_output_formats.py::TestMigrationTool::test_control_the_mechanical_row_is_still_rewritten"
+    # AMENDED AGAIN 2026-09-14 (3.1.2): the planner inspected `mapping` only, and
+    # only against a fixed key list, so a record with an unknown adapter was
+    # reported MECHANICAL and rewritten. It also asked one question where there
+    # are two — a block can be valid for the CURRENT format and contradict the
+    # TARGET, which is what rewriting a default_v2 record carrying its own `flat`
+    # adapter did. The planner now runs registration's own rule against both.
+    test_reads_descriptor: "tests/test_output_formats.py::TestPlannerReadsTheDescriptor::test_the_planner_reads_the_descriptor"
+    test_target_conflict: "tests/test_output_formats.py::TestPlannerReadsTheDescriptor::test_a_block_that_would_contradict_the_new_format_is_manual"
+    test_not_rewritten: "tests/test_output_formats.py::TestPlannerReadsTheDescriptor::test_neither_record_is_rewritten"
+    test_planner_control: "tests/test_output_formats.py::TestPlannerReadsTheDescriptor::test_control_a_record_with_no_block_is_still_mechanical"
     test_control: "tests/test_output_formats.py::TestMigrationTool::test_control_an_already_migrated_agent_needs_nothing"
     status: covered   # 3.1.0; write scope repaired 3.1.1 (R1)
 

@@ -15,6 +15,43 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [3.1.2] - 2026-09-14
+
+### Fixed — R2's repair was incomplete, in the same shape as the defect it fixed
+
+Re-testing merged 3.1.1 found two more accepted-and-ignored settings. One root cause:
+**the enumeration was the bug.**
+
+3.1.1 validated a supplied `mapping` in full but a supplied `descriptor` only for
+`typed_adapter`, because both checks walked a hand-maintained list of "the structural
+keys". Everything outside that list kept the old behaviour — accepted at construction,
+silently replaced by the contract's value, never mentioned again.
+
+| Was | Now |
+|---|---|
+| `descriptor.gate_mode`, `descriptor.channels`, `descriptor.supported_transports`, `descriptor.typed_supported_insight_types` and any invented descriptor key: accepted and silently replaced | Refused at construction with a named error |
+| `mapping.confidence_field`, `mapping.metadata_field` and any key outside the twelve enumerated ones: same | Same |
+| The migration planner read `mapping` only, against that same list, so a record with an unknown adapter was reported **mechanical** and rewritten | The planner runs registration's own rule over both blocks |
+| The planner asked one question where there are two, so a valid `default_v2` record carrying its own `flat` adapter was rewritten to `insight_v1` — producing a configuration that cannot register | It checks the block against the **current** format *and* the **target**, and reports the second case with what to do about it |
+
+**The rule no longer has a list.** What you supply must equal what the contract derives,
+and a key the contract does not define is refused. A list of structural keys goes stale
+every time the contract grows a field, and every gap it leaves is another setting accepted
+and ignored — the defect class this release series exists to end.
+
+### Removed
+
+- `xubb_agents.core.output_format.STRUCTURAL_MAPPING_KEYS`. Introduced in 3.1.0, it was the
+  enumeration above; nothing needs it now that the rule compares whole blocks.
+
+### Compatibility
+
+Registry: 104 contracts, 100% covered, strict gate green — no new entries, two amended again
+in place with dated notes saying what the 3.1.1 coverage missed. Suite: 1096 passed, 0
+skipped, 0 xfail. The maintained catalogue's totals are unchanged (105 / 74 / 31 / 93): no
+record in it carries a `mapping` or `descriptor` block. Still offline only; still unadopted
+by any host.
+
 ## [3.1.1] - 2026-09-14
 
 ### Fixed — six defects found by an independent post-implementation review of 3.1.0
