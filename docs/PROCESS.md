@@ -111,6 +111,10 @@ Releases page therefore advertised **`v2.7.0` as Latest** while the library ship
 `3.1.6`, and the breaking change in between had no release page at all. Every step
 below exists because it was missed.
 
+**Publication is the last step, not the middle one.** Verify the install, then prepare
+and validate the links, then publish, then confirm. A release page is public the moment
+it exists; every check that can run before it should.
+
 **Every release, in order:**
 
 1. **Version** — bump `pyproject.toml` and `src/xubb_agents/__init__.py` together.
@@ -122,18 +126,23 @@ below exists because it was missed.
 4. **Merge** the release PR (the owner merges; see `CONTRIBUTING.md`).
 5. **Tag** the merge commit, annotated, `vX.Y.Z`. Verify the tag's commit declares
    that same version in both files before pushing it. Push the tag.
-6. **Publish the GitHub Release** against that existing tag — never let the release
-   form create or move a tag. Notes come from the changelog entry. Mark the newest
-   stable version **Latest**, and only that one.
-7. **Verify installation** from a clean checkout of the tag, using the method the
-   README documents. A release page must not print an install command nobody ran.
-   This repository installs from a checkout (`pip install -e .`); it does **not**
-   publish to PyPI, and whether it should is a separate decision — until it is made,
-   no release note may imply a `pip install xubb-agents` that does not exist.
-8. **Pin documentation links** in the release notes to that release's tag
-   (`/blob/vX.Y.Z/docs/...`), not to `main`. A release page is a historical record:
-   links to `main` silently re-point as the docs change, so an old release ends up
-   describing instructions that were never true for it.
+6. **Verify installation** in a clean environment, from a checkout of the tag, using
+   the method the README documents. A release page must not print an install command
+   nobody ran. This repository installs from a checkout (`pip install -e .`); it does
+   **not** publish to PyPI, and whether it should is a separate decision — until it is
+   made, no release note may imply a `pip install xubb-agents` that does not exist.
+7. **Prepare and validate the notes' links.** Draft the notes from the changelog entry,
+   pin every documentation link to that release's tag (`/blob/vX.Y.Z/docs/...`) rather
+   than `main`, and check each one resolves in that tag's tree before going further. A
+   release page is a historical record: links to `main` silently re-point as the docs
+   change, so an old release ends up describing instructions that were never true for it.
+8. **Publish the GitHub Release** against that existing tag — never let the release form
+   create or move a tag. Everything in the notes has been verified by this point, which
+   is the reason publication comes last: a release page is public the moment it exists,
+   and correcting one after the fact is a worse record than getting it right once.
+9. **Confirm** the published page: the release renders against the intended tag, the
+   notes are the validated draft, and the **Latest** designation sits on the newest
+   stable version and only that one.
 
 **Retrospective releases.** If a version is published after the fact, say so in the
 notes, name the date the record was created, and state that the tag is unchanged and
