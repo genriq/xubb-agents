@@ -38,6 +38,55 @@ The CI job and tooling refer to the gate's three checks by short names:
 
 *(Definition note, 2026-08-19: an earlier revision of this table described G2 as `@pytest.mark.invariant` marker coverage — a check the gate never implemented. The table above matches `tools/check_contracts.py` exactly.)*
 
+## The documentation gate (`tools/check_api_docs.py`)
+
+A second gate, added in 3.1.4, runs in the same CI job. The contract gate governs
+**behaviour**; this one governs the **reference**, because a green contract registry
+says nothing about whether a public member is documented at all.
+
+| Gate | Check |
+|------|-------|
+| **A1** | Every public member of a declared class appears in `docs/api/inventory.yaml`. |
+| **A2** | Every inventory entry still exists in the code — so a deleted member cannot linger as documentation. |
+| **A3** | The `<!-- GENERATED:Name -->` fact blocks in the reference are current: signatures, defaults and requiredness are regenerated from the shipped code and must match. |
+| **A4** | Every declared class, constant and diagnostic code has a section to read, and every diagnostic carries a lifecycle status. |
+| **A5** | A diagnostic with no emitter left in `src/` is documented as retired — and one that *is* still emitted may not be documented as retired. |
+
+A1 and A2 hold in both directions against a hand-maintained inventory, so widening
+the public surface is a deliberate act with a documentation cost, not an accident.
+Exclusions are recorded in the inventory rather than assumed.
+
+## What a green gate proves — and what it does not
+
+Both gates are narrow on purpose, and it is worth being exact about their reach,
+because each has already been over-read once in this repository's own documents.
+
+**The contract gate proves** that every rule registered in `CONTRACTS.yaml` names a
+test that exists, ran, and passed in this build. It does **not** prove that the
+registry is complete, that a registered test reaches the input path a user actually
+supplies, or that any prose is true. A rule nobody registered is not covered by a
+green gate; neither is a rule whose test pokes an attribute after construction when
+the defect lives in the constructor. Two of the six defects found by the
+post-implementation review of 3.1.0 were of exactly that shape, against a gate that
+was green at the time.
+
+**The documentation gate proves** that the declared public surface is present in the
+reference and that the generated facts in it match the code. It does **not** prove
+that a hand-written explanation is correct, current, or useful. A1–A5 cannot read a
+paragraph. Purpose, ownership, lifecycle, units and failure behaviour are checked by
+a person or not at all.
+
+**What executes rather than being asserted about:** the runnable examples. Every
+fenced block marked `<!-- runnable -->` in the guides, the README's two examples, and
+the prompt guide's documented envelopes are run against the real engine in CI, with
+only the provider boundary substituted (`GUIDE-RECIPES-VERIFIED`,
+`README-EXAMPLES-NOT-DEPRECATED`, `PROMPT-GUIDE-ENVELOPES`). That is the only
+mechanism here that tests a documented *claim* rather than a documented *name*, and
+it is why a recipe labelled current is one that ran.
+
+Generated documentation is accurate by construction only for the mechanical facts it
+derives. Nothing in this repository licenses a broader claim than that.
+
 ## Escaped-defect probes (`tests/qa_probes/`)
 
 A defect that escapes to production earns a **probe**: a regression test that

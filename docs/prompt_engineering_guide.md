@@ -1,20 +1,25 @@
 # Xubb Agents — Prompt Engineering Guide
 
-**Version:** 3.2
-**Last Updated:** July 13, 2026
-**Status:** Production (xubb_agents v2.8.1)
+**Document revision:** 3.3
+**Applies to runtime:** 3.1.6
+**Last Updated:** September 15, 2026
 
-This guide is the **definitive reference** for writing effective prompts for the Xubb Agents framework. It covers system prompt design, Jinja2 templating, output schemas, trigger configuration, and agent coordination patterns.
+> The document revision and the runtime are different version axes. This line says which
+> runtime the guidance below was checked against; the changelog says what that runtime does.
 
-> **SUPERSEDED IN 3.1.0 — output formats.** Everything below about *which* output
-> formats exist, how a schema's `mapping` shapes the envelope, gate-less schemas and
-> `speak_without_gate` is superseded by
+This guide covers writing prompts for the Xubb Agents framework: system prompt design, Jinja2 templating, output schemas, trigger configuration, and agent coordination patterns. For the Python surface see [API_REFERENCE.md](API_REFERENCE.md); for doctrine and task recipes see [DESIGN_GUIDE.md](DESIGN_GUIDE.md) and [guides/](guides/).
+
+> **What is current here, and what is not.** [§4 Output Schemas](#4-output-schemas) was
+> revised for 3.1.6 and its envelopes are **executed against the real engine in CI**
+> (`PROMPT-GUIDE-ENVELOPES`), so the format table, the worked example and the field
+> reference are current. Still superseded by
 > [SPEC_OUTPUT_FORMAT_CONSOLIDATION.md](SPEC_OUTPUT_FORMAT_CONSOLIDATION.md) and
-> [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md). In 3.1.0 there are
-> two supported formats (`insight_v1`, `widget_control`) and four deprecated aliases
-> removed in 4.0.0; every format's gate, keys and channels come from one contract file;
-> a structural `mapping` override and `speak_without_gate` are refused at registration;
-> and an unknown format name raises instead of falling back to `default`.
+> [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md): anything below implying a
+> schema's `mapping` can reshape the envelope, that a schema may declare no gate, or that
+> `speak_without_gate` does something. Since 3.1.0 every format's gate, keys and channels
+> come from one contract file; a structural `mapping` override and `speak_without_gate` are
+> refused at registration; and an unknown format name raises instead of falling back to
+> `default`.
 
 > **Scope:** This guide covers the `xubb_agents` library only. Host-specific features (UI rendering, database persistence, socket events) are out of scope and documented by the host application.
 
@@ -185,7 +190,7 @@ Agents return JSON conforming to an **output schema**. The schema determines how
 
 Located in `library/schemas/`:
 
-| Format | Status (3.1.2) | Use case | Insight text key | State channels |
+| Format | Status (3.1.6) | Use case | Insight text key | State channels |
 |--------|----------------|----------|------------------|----------------|
 | `insight_v1` | **Supported — use this** | Insight and state agents | `content`, nested under `insight` | events, variable_updates, queue_pushes, facts, memory_updates |
 | `widget_control` | **Supported** | Agents that also drive host UI | `content`, nested under `insight` | the five above, plus host-declared `ui_actions` |
@@ -196,19 +201,21 @@ Located in `library/schemas/`:
 
 > **One contract (3.0.0+).** There is a single insight contract and it is not selectable: the `insight_contract=` parameter was **removed in 3.0.0** and raises `TypeError`. The engine generates the output instruction per run from the agent's effective purposes, so a schema's static `instruction` text is never sent. Each format declares an envelope shape — `canonical` (both supported formats), `flat` (`default`, `default_v2`) or `root` (`v2_raw`, `ui_control`) — in `library/contract/output_formats.json`, which is the authority for its gate, keys and channels.
 
-> **Pick `insight_v1` for new agents**, or `widget_control` if the agent also drives host UI. The four older names are deprecated and are removed in 4.0.0; see [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md). Examples below that still show `default_v2` describe a deprecated format and are being revised — the envelope differs (flat fields rather than a nested `insight`), but the guidance around them still holds.
+> **Pick `insight_v1` for new agents**, or `widget_control` if the agent also drives host UI. The four older names are deprecated and are removed in 4.0.0; see [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md). The worked example and field reference below describe `insight_v1`.
 
-### The `default_v2` Schema (deprecated — removed in 4.0.0)
+### The `insight_v1` Schema
 
-The most capable insight schema. Use it when your agent produces insights for the user — it can emit a gated insight **and** write the Blackboard (variables, events, facts, queues, memory) in the same response. The model emits the insight text under `content`:
+The canonical insight-and-state envelope, and the one to use for new agents. An explicit Boolean gate decides whether the agent speaks; the insight itself is **nested under `insight`**; the five state channels are top-level siblings of the gate and commit whether or not the agent speaks.
 
 ```json
 {
   "has_insight": true,
-  "type": "suggestion",
-  "content": "Brief advice here (max 15 words)",
-  "confidence": 0.85,
-  "expiry": 30,
+  "insight": {
+    "type": "suggestion",
+    "content": "Brief advice here (max 15 words)",
+    "confidence": 0.85,
+    "expiry": 30
+  },
   "variable_updates": { "phase": "negotiation" },
   "events": [
     { "name": "objection_detected", "payload": { "type": "price" } }
@@ -217,39 +224,54 @@ The most capable insight schema. Use it when your agent produces insights for th
 }
 ```
 
-When nothing to report:
+Silence is an explicit `false` gate — and a silent turn may still write state:
+
 ```json
-{ "has_insight": false }
+{ "has_insight": false, "insight": null, "variable_updates": { "phase": "closing" } }
 ```
 
-> **Note — the legacy `default` schema.** `default.json` maps the insight text to **`message`** (not `content`) and parses **only** the insight — it ignores `variable_updates`/`events`/`memory_updates`. If you use it, the model must emit `{ "has_insight": true, "message": "...", "type": "...", "confidence": ... }`. For anything that also writes the Blackboard, use `default_v2` (above).
+`widget_control` is this same envelope plus a `ui_actions` channel, whose items are validated against the widgets your host declared; see [guides/host-integration.md](guides/host-integration.md).
+
+> **Note — the four deprecated formats.** They differ from the above in the envelope, not in the guidance. `default` and `default_v2` put the insight fields at the **top level** instead of under `insight`, and `default` additionally maps the insight text to **`message`** and parses *only* the insight — it ignores `variable_updates`/`events`/`memory_updates`. `v2_raw` and `ui_control` use the **presence of a root key** as the gate rather than `has_insight`. All four are removed in 4.0.0. If you are on one of them, [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md) gives the envelope change format by format — and do not start a new agent on any of them.
 
 ### Field Reference
 
-> The field reference below describes `default_v2` (insight text key `content`). For the legacy `default` schema, substitute `message` for `content`.
+> These are the `insight_v1` / `widget_control` fields. `type`, `content`, `confidence` and `expiry` go **inside `insight`**; every state channel is a top-level sibling of `has_insight`. In the deprecated `default`/`default_v2` formats all of them are top-level, and `default` names the insight text `message`.
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `has_insight` | boolean | **Yes** | `true` = produce insight, `false` = silent (state-only) |
-| `type` | string | If `has_insight: true` | `"suggestion"`, `"warning"`, `"opportunity"`, `"fact"`, `"praise"` |
-| `content` | string | If `has_insight: true` | The insight text (keep concise) |
-| `confidence` | float | No | 0.0-1.0 confidence score |
-| `expiry` | int | No | Seconds until insight auto-dismisses (default: 15) |
-| `variable_updates` | object | No | Key-value pairs to write to Blackboard variables |
-| `events` | array | No | Events to emit (triggers other agents in Phase 2) |
-| `facts` | array | No | Extracted knowledge: `[{"type": "budget", "value": 50000, "confidence": 0.9}]` |
-| `memory_updates` | object | No | Agent-private persistent state |
-| `queue_pushes` | object | No | Items to add to named queues: `{"action_items": ["Follow up"]}` |
+| Field | Where | Type | Required | Description |
+|-------|-------|------|----------|-------------|
+| `has_insight` | top level | boolean | **Yes** | `true` = produce insight, `false` = silent (state-only). It must be a real JSON Boolean |
+| `insight` | top level | object or `null` | If `has_insight: true` | The insight candidate; `null` when silent |
+| `type` | in `insight` | string | **Yes** | One of the purposes this agent is permitted — see below |
+| `content` | in `insight` | string | **Yes** | The insight text (keep concise) |
+| `confidence` | in `insight` | float | No | 0.0-1.0 confidence score |
+| `expiry` | in `insight` | int | No | Seconds until insight auto-dismisses (default: 15) |
+| `variable_updates` | top level | object | No | Key-value pairs to write to Blackboard variables |
+| `events` | top level | array | No | Events to emit (triggers other agents in Phase 2) |
+| `facts` | top level | array | No | Extracted knowledge: `[{"type": "budget", "value": 50000, "confidence": 0.9}]` |
+| `memory_updates` | top level | object | No | Agent-private persistent state |
+| `queue_pushes` | top level | object | No | Items to add to named queues: `{"action_items": ["Follow up"]}` |
+| `ui_actions` | top level | array | No | **`widget_control` only** — each item is validated against your host's widget declarations |
 
 ### Insight Types
 
-| Type | Use Case |
-|------|----------|
-| `suggestion` | Actionable advice ("Ask about their timeline") |
-| `warning` | Risk alerts ("Compliance risk detected") |
-| `opportunity` | Positive urgent moment ("Great time to close") |
-| `fact` | Neutral information ("Budget confirmed: $50K") |
-| `praise` | Positive reinforcement ("Great rapport building!") |
+A `type` is the message's **primary purpose** — never a UI surface, colour, urgency or permission. There are nine model-authorable purposes:
+
+| Type | Use Case | |
+|------|----------|---|
+| `suggestion` | Actionable advice ("Ask about their timeline") | |
+| `warning` | Risk alerts ("Compliance risk detected") | |
+| `opportunity` | Positive urgent moment ("Great time to close") | |
+| `fact` | Neutral information ("Budget confirmed: $50K") | `information` is an alias of this one |
+| `praise` | Positive reinforcement ("Great rapport building!") | |
+| `observation` | A hypothesis or an implication, not an assertion | |
+| `reply` | A drafted response for the principal to send | needs `allow_reply` **and** a `principal_id` |
+| `question` | A question back to the principal, with a correlated answer channel | needs `allow_question` **and** a `principal_id` |
+| `correction` | Corrects a specific earlier insight | needs `allow_correction` **and** a `principal_id` |
+
+`error` exists in the enum but is a **framework diagnostic and is never model-authorable**; a model that emits it is rejected.
+
+> **An agent may only use the purposes it is permitted.** `insight_config.allowed_types` narrows the list, and the engine generates the output instruction from the *effective* set — so a narrowed agent is never told about purposes it cannot use, and a purpose outside the set is rejected with `type_not_allowed` rather than relabelled. The three permissioned purposes additionally require `AgentContext.principal_id`: without it they are withdrawn for the run and refused as `capability_unavailable`. See [guides/authoring-agents.md](guides/authoring-agents.md) for narrowing, and [API_REFERENCE.md](API_REFERENCE.md#insighttype) for the full enum.
 
 ### Custom Schemas
 
