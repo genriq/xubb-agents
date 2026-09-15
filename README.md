@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-**Version:** 3.1.2 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+**Version:** 3.1.3 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
 
 📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
 
@@ -60,6 +60,7 @@ agent = DynamicAgent({
     "name": "Echo Coach",
     "text": "You observe a live conversation. If the customer sounds hesitant, "
             "give the salesperson ONE short, concrete suggestion.",
+    "output_format": "insight_v1",          # always set this explicitly
     "trigger_config": {"mode": "turn_based", "cooldown": 0},
 })
 
@@ -547,7 +548,7 @@ Define preconditions that must be satisfied:
 | `model_config.max_tokens` | int | null | v2.6: per-agent token cap (wire: `max_completion_tokens`; includes reasoning tokens — deep-effort agents need ≥ 4096, OpenAI suggests ~25000). |
 | `model_config.model_params` | object | {} | v2.6: verbatim Chat-Completions passthrough (e.g. `verbosity`). Framework-owned keys are rejected at load; not transport-portable. |
 | `text` | string | required | System prompt (Jinja2) |
-| `output_format` | string | "default" (3.1.0; **becomes `"insight_v1"` in 4.0.0**) | Output format. Supported: `insight_v1`, `widget_control`. Deprecated and removed in 4.0.0: `default`, `default_v2`, `v2_raw`, `ui_control`. An unknown, null, empty or non-string value raises at registration — there is no fallback. See [MIGRATION_OUTPUT_FORMATS](docs/MIGRATION_OUTPUT_FORMATS.md). |
+| `output_format` | string | **current (3.1.2):** omitted inherits `"default"`, which is deprecated and warns | **Set it explicitly.** Supported: `insight_v1`, `widget_control`. Deprecated, removed in 4.0.0: `default`, `default_v2`, `v2_raw`, `ui_control`. An unknown, null, empty or non-string value raises at registration — there is no fallback. **Approved for 4.0.0, not yet shipped:** the key becomes *required* rather than defaulting ([SPEC_CONFIG_KEY_OWNERSHIP §5.3](docs/SPEC_CONFIG_KEY_OWNERSHIP.md), which amends the earlier plan to default it to `insight_v1`). See [MIGRATION_OUTPUT_FORMATS](docs/MIGRATION_OUTPUT_FORMATS.md). |
 | `include_context` | bool | true | Inject user profile & RAG docs into prompt. Set `false` for widget trackers and agents that don't need user/session context. Language directive always injected. |
 
 ---
@@ -761,12 +762,26 @@ Callback failures are non-fatal — they are logged and never abort turn process
 
 ## API Reference
 
+> **This reference is incomplete and is being rebuilt.** A 2026-09 audit found it
+> covers roughly half the public surface — it predates the insight contract (2.7), typed
+> reach (2.8) and the content contract, and omits `AgentInsight`'s typed fields,
+> `AgentResponse`'s acceptance fields and most engine parameters. Until the rebuild lands,
+> treat the docstrings in `src/xubb_agents/` as authoritative where the two disagree, and
+> see [MIGRATION_OUTPUT_FORMATS.md](docs/MIGRATION_OUTPUT_FORMATS.md) for the current
+> output-format and widget-capability surface.
+
 ### AgentEngine
 
 ```python
 class AgentEngine:
-    def __init__(self, api_key: str, callbacks: List[AgentCallbackHandler] = None,
-                 max_phases: int = 2)
+    def __init__(self, api_key: Optional[str] = None,
+                 callbacks: List[AgentCallbackHandler] = None,
+                 max_phases: int = 2, **engine_options)
+        # api_key is OPTIONAL: an engine can be constructed without one (the
+        # LLM client is created lazily). `engine_options` stands in for ten
+        # further parameters this reference does not yet list — see the note
+        # above and, until it is rebuilt, the constructor docstring in
+        # src/xubb_agents/core/engine.py.
     def register_agent(self, agent: BaseAgent) -> None
     def replace_agents(self, agents: List[BaseAgent]) -> None
         # Atomic full-registry swap for hot reloads: rebuilds the registry and
@@ -920,7 +935,8 @@ class AgentConfig:
         silence_threshold: Optional[int] = None,            # For SILENCE trigger
         trigger_interval: Optional[int] = None,             # For INTERVAL trigger
         priority: int = 0,                                  # Merge priority (higher wins)
-        output_format: str = "default",                     # Output format (3.1.0: -> "insight_v1" in 4.0.0)
+        output_format: str = "default",                     # deprecated default; set it explicitly.
+                                                            # 4.0.0 (approved, unshipped): required.
         trigger_conditions: Optional[Dict] = None,          # Blackboard preconditions
         subscribed_events: Optional[List[str]] = None,      # For EVENT trigger
         # v2.6 — per-agent LLM-call config (declarative on custom subclasses:

@@ -185,18 +185,20 @@ Agents return JSON conforming to an **output schema**. The schema determines how
 
 Located in `library/schemas/`:
 
-| Schema | Use Case | Insight text key | Blackboard updates? |
-|--------|----------|------------------|---------------------|
-| `default_v2` | **Recommended** — gated insight **plus** full Blackboard updates | `content` | ✅ variables, events, facts, queues, memory |
-| `default` | Legacy — gated insight **only** (no Blackboard updates) | `message` | ❌ |
-| `v2_raw` | Full v2 structured response (insight nested under an `insight` root key) | `content` | ✅ via `state_snapshot` |
-| `widget_control` | Background state agents | — | `ui_actions`, `state_snapshot` |
+| Format | Status (3.1.2) | Use case | Insight text key | State channels |
+|--------|----------------|----------|------------------|----------------|
+| `insight_v1` | **Supported — use this** | Insight and state agents | `content`, nested under `insight` | events, variable_updates, queue_pushes, facts, memory_updates |
+| `widget_control` | **Supported** | Agents that also drive host UI | `content`, nested under `insight` | the five above, plus host-declared `ui_actions` |
+| `default_v2` | Deprecated, removed in 4.0.0 | — | `content`, at the top level | the five, at the top level |
+| `default` | Deprecated, removed in 4.0.0 | — | `content` (`message` accepted as an input alias) | private memory only |
+| `v2_raw` | Deprecated, removed in 4.0.0 | — | `content`, nested under `insight` | `state_snapshot` → variable_updates |
+| `ui_control` | Deprecated, removed in 4.0.0 | — | `content`, nested under `insight` | `state_snapshot`, plus `ui_actions` |
 
-> **Typed contract (v2.8):** every built-in schema except `custom1` also registers under `insight_contract="typed_v1"` through a declared adapter (`insight_v1`; `flat_v2` for `default_v2`; `flat_v1` for `default`; `root_v2` for `v2_raw`, `ui_control` and `widget_control`, the last two with their `ui_actions` sidecar). Under the typed contract the engine generates the output instruction per run from the agent's effective purposes, so the legacy `instruction` text of the schema is not sent.
+> **One contract (3.0.0+).** There is a single insight contract and it is not selectable: the `insight_contract=` parameter was **removed in 3.0.0** and raises `TypeError`. The engine generates the output instruction per run from the agent's effective purposes, so a schema's static `instruction` text is never sent. Each format declares an envelope shape — `canonical` (both supported formats), `flat` (`default`, `default_v2`) or `root` (`v2_raw`, `ui_control`) — in `library/contract/output_formats.json`, which is the authority for its gate, keys and channels.
 
-> **Pick `default_v2` for new agents.** It is the richest insight schema and the one this guide's examples use. The older `default` schema maps the insight text to `message` (not `content`) and parses *only* the insight — see the note after the example.
+> **Pick `insight_v1` for new agents**, or `widget_control` if the agent also drives host UI. The four older names are deprecated and are removed in 4.0.0; see [MIGRATION_OUTPUT_FORMATS.md](MIGRATION_OUTPUT_FORMATS.md). Examples below that still show `default_v2` describe a deprecated format and are being revised — the envelope differs (flat fields rather than a nested `insight`), but the guidance around them still holds.
 
-### The `default_v2` Schema (recommended)
+### The `default_v2` Schema (deprecated — removed in 4.0.0)
 
 The most capable insight schema. Use it when your agent produces insights for the user — it can emit a gated insight **and** write the Blackboard (variables, events, facts, queues, memory) in the same response. The model emits the insight text under `content`:
 

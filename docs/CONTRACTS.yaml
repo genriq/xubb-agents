@@ -1925,12 +1925,28 @@ contracts:
     test_control: "tests/test_output_formats.py::TestPresentNullIsNotAbsent::test_control_an_absent_or_empty_channel_is_still_no_proposal"
     status: covered   # 3.1.1 (R6)
 
+  # ---- 3.1.3 documentation accuracy (design review 2026-09-15) ----
+
+  - id: README-EXAMPLES-NOT-DEPRECATED
+    statement: >
+      A CURRENT runnable example in the README teaches no practice the engine deprecates: executing
+      the Quickstart and the offline example raises none of this library's own deprecation warnings.
+      A deliberately historical example is instead tested for the warning it is expected to raise.
+    source:
+      - "README.md: Quickstart"
+      - "docs/PROCESS.md: docs are code"
+      - "the 2026-09-15 documentation design review"
+    test: "tests/test_readme_quickstart.py::test_readme_quickstart_emits_no_engine_deprecation_warning"
+    test_offline: "tests/test_readme_quickstart.py::test_readme_offline_example_emits_no_engine_deprecation_warning"
+    test_control: "tests/test_readme_quickstart.py::test_control_the_detector_catches_a_deprecated_example"
+    status: covered   # 3.1.3
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:      104   (every contract & invariant names a passing, rule-asserting test)
+# covered:      105   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:        104
+# total:        105
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6
