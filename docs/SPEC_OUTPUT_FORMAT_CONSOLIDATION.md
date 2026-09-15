@@ -335,6 +335,28 @@ test reaches the input path a user does.
 | R6 | `result.get(wire)` conflated an absent key with a present JSON null, so `"ui_actions": null` skipped validation and let the rest of the response commit. | Presence is checked before value, at the parser and at the final boundary. |
 | — | §9 item 1 says a missing or malformed **packaged schema file** is an error; the implementation logged and returned an empty document. | The refusal is implemented, naming it as a broken installation rather than a configuration error. |
 
+### 17.1 Follow-up review (repaired in 3.1.2)
+
+Re-testing the merged 3.1.1 found that **R2's repair was itself incomplete**, in the same
+shape as the defect it fixed. Two findings, one root cause:
+
+- The supplied **mapping** was validated in full, but the supplied **descriptor** only for
+  `typed_adapter`. `gate_mode`, `channels`, `supported_transports` and any invented key were
+  still accepted and silently replaced. Two mapping keys (`confidence_field`,
+  `metadata_field`) were outside the enumeration too.
+- The **migration planner** read `mapping` only, and only against that same fixed list, so a
+  record with an unknown adapter was reported *mechanical* and rewritten. It also asked one
+  question where there are two: a block can be valid for the CURRENT format and contradict the
+  TARGET — which is exactly what rewriting a `default_v2` record carrying its own `flat`
+  adapter produced, a configuration that cannot register.
+
+**The enumeration was the bug.** A list of "the structural keys" is a thing that goes stale
+every time the contract grows a field, and each gap it leaves is another accepted-and-ignored
+setting — the defect class this whole spec exists to end. The rule no longer has a list:
+*what you supply must equal what the contract derives, and a key the contract does not define
+is refused.* Registration and the planner run that one rule, the planner against both the
+current and the target format.
+
 **Correction to the delivery record below:** its handwritten-envelope subtotal was wrong. The
 tool flags **31** of the 105 configurations for handwritten envelope markers — that is all 31
 manual rows, including all four widget agents, which carry both. 27 are handwritten-only. The

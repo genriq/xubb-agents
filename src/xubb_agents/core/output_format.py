@@ -273,14 +273,12 @@ def deprecation_message(spec: FormatSpec, agent_id: Any) -> str:
 # Structural-override detection (spec §9 item 2)
 # ---------------------------------------------------------------------------
 
-#: Mapping keys that decide the wire shape. An agent that sets one of these to
-#: something its format's contract does not declare is refused at registration:
-#: an override either controls generation AND parsing, or it fails loudly.
-STRUCTURAL_MAPPING_KEYS: Tuple[str, ...] = (
-    "root_key", "check_field", "content_field", "type_field",
-    "events_field", "variable_updates_field", "queue_field", "facts_field",
-    "memory_field", "state_field", "data_field", "data_key",
-)
+# An enumeration of "the structural keys" used to live here. It was the bug: it
+# listed twelve mapping keys and one descriptor key, so `confidence_field`,
+# `gate_mode`, `channels`, `supported_transports` and anything invented were
+# accepted and silently replaced — the same accepted-and-ignored defect this
+# release exists to end, one field at a time. The rule below needs no list:
+# whatever you supply must equal what the contract derives.
 
 #: Removed opt-in. It was accepted and ignored for three releases (F3); the
 #: canonical contract uses an explicit Boolean gate and nothing else.
@@ -292,31 +290,44 @@ RETIRED_MAPPING_KEYS: Dict[str, str] = {
 }
 
 
+def _block_violations(spec: FormatSpec, block: str, supplied: Optional[Dict[str, Any]],
+                      contract: Dict[str, Any]) -> List[str]:
+    """Every key of one supplied block that the format's contract does not agree
+    with. A key the contract does not define is refused too: a setting the
+    framework cannot read is a setting that would be accepted and ignored."""
+    problems: List[str] = []
+    for key, value in (supplied or {}).items():
+        if key in RETIRED_MAPPING_KEYS:
+            continue                      # reported once, with its own message
+        if key not in contract:
+            problems.append(
+                f"{block}['{key}'] is not part of output format '{spec.id}'. Structural overrides "
+                f"are not supported, and an unrecognised setting would be accepted and ignored. "
+                f"Remove it \u2014 the format contract supplies this block.")
+        elif value != contract[key]:
+            problems.append(
+                f"{block}['{key}'] is {value!r}, but format '{spec.id}' declares {contract[key]!r}. "
+                f"Structural overrides are not supported: they changed the parser without changing "
+                f"the generated prompt. Use a format whose contract is the shape you need "
+                f"({', '.join(supported_names())}).")
+    return problems
+
+
 def override_violations(spec: FormatSpec, mapping: Optional[Dict[str, Any]],
                         descriptor: Optional[Dict[str, Any]]) -> List[str]:
-    """Structural divergences between a live agent and its format's contract."""
+    """Structural divergences between what was supplied and the format's contract.
+
+    One rule for both blocks and every key in them: what you supply must equal
+    what the contract derives, and a key the contract does not define is refused.
+    The earlier version enumerated the keys it considered structural, which meant
+    every key outside the list kept the old accepted-and-ignored behaviour.
+    """
     problems: List[str] = []
-    mapping = mapping or {}
-    contract_mapping = spec.mapping()
     for key, why in RETIRED_MAPPING_KEYS.items():
-        if key in mapping:
+        if key in (mapping or {}) or key in (descriptor or {}):
             problems.append(why)
-    for key in STRUCTURAL_MAPPING_KEYS:
-        if key not in mapping:
-            continue
-        expected = contract_mapping.get(key)
-        if mapping.get(key) != expected:
-            problems.append(
-                f"mapping['{key}'] is {mapping.get(key)!r}, but format '{spec.id}' declares "
-                f"{expected!r}. Structural overrides are not supported: they changed the parser "
-                f"without changing the generated prompt. Use a format whose contract is the shape "
-                f"you need ({', '.join(supported_names())}).")
-    descriptor = descriptor or {}
-    adapter = descriptor.get("typed_adapter")
-    if adapter is not None and adapter != spec.envelope:
-        problems.append(
-            f"descriptor['typed_adapter'] is {adapter!r}, but format '{spec.id}' declares "
-            f"{spec.envelope!r}. Unknown or mismatched adapter identifiers are refused.")
+    problems += _block_violations(spec, "mapping", mapping, spec.mapping())
+    problems += _block_violations(spec, "descriptor", descriptor, spec.descriptor())
     return problems
 
 

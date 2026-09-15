@@ -629,7 +629,7 @@ class TestMigrationTool:
     @pytest.mark.parametrize("agent_id,needle", [
         ("handwritten", "names envelope fields by hand"),
         ("widget", "must declare this agent's widgets"),
-        ("overridden", "structural mapping override"),
+        ("overridden", "refused at registration today"),
         ("retired_flag", "speak_without_gate"),
         ("unknown", "Unknown output_format"),
     ])
@@ -888,3 +888,105 @@ class TestPackagedSchemaLoad:
     def test_control_an_intact_install_constructs(self):
         assert DynamicAgent({"id": "fine", "name": "fine", "text": "t",
                              "output_format": "insight_v1", "trigger_config": {"cooldown": 0}}).schema_def
+
+
+class TestDescriptorOverridesAreRefused:
+    """Follow-up review of 3.1.1. The R2 repair validated the SUPPLIED mapping
+    in full but the supplied descriptor only for `typed_adapter`, so every other
+    structural descriptor key was still accepted and silently replaced — the
+    same defect, one field narrower. The enumeration was the bug: the rule is
+    now "anything you supply must equal what the contract derives"."""
+
+    @pytest.mark.parametrize("descriptor", [
+        {"gate_mode": "root_presence"},
+        {"channels": {"events": "signals"}},
+        {"supported_transports": ["json_object"]},
+        {"supported_content_contracts": []},          # insight_v1 declares ["long_form_v1"]
+        {"typed_supported_insight_types": ["fact"]},
+        {"typed_adapter": "unrecognized_adapter"},
+        {"invented_key": True},
+    ])
+    def test_supplied_descriptor_overrides_are_refused(self, descriptor):
+        with pytest.raises(AgentConfigurationError):
+            DynamicAgent({"id": "d", "name": "d", "text": "t", "output_format": "insight_v1",
+                          "trigger_config": {"cooldown": 0}, "descriptor": descriptor})
+
+    @pytest.mark.parametrize("mapping", [
+        {"confidence_field": "score"},          # outside the old enumeration
+        {"metadata_field": "meta"},             # ditto
+        {"invented_key": "x"},
+    ])
+    def test_supplied_mapping_keys_outside_the_old_enumeration_are_refused(self, mapping):
+        with pytest.raises(AgentConfigurationError):
+            DynamicAgent({"id": "m", "name": "m", "text": "t", "output_format": "insight_v1",
+                          "trigger_config": {"cooldown": 0}, "mapping": mapping})
+
+    def test_control_the_contracts_own_descriptor_is_not_an_override(self):
+        """NEGATIVE CONTROL: the rule compares against the contract, so the
+        contract's own descriptor — the thing registration passes back in — must
+        pass unchanged."""
+        spec = resolve("widget_control")
+        a = DynamicAgent({"id": "same", "name": "same", "text": "t", "output_format": "widget_control",
+                          "trigger_config": {"cooldown": 0}, "descriptor": spec.descriptor(),
+                          "mapping": spec.mapping()})
+        assert a.descriptor == spec.descriptor()
+
+    def test_control_registration_still_accepts_every_shipped_format(self):
+        e = AgentEngine(api_key="k")
+        for i, name in enumerate(list(all_formats())):
+            e.register_agent(agent({"has_insight": False, "insight": None}, name, agent_id=f"r{i}"))
+        assert len(e.agents) == len(all_formats())
+
+
+class TestPlannerReadsTheDescriptor:
+    """Follow-up review of 3.1.1. The planner inspected `mapping` and never
+    `descriptor`, so a record with an unknown adapter was reported MECHANICAL
+    and rewritten; and a valid default_v2 record carrying its own `flat`
+    descriptor was rewritten to insight_v1, leaving a block that contradicts the
+    new format and will not register."""
+
+    def rows(self, catalogue):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "migrate_output_formats",
+            Path(__file__).resolve().parent.parent / "tools" / "migrate_output_formats.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module, [module.inspect(c) for c in catalogue]
+
+    BAD_ADAPTER = {"id": "bad_adapter", "text": "t", "output_format": "insight_v1",
+                   "descriptor": {"typed_adapter": "unrecognized_adapter"}}
+    VALID_TODAY = {"id": "valid_today", "text": "t", "output_format": "default_v2",
+                   "descriptor": {"typed_adapter": "flat"}}
+
+    def test_the_planner_reads_the_descriptor(self):
+        _module, rows = self.rows([self.BAD_ADAPTER])
+        row = rows[0]
+        assert row["manual"], "an unknown adapter is not a mechanical rewrite"
+        assert any("descriptor" in note for note in row["manual"]), row["manual"]
+
+    def test_a_block_that_would_contradict_the_new_format_is_manual(self):
+        """Valid TODAY on default_v2, whose adapter really is `flat` — but the
+        rewrite moves it to insight_v1, where `flat` is wrong. The tool must not
+        hand back a configuration that cannot register."""
+        _module, rows = self.rows([self.VALID_TODAY])
+        row = rows[0]
+        assert row["manual"], "rewriting this record would break it"
+        assert any("insight_v1" in note for note in row["manual"]), row["manual"]
+
+    def test_neither_record_is_rewritten(self, tmp_path):
+        from copy import deepcopy as _dc
+        path = tmp_path / "catalogue.json"
+        path.write_text(json.dumps({"prompts": [self.BAD_ADAPTER, self.VALID_TODAY]}), encoding="utf-8")
+        before = {p["id"]: _dc(p) for p in json.loads(path.read_text(encoding="utf-8"))["prompts"]}
+        module, _rows = self.rows([self.BAD_ADAPTER, self.VALID_TODAY])
+        module.main([str(path), "--write"])
+        after = {p["id"]: p for p in json.loads(path.read_text(encoding="utf-8"))["prompts"]}
+        assert after == before
+
+    def test_control_a_record_with_no_block_is_still_mechanical(self):
+        """NEGATIVE CONTROL: reading the descriptor must not make every record
+        manual — the 74 mechanical rows are the point of the tool."""
+        _module, rows = self.rows([{"id": "plain", "text": "You observe.",
+                                    "trigger_config": {"cooldown": 0}}])
+        assert rows[0]["manual"] == [] and rows[0]["mechanical"] is True

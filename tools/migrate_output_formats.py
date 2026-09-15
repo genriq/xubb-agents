@@ -33,8 +33,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from xubb_agents.core.output_format import (  # noqa: E402
-    REMOVED_FORMATS, RETIRED_MAPPING_KEYS, STRUCTURAL_MAPPING_KEYS,
-    all_formats, deprecated_names, implicit_default, removal_release, resolve, supported_names,
+    REMOVED_FORMATS, all_formats, deprecated_names, implicit_default, override_violations,
+    removal_release, resolve, supported_names,
 )
 
 #: Envelope vocabulary that, appearing in a handwritten prompt body, means the
@@ -108,14 +108,22 @@ def inspect(config):
                       "); rewrite it for the new envelope or delete those lines — the "
                       "framework generates the envelope instruction itself")
 
-    mapping = config.get("mapping") or {}
-    for key in RETIRED_MAPPING_KEYS:
-        if key in mapping:
-            manual.append(f"mapping['{key}'] is refused at registration in 3.1.0")
-    overrides = [k for k in STRUCTURAL_MAPPING_KEYS if k in mapping]
-    if overrides:
-        manual.append("structural mapping override(s) " + ", ".join(overrides) +
-                      " are refused at registration; move to a format whose contract is that shape")
+    # The planner reads BOTH blocks, through the same rule registration uses. It
+    # used to look only at `mapping`, against a fixed key list, so an unknown
+    # adapter was reported mechanical and rewritten. Two questions, not one: is
+    # the block valid TODAY, and would it still be valid after the rewrite?
+    supplied_mapping, supplied_descriptor = config.get("mapping"), config.get("descriptor")
+    if current and (supplied_mapping or supplied_descriptor):
+        today = override_violations(resolve(current), supplied_mapping, supplied_descriptor)
+        if today:
+            manual.append("its mapping/descriptor block is refused at registration today: " + today[0])
+        elif target != current:
+            after = override_violations(resolve(target), supplied_mapping, supplied_descriptor)
+            if after:
+                manual.append(
+                    f"it carries a mapping/descriptor block that is valid for '{current}' but would "
+                    f"contradict '{target}' after the rewrite ({after[0].split('.')[0]}). Delete the "
+                    f"block \u2014 the format contract supplies it \u2014 or update it with the format.")
 
     if target == "widget_control":
         manual.append("the HOST must declare this agent's widgets per run "
