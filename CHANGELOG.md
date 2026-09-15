@@ -15,6 +15,68 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [3.1.4] - 2026-09-15
+
+### Added — a complete API reference, a diagnostics reference, and a gate that keeps them true
+
+**Tier 2** of the documentation design review. No runtime behaviour changes: this release is
+documentation, tooling and tests.
+
+The contract gate proves every documented *behaviour* names a passing test. It never covered
+the API reference, so that reference drifted three releases behind while the gate stayed green
+— the same escape the gate exists to prevent, one level up. This closes it.
+
+- **[`docs/API_REFERENCE.md`](docs/API_REFERENCE.md)** — the supported public surface: **37
+  classes, 302 qualified members**. A hybrid, as the review directed: the facts (signatures,
+  defaults, requiredness, enum values, serialization exclusions) are generated from the shipped
+  code; the meaning (purpose, ownership, lifecycle, limits, failure behaviour) is written by
+  hand, because no amount of introspection can say who owns a field.
+
+  It leads with the three distinctions that cause most confusion here — **provider envelope vs
+  Python response model vs host display**, and **model-authored vs host-supplied vs
+  engine-derived** — and states the traps a flat field dump conceals: `api_key` is optional,
+  `debug_info` never reaches a serialized payload, `usage` is per-agent and is not propagated
+  into the merged turn response, and a `confidence` of `1.0` is not evidence that confidence was
+  assessed (`confidence_provided` is). The custom `BaseAgent` producer path is documented as
+  first-class rather than implied away.
+
+- **[`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md)** — all **39** registered codes with stable
+  anchors, grouped by what they are about, each with when it arises, its effect on acceptance,
+  what an integrator can do, and a **lifecycle status**. It states plainly that a diagnostic is
+  not automatically a failure (`capability_unavailable` and `unsupported_structured_output`
+  appear on accepted responses), that rejection is whole-response, and that retrying unchanged
+  input helps only for transport failures.
+
+- **[`docs/api/inventory.yaml`](docs/api/inventory.yaml)** — the declared surface, by qualified
+  name, plus the classes deliberately excluded **and why**, so "undocumented" is a decision
+  someone made rather than a gap nobody noticed.
+
+- **`tools/check_api_docs.py`** — five checks (A1–A5), wired into CI beside the contract gate,
+  each with a deliberate failing fixture in `tests/test_api_docs_gate.py`. A gate nobody has
+  watched fail is a gate nobody should trust.
+
+  The inventory is a hand-maintained enumeration, and 3.1.2 was a lesson in how those rot. The
+  difference is that this one is compared against reality **in both directions on every build**:
+  a new constructor parameter fails until someone declares it, and a declared name the code no
+  longer has fails too. Coverage is checked by **qualified** name — `Event.id` does not document
+  `AgentInsight.id`, which is precisely the substring error that inflated the audit this work
+  came from.
+
+- **`tools/api_surface.py`** / **`tools/gen_api_facts.py`** — the derivation rules and the
+  generator. Generation is idempotent and never touches the prose around its markers.
+
+### Fixed
+
+- A second diagnostic code was found to have no emitter: **`no_supported_insight_types`**, like
+  `partial_legacy_response` before it. Both are documented as retired and **kept** in
+  `DIAGNOSTIC_CODES`; A5 now fails the build if a code loses its last emitter and nobody says
+  so, and equally if a code documented as retired is emitted again.
+
+### Compatibility
+
+Registry: 108 contracts, 100% covered, strict gate green. Suite: 1111 passed, 0 skipped, 0
+xfail. API documentation gate: 37 classes, 302 members, 3 recorded exclusions, PASS.
+
 ## [3.1.3] - 2026-09-15
 
 ### Fixed — documentation that misled a current reader

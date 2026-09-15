@@ -44,6 +44,12 @@ jobs:
       - name: Contract gate (G1/G2/G3)
         run: python tools/check_contracts.py --junit junit.xml
 
+      # The contract gate covers documented BEHAVIOUR. This covers the API
+      # reference itself, which drifted three releases while that gate stayed
+      # green (see docs/API_REFERENCE.md and the 2026-09-15 design review).
+      - name: API documentation gate (A1-A5)
+        run: python tools/check_api_docs.py
+
   # Distribution evidence (H2 / audit): the INSTALLED wheel, in a fresh venv, run
   # from outside the source checkout. This is what a host actually receives.
   wheel-smoke:

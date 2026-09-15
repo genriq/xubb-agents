@@ -4,6 +4,8 @@
 
 | Doc | What it is |
 |-----|-----------|
+| [API_REFERENCE.md](API_REFERENCE.md) | **The supported public API.** Human-written meaning around fact tables generated from the shipped code; the declared surface is [api/inventory.yaml](api/inventory.yaml). Gated by `tools/check_api_docs.py`. |
+| [DIAGNOSTICS.md](DIAGNOSTICS.md) | **Every diagnostic code**, what raises it, its effect on acceptance, what to do about it, and its lifecycle status. Start here when a code appears in a log. |
 | [PLAYBOOK.md](PLAYBOOK.md) | The deep guide: how to design and compose agents well — doctrine, patterns, anti-patterns, and a golden-path build. |
 | [technical_spec_agents.md](technical_spec_agents.md) | Data models and implementation reference. |
 | [prompt_engineering_guide.md](prompt_engineering_guide.md) | Writing effective agent prompts. |

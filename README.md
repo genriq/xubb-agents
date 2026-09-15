@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-**Version:** 3.1.3 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+**Version:** 3.1.4 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
 
 📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
 
@@ -762,7 +762,15 @@ Callback failures are non-fatal — they are logged and never abort turn process
 
 ## API Reference
 
-> **This reference is incomplete and is being rebuilt.** A 2026-09 audit found it
+> **The full reference now lives in
+> [docs/API_REFERENCE.md](docs/API_REFERENCE.md)** — every supported class, method,
+> parameter and field, with the facts generated from the shipped code and the meaning
+> written by hand. Diagnostic codes are in [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
+> Both are gated by `tools/check_api_docs.py`, so they cannot drift from the code.
+>
+> The summary below is a quick orientation, not the reference.
+
+> **Historic note:** this section was incomplete and is being rebuilt. A 2026-09 audit found it
 > covers roughly half the public surface — it predates the insight contract (2.7), typed
 > reach (2.8) and the content contract, and omits `AgentInsight`'s typed fields,
 > `AgentResponse`'s acceptance fields and most engine parameters. Until the rebuild lands,
