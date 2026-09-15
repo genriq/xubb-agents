@@ -1,0 +1,527 @@
+# The supported public API surface of xubb-agents.
+#
+# This file is HAND-MAINTAINED and is the declaration of what the project supports.
+# tools/check_api_docs.py compares it against the shipped code in BOTH directions on
+# every build: a new public member fails the gate until it is declared here, and a
+# declared name that no longer exists fails too. That bidirectional check is what
+# keeps this from becoming the kind of stale enumeration that caused the 3.1.2
+# defect (see SPEC_OUTPUT_FORMAT_CONSOLIDATION SS17.1) — a list nothing compares to
+# reality is a liability; a list the build compares to reality is a contract.
+#
+# `section` is the anchor group in docs/API_REFERENCE.md that must explain the class.
+# `members` are qualified names; the facts about them are generated, never written here.
+
+schema_version: 1
+
+classes:
+  AgentCallbackHandler:
+    module: xubb_agents.core.callbacks
+    section: callbacks
+    members:
+      - AgentCallbackHandler.on_agent_error
+      - AgentCallbackHandler.on_agent_finish
+      - AgentCallbackHandler.on_agent_skipped
+      - AgentCallbackHandler.on_agent_start
+      - AgentCallbackHandler.on_chain_error
+      - AgentCallbackHandler.on_insight_validation_error
+      - AgentCallbackHandler.on_phase_end
+      - AgentCallbackHandler.on_phase_start
+      - AgentCallbackHandler.on_turn_end
+      - AgentCallbackHandler.on_turn_start
+
+  AgentConfig:
+    module: xubb_agents.core.agent
+    section: agents
+    members:
+      - AgentConfig.__init__.name
+      - AgentConfig.__init__.id
+      - AgentConfig.__init__.trigger_interval
+      - AgentConfig.__init__.cooldown
+      - AgentConfig.__init__.model
+      - AgentConfig.__init__.trigger_types
+      - AgentConfig.__init__.trigger_keywords
+      - AgentConfig.__init__.silence_threshold
+      - AgentConfig.__init__.priority
+      - AgentConfig.__init__.output_format
+      - AgentConfig.__init__.trigger_conditions
+      - AgentConfig.__init__.subscribed_events
+      - AgentConfig.__init__.reasoning_effort
+      - AgentConfig.__init__.timeout
+      - AgentConfig.__init__.max_tokens
+      - AgentConfig.__init__.model_params
+      - AgentConfig.__init__.insight_config
+
+  AgentConfigOverride:
+    module: xubb_agents.core.models
+    section: turn
+    members:
+      - AgentConfigOverride.cooldown_modifier
+      - AgentConfigOverride.context_turns_modifier
+      - AgentConfigOverride.instructions_append
+
+  AgentConfigurationError:
+    module: xubb_agents.core.engine
+    section: engine
+    members: []
+
+  AgentContentConfig:
+    module: xubb_agents.core.models
+    section: content
+    members:
+      - AgentContentConfig.contract
+      - AgentContentConfig.default_depth
+      - AgentContentConfig.formats
+      - AgentContentConfig.max_preview_chars
+      - AgentContentConfig.profiles
+
+  AgentContext:
+    module: xubb_agents.core.models
+    section: turn
+    members:
+      - AgentContext.session_id
+      - AgentContext.recent_segments
+      - AgentContext.shared_state
+      - AgentContext.rag_docs
+      - AgentContext.trigger_type
+      - AgentContext.trigger_metadata
+      - AgentContext.language_directive
+      - AgentContext.user_context
+      - AgentContext.blackboard
+      - AgentContext.turn_count
+      - AgentContext.phase
+      - AgentContext.agent_config_overrides
+      - AgentContext.principal_id
+      - AgentContext.insight_capabilities
+      - AgentContext.widget_capabilities
+      - AgentContext.insight_reference_context
+      - AgentContext.insight_answers
+      - AgentContext.insight_content_requests
+      - AgentContext.content_execution_context
+
+  AgentEngine:
+    module: xubb_agents.core.engine
+    section: engine
+    members:
+      - AgentEngine.__init__.api_key
+      - AgentEngine.__init__.callbacks
+      - AgentEngine.__init__.max_phases
+      - AgentEngine.__init__.llm_timeout
+      - AgentEngine.__init__.llm_max_retries
+      - AgentEngine.__init__.llm_max_tokens
+      - AgentEngine.__init__.llm_base_url
+      - AgentEngine.__init__.llm_wire_max_tokens_param
+      - AgentEngine.__init__.strict_reasoning_config
+      - AgentEngine.__init__.structured_outputs
+      - AgentEngine.__init__.fallback_signatures
+      - AgentEngine.__init__.content_limits
+      - AgentEngine.__init__.widget_payload_validator
+      - AgentEngine.check_keyword_triggers
+      - AgentEngine.close_session_content
+      - AgentEngine.effective_insight_types
+      - AgentEngine.get_agents_by_trigger_type
+      - AgentEngine.get_agents_with_keywords
+      - AgentEngine.get_agents_with_silence_threshold
+      - AgentEngine.get_event_subscribers
+      - AgentEngine.process_turn
+      - AgentEngine.register_agent
+      - AgentEngine.replace_agents
+      - AgentEngine.start_content_request
+      - AgentEngine.unregister_agent
+      - AgentEngine.update_api_key
+
+  AgentInsight:
+    module: xubb_agents.core.models
+    section: insights
+    members:
+      - AgentInsight.agent_id
+      - AgentInsight.agent_name
+      - AgentInsight.type
+      - AgentInsight.content
+      - AgentInsight.confidence
+      - AgentInsight.expiry
+      - AgentInsight.action_label
+      - AgentInsight.metadata
+      - AgentInsight.id
+      - AgentInsight.turn
+      - AgentInsight.contract_version
+      - AgentInsight.urgency
+      - AgentInsight.confidence_provided
+      - AgentInsight.urgency_provided
+      - AgentInsight.observation_kind
+      - AgentInsight.evidence_refs
+      - AgentInsight.rationale
+      - AgentInsight.validation_step
+      - AgentInsight.assumptions
+      - AgentInsight.correction
+      - AgentInsight.question
+      - AgentInsight.preview
+      - AgentInsight.content_format
+      - AgentInsight.content_contract
+      - AgentInsight.response_depth
+      - AgentInsight.content_request_id
+      - AgentInsight.source_snapshot_id
+      - AgentInsight.model_dump_legacy
+
+  AgentResponse:
+    module: xubb_agents.core.models
+    section: turn
+    members:
+      - AgentResponse.source_agent_id
+      - AgentResponse.insights
+      - AgentResponse.execution_id
+      - AgentResponse.acceptance_status
+      - AgentResponse.diagnostics
+      - AgentResponse.acceptance_by_agent
+      - AgentResponse.evidence_snapshot
+      - AgentResponse.evidence_snapshots_by_agent
+      - AgentResponse.data_by_agent
+      - AgentResponse.state_updates
+      - AgentResponse.data
+      - AgentResponse.debug_info
+      - AgentResponse.events
+      - AgentResponse.variable_updates
+      - AgentResponse.queue_pushes
+      - AgentResponse.facts
+      - AgentResponse.memory_updates
+      - AgentResponse.memory_updates_by_agent
+      - AgentResponse.usage
+
+  BaseAgent:
+    module: xubb_agents.core.agent
+    section: agents
+    members:
+      - BaseAgent.__init__.config
+      - BaseAgent.create_insight
+      - BaseAgent.evaluate
+      - BaseAgent.process
+
+  Blackboard:
+    module: xubb_agents.core.blackboard
+    section: blackboard
+    members:
+      - Blackboard.events
+      - Blackboard.variables
+      - Blackboard.queues
+      - Blackboard.facts
+      - Blackboard.memory
+      - Blackboard.add_fact
+      - Blackboard.clear_events
+      - Blackboard.clear_queue
+      - Blackboard.count_events
+      - Blackboard.delete_var
+      - Blackboard.emit_event
+      - Blackboard.from_dict
+      - Blackboard.get_events_by_name
+      - Blackboard.get_fact
+      - Blackboard.get_facts_by_type
+      - Blackboard.get_memory
+      - Blackboard.get_var
+      - Blackboard.has_event
+      - Blackboard.has_fact
+      - Blackboard.has_memory
+      - Blackboard.has_queue
+      - Blackboard.has_var
+      - Blackboard.peek_queue
+      - Blackboard.pop_queue
+      - Blackboard.push_queue
+      - Blackboard.push_queue_items
+      - Blackboard.queue_length
+      - Blackboard.set_memory
+      - Blackboard.set_var
+      - Blackboard.snapshot
+      - Blackboard.to_dict
+      - Blackboard.update_memory
+
+  ConditionEvaluator:
+    module: xubb_agents.core.conditions
+    section: blackboard
+    members:
+      - ConditionEvaluator.evaluate
+
+  ContentExecutionContext:
+    module: xubb_agents.core.models
+    section: content
+    members:
+      - ContentExecutionContext.session_mode
+      - ContentExecutionContext.execution_path
+      - ContentExecutionContext.request_id
+      - ContentExecutionContext.source_snapshot_id
+      - ContentExecutionContext.holds_live_turn_lock
+      - ContentExecutionContext.writes_live_blackboard
+      - ContentExecutionContext.pause_declared
+      - ContentExecutionContext.task_isolation_verified
+
+  ContentProfile:
+    module: xubb_agents.core.models
+    section: content
+    members:
+      - ContentProfile.max_content_chars
+      - ContentProfile.max_output_tokens
+      - ContentProfile.llm_timeout_seconds
+
+  ContentResult:
+    module: xubb_agents.core.models
+    section: content
+    members:
+      - ContentResult.request_id
+      - ContentResult.source_snapshot_id
+      - ContentResult.session_id
+      - ContentResult.agent_id
+      - ContentResult.snapshot_turn
+      - ContentResult.status
+      - ContentResult.insight
+      - ContentResult.diagnostics
+      - ContentResult.usage
+
+  ContentTaskHandle:
+    module: xubb_agents.core.engine
+    section: content
+    members:
+      - ContentTaskHandle.__init__.request_id
+      - ContentTaskHandle.__init__.source_snapshot_id
+      - ContentTaskHandle.__init__.session_id
+      - ContentTaskHandle.__init__.agent_id
+      - ContentTaskHandle.__init__.snapshot_turn
+      - ContentTaskHandle.cancel
+      - ContentTaskHandle.result
+
+  CorrectionPayload:
+    module: xubb_agents.core.models
+    section: insights
+    members:
+      - CorrectionPayload.target_insight_id
+      - CorrectionPayload.operation
+      - CorrectionPayload.reason
+
+  DynamicAgent:
+    module: xubb_agents.library.dynamic
+    section: agents
+    members:
+      - DynamicAgent.__init__.config_dict
+      - DynamicAgent.clone_for_isolated_run
+      - DynamicAgent.content_admission
+      - DynamicAgent.create_insight
+      - DynamicAgent.evaluate
+      - DynamicAgent.process
+
+  Event:
+    module: xubb_agents.core.models
+    section: blackboard
+    members:
+      - Event.name
+      - Event.payload
+      - Event.source_agent
+      - Event.timestamp
+      - Event.id
+
+  EvidenceCatalogEntry:
+    module: xubb_agents.core.models
+    section: evidence
+    members:
+      - EvidenceCatalogEntry.kind
+      - EvidenceCatalogEntry.ref_id
+      - EvidenceCatalogEntry.revision
+      - EvidenceCatalogEntry.session_id
+      - EvidenceCatalogEntry.excerpt
+      - EvidenceCatalogEntry.source_index
+      - EvidenceCatalogEntry.timestamp
+
+  EvidenceRef:
+    module: xubb_agents.core.models
+    section: evidence
+    members:
+      - EvidenceRef.kind
+      - EvidenceRef.ref_id
+      - EvidenceRef.revision
+      - EvidenceRef.source_index
+
+  EvidenceSnapshot:
+    module: xubb_agents.core.models
+    section: evidence
+    members:
+      - EvidenceSnapshot.snapshot_id
+      - EvidenceSnapshot.agent_id
+      - EvidenceSnapshot.entries
+
+  Fact:
+    module: xubb_agents.core.models
+    section: blackboard
+    members:
+      - Fact.type
+      - Fact.key
+      - Fact.value
+      - Fact.confidence
+      - Fact.priority
+      - Fact.source_agent
+      - Fact.timestamp
+
+  HostInsightCapabilities:
+    module: xubb_agents.core.models
+    section: host
+    members:
+      - HostInsightCapabilities.supported_types
+      - HostInsightCapabilities.reply_drafts
+      - HostInsightCapabilities.text_questions
+      - HostInsightCapabilities.answers_shared
+      - HostInsightCapabilities.corrections
+      - HostInsightCapabilities.evidence_citations
+      - HostInsightCapabilities.correction_agent_policy
+      - HostInsightCapabilities.correction_agent_ids
+      - HostInsightCapabilities.expanded_reading
+      - HostInsightCapabilities.content_contracts
+      - HostInsightCapabilities.content_formats
+      - HostInsightCapabilities.max_content_chars
+      - HostInsightCapabilities.max_preview_chars
+
+  HostWidgetCapabilities:
+    module: xubb_agents.core.models
+    section: host
+    members:
+      - HostWidgetCapabilities.widgets
+      - HostWidgetCapabilities.authorization_map
+
+  InsightAnswer:
+    module: xubb_agents.core.models
+    section: evidence
+    members:
+      - InsightAnswer.event_id
+      - InsightAnswer.question_insight_id
+      - InsightAnswer.principal_id
+      - InsightAnswer.status
+      - InsightAnswer.text
+
+  InsightConfig:
+    module: xubb_agents.core.models
+    section: insights
+    members:
+      - InsightConfig.allowed_types
+      - InsightConfig.allow_reply
+      - InsightConfig.allow_question
+      - InsightConfig.allow_correction
+      - InsightConfig.analysis_profile
+      - InsightConfig.default_urgency
+      - InsightConfig.content
+      - InsightConfig.contradictions
+
+  InsightContentRequest:
+    module: xubb_agents.core.models
+    section: content
+    members:
+      - InsightContentRequest.depth
+      - InsightContentRequest.request_id
+
+  InsightDiagnostic:
+    module: xubb_agents.core.models
+    section: insights
+    members:
+      - InsightDiagnostic.execution_id
+      - InsightDiagnostic.agent_id
+      - InsightDiagnostic.code
+      - InsightDiagnostic.field_path
+      - InsightDiagnostic.classification
+      - InsightDiagnostic.retained_channels
+      - InsightDiagnostic.withheld_channels
+
+  InsightReferenceContext:
+    module: xubb_agents.core.models
+    section: evidence
+    members:
+      - InsightReferenceContext.evidence
+      - InsightReferenceContext.prior_insights
+
+  InsightType:
+    module: xubb_agents.core.models
+    section: insights
+    members:
+      - InsightType.SUGGESTION
+      - InsightType.WARNING
+      - InsightType.OPPORTUNITY
+      - InsightType.FACT
+      - InsightType.PRAISE
+      - InsightType.ERROR
+      - InsightType.OBSERVATION
+      - InsightType.REPLY
+      - InsightType.CORRECTION
+      - InsightType.QUESTION
+
+  PriorInsightRecord:
+    module: xubb_agents.core.models
+    section: evidence
+    members:
+      - PriorInsightRecord.id
+      - PriorInsightRecord.session_id
+      - PriorInsightRecord.principal_id
+      - PriorInsightRecord.agent_id
+      - PriorInsightRecord.type
+      - PriorInsightRecord.content
+      - PriorInsightRecord.turn
+      - PriorInsightRecord.status
+      - PriorInsightRecord.correctable
+
+  QuestionPayload:
+    module: xubb_agents.core.models
+    section: insights
+    members:
+      - QuestionPayload.reason
+      - QuestionPayload.response_format
+
+  TranscriptSegment:
+    module: xubb_agents.core.models
+    section: turn
+    members:
+      - TranscriptSegment.speaker
+      - TranscriptSegment.text
+      - TranscriptSegment.timestamp
+      - TranscriptSegment.is_final
+
+  TriggerType:
+    module: xubb_agents.core.models
+    section: turn
+    members:
+      - TriggerType.TURN_BASED
+      - TriggerType.KEYWORD
+      - TriggerType.SILENCE
+      - TriggerType.INTERVAL
+      - TriggerType.EVENT
+      - TriggerType.FORCE
+
+  WidgetActionDeclaration:
+    module: xubb_agents.core.models
+    section: host
+    members:
+      - WidgetActionDeclaration.action
+      - WidgetActionDeclaration.required_payload_keys
+      - WidgetActionDeclaration.optional_payload_keys
+      - WidgetActionDeclaration.allow_additional_payload_keys
+
+  WidgetDeclaration:
+    module: xubb_agents.core.models
+    section: host
+    members:
+      - WidgetDeclaration.target_widget
+      - WidgetDeclaration.actions
+
+# Module-level constants that are part of the supported surface.
+constants:
+  DEFAULT_MODEL:
+    module: xubb_agents.core.agent
+    section: insights
+  HUMAN_INSIGHT_TYPES:
+    module: xubb_agents.core.models
+    section: insights
+  INSIGHT_TYPE_LABELS:
+    module: xubb_agents.core.models
+    section: insights
+
+# Deliberately NOT supported public API. Recorded so that 'undocumented' is a
+# decision someone made, not a gap nobody noticed.
+excluded:
+  EffectiveTypes: >-
+    return of the advisory AgentEngine.effective_insight_types helper; its fields are engi
+    ne internals, and the helper's contract is documented on the method
+  LLMClient: >-
+    internal provider adapter; the engine owns its lifecycle and an embedder configures it
+     through AgentEngine parameters, never directly
+  ReferenceContext: >-
+    framework-internal evidence resolution built per run; hosts supply InsightReferenceCon
+    text instead
