@@ -1345,13 +1345,25 @@ class AgentEngine:
             # `data` itself may be any shape here (a custom producer or a
             # callback can have replaced it); validate_response_channels above
             # owns that check, so only look inside a real dict.
-            actions = response.data.get("ui_actions") if isinstance(response.data, dict) else None
-            if actions is not None:
-                caps = getattr(context, "widget_capabilities", None) if context is not None else None
-                _, action_issues = validate_ui_actions(
-                    actions, authorization=(caps.authorization_map() if caps is not None else {}),
-                    validator=self.widget_payload_validator, field_path="data.ui_actions")
-                fatal += [diag(i.code, i.field_path, i.classification) for i in action_issues]
+            has_actions = isinstance(response.data, dict) and "ui_actions" in response.data
+            if has_actions:
+                # R3: format permission FIRST. Host authorization of an action
+                # does not make `ui_actions` an available channel for a format
+                # that does not bind it (§4.2) — a callback could otherwise hand
+                # a widget action to an insight-only agent and have it published.
+                # A custom BaseAgent has no format_spec and keeps its documented
+                # producer path.
+                spec = getattr(agent, "format_spec", None)
+                if spec is not None and not spec.offers("ui_actions"):
+                    fatal.append(diag("undeclared_channel", "data.ui_actions",
+                                      f"not_declared_by:{spec.id}"))
+                else:
+                    caps = getattr(context, "widget_capabilities", None) if context is not None else None
+                    _, action_issues = validate_ui_actions(
+                        response.data["ui_actions"],
+                        authorization=(caps.authorization_map() if caps is not None else {}),
+                        validator=self.widget_payload_validator, field_path="data.ui_actions")
+                    fatal += [diag(i.code, i.field_path, i.classification) for i in action_issues]
             if fatal:
                 self._reject_whole(response, fatal)
                 return

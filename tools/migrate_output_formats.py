@@ -129,6 +129,13 @@ def inspect(config):
             "mechanical": mechanical, "manual": manual}
 
 
+def rewritable(row):
+    """The one eligibility rule (R1): a row is rewritten only if the change is
+    mechanical AND nothing about it needs a person. Reporting, --dry-run and
+    --write all read this, so what the report calls manual is what stays put."""
+    return bool(row["mechanical"]) and not row["manual"]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("path", help="agent config JSON file, catalogue, or directory")
@@ -169,25 +176,31 @@ def main(argv=None):
           f"output_format explicitly before {removal_release()}.")
 
     if args.dry_run or args.write:
+        # R1: ONE eligibility predicate for reporting, previewing and writing. It
+        # used to rewrite every resolvable row — including the ones it had just
+        # printed as needing a person — and then print that they were unchanged.
+        # A handwritten flat-envelope agent silently became insight_v1 while its
+        # prompt still told the model to emit the old shape.
         touched = {}
         for src, cfg, r in rows:
-            if r["current"] is None:
+            if not rewritable(r):
                 continue
             cfg["output_format"] = r["target"]
             touched.setdefault(src, []).append(cfg)
         if args.dry_run:
-            print("\n--- dry run: rewritten configurations ---")
+            print("\n--- dry run: configurations this would rewrite ---")
             for _src, cfg, r in rows:
-                if r["current"] is not None:
+                if rewritable(r):
                     print(json.dumps({k: cfg[k] for k in ("id", "output_format") if k in cfg}))
-            print("(the mechanical rewrite sets output_format only; nothing else is touched)")
+            print(f"({len(mechanical)} rewritten, output_format only; the "
+                  f"{len(needs_manual)} rows listed as 'manual' are left untouched)")
         else:
             # `documents[src]` is the parsed document the mutated configs live
             # inside, so writing it back carries exactly the change above and
             # nothing else.
             for src in touched:
                 _write_back(src, documents[src])
-            print(f"\nWrote output_format into {len(touched)} file(s). "
+            print(f"\nWrote {len(mechanical)} configuration(s) across {len(touched)} file(s). "
                   f"The items listed as 'manual' above are unchanged and still need a decision.")
 
     return 1 if (needs_manual or mechanical or implicit) else 0

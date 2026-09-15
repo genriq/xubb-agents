@@ -27,7 +27,7 @@ from ..core.models import (
 )
 from ..core.output_format import (
     FormatSpec, OutputFormatError, deprecation_message, known_channel_wire_keys,
-    resolve as resolve_output_format, select_shape,
+    override_violations, resolve as resolve_output_format, select_shape,
 )
 from ..core.provider_schema import compile_schema, schema_issues, decode_response
 from ..core.content_contract import (
@@ -267,6 +267,18 @@ class DynamicAgent(BaseAgent):
         # generated prompt; the packaged schemas/*.json file is documentation
         # whose agreement is conformance-tested, never trusted at run time.
         self.format_spec: FormatSpec = format_spec
+        # R2: validate what the CONFIGURATION supplied, before it is replaced by
+        # the contract's own. 3.1.0 checked only the already-derived attributes,
+        # so a catalogue entry carrying `mapping` or `descriptor` overrides was
+        # discarded in silence and registered clean — the refusal never ran on
+        # the input path an operator actually uses. The registration-time check
+        # stays: it catches mutation after construction.
+        supplied = override_violations(format_spec, config_dict.get("mapping"),
+                                       config_dict.get("descriptor"))
+        if supplied:
+            from ..core.engine import AgentConfigurationError
+            raise AgentConfigurationError(
+                f"Agent '{agent_name}': " + " | ".join(supplied))
         self.schema_def = self._load_schema_doc(output_format)
         self.json_instruction = self.schema_def.get("instruction", "")
         self.mapping = format_spec.mapping()
@@ -298,18 +310,23 @@ class DynamicAgent(BaseAgent):
         S-1 passthrough fields. It is NOT an authority: the envelope, the gate
         and the channels come from the format contract, and a divergence in this
         file is caught by the conformance test rather than used. A file that is
-        missing or unreadable is an empty document, never a different contract —
-        the fallback to `default` that used to live here is the defect the
-        format registry exists to prevent (F6)."""
+        missing, unreadable or malformed is an ERROR (§9 item 1), not an empty
+        document: the envelope would survive it, since the contract file is the
+        authority, but a packaged file that will not load means a broken install
+        and saying so is cheaper than discovering it later. What must never
+        happen — resolving to a DIFFERENT contract — is prevented by the registry
+        upstream (F6)."""
         base_dir = os.path.dirname(os.path.abspath(__file__))
         path = os.path.join(base_dir, "schemas", f"{format_name}.json")
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 return json.load(fh)
         except Exception as e:
-            self.logger.warning(f"Schema documentation for '{format_name}' unavailable ({e}); "
-                                f"the format contract is unaffected.")
-            return {}
+            from ..core.engine import AgentConfigurationError
+            raise AgentConfigurationError(
+                f"Packaged schema document for output format '{format_name}' could not be read "
+                f"({type(e).__name__}: {e}). This is a broken installation of xubb-agents, not a "
+                f"configuration error — reinstall the package.") from e
 
     @staticmethod
     def _coerce_positive_number(raw, field_name, agent_name, cast):
@@ -647,7 +664,7 @@ class DynamicAgent(BaseAgent):
             # output was silently discarded.
             response_schema = compile_schema(full=True, content_extension=content_plan is not None,
                                              allowed_types=list(self._effective_types(context).types),
-                                             channels=self._projection_channels())
+                                             channels=self._projection_channels(content_plan))
             lint = schema_issues(response_schema)
             if lint:
                 response = AgentResponse(execution_id=execution_id, acceptance_status="rejected")
@@ -787,9 +804,24 @@ class DynamicAgent(BaseAgent):
     # typed_v1 (G1 part 2): effective set, generated instruction, staging.
     # ------------------------------------------------------------------
 
-    def _projection_channels(self) -> List[str]:
-        """Wire keys the provider projection may offer for this format (§5.1)."""
-        return [wire for wire in self.format_spec.channels]
+    @staticmethod
+    def _is_isolated(content_plan: Optional[Dict[str, Any]]) -> bool:
+        return bool(content_plan is not None
+                    and (content_plan.get("execution_context") or {}).get("execution_path")
+                    == "isolated_content")
+
+    def _offered_sinks(self, content_plan: Optional[Dict[str, Any]]):
+        """R5 / §4.2: the sinks THIS RUN offers. ``None`` means everything the
+        format binds; the isolated content path offers nothing, and that
+        narrowing must reach the projection and the parser, not only the
+        prompt."""
+        return set() if self._is_isolated(content_plan) else None
+
+    def _projection_channels(self, content_plan: Optional[Dict[str, Any]] = None) -> List[str]:
+        """Wire keys the provider projection may offer for this run (§5.1)."""
+        offered = self._offered_sinks(content_plan)
+        return [wire for wire, sink in self.format_spec.channels.items()
+                if offered is None or sink in offered]
 
     @staticmethod
     def _widget_authorization(context: AgentContext):
@@ -830,7 +862,7 @@ class DynamicAgent(BaseAgent):
                       "memory_updates", "private_memory")
 
     def _channel_block(self, spec: "FormatSpec", empty: bool = False,
-                       data_key: Optional[str] = None) -> str:
+                       data_key: Optional[str] = None, data_empty: bool = False) -> str:
         """The channel lines of a flat or canonical OUTPUT FORMAT block."""
         pairs = [(sink, spec.wire_key_for(sink)) for sink in self._CHANNEL_ORDER
                  if spec.offers(sink)]
@@ -845,7 +877,7 @@ class DynamicAgent(BaseAgent):
             else:
                 lines.append("  " + ", ".join(parts))
         if data_key:
-            lines.append(f'  "{data_key}": ' + ("[]" if empty else "[ ... ]"))
+            lines.append(f'  "{data_key}": ' + ("[]" if (empty or data_empty) else "[ ... ]"))
         return ",\n".join(lines)
 
     @staticmethod
@@ -884,26 +916,31 @@ class DynamicAgent(BaseAgent):
         state_key = spec.wire_key_for("variable_updates") or "state_snapshot"
         data_key = spec.wire_key_for("ui_actions")
         sidecar = self._widget_instruction(widgets) if data_key else None
+        # R4: channel availability is a property of the FORMAT, not of the host's
+        # declarations (§6.2 rule 1). With nothing declared the key is still
+        # offered — and required by the strict projection — so the instruction
+        # asks for the empty array instead of forbidding the key, which no
+        # strictly constrained response could have obeyed.
         if isolated:
             # v2.8 (IC-1): the isolated path is result-only and offers nothing.
             flat_channels = ""
             root_extra = ""
         else:
-            flat_channels = self._channel_block(spec, data_key=(data_key if sidecar else None))
+            flat_channels = self._channel_block(spec, data_key=data_key, data_empty=not sidecar)
             root_extra = f',\n  "{state_key}": {{ "key": "value" }}' if spec.offers("variable_updates") else ""
-            if data_key and sidecar:
-                root_extra += f',\n  "{data_key}": [ ... ]'
+            if data_key:
+                root_extra += f',\n  "{data_key}": ' + ("[ ... ]" if sidecar else "[]")
         if not types:
             # §7.3: never an empty enum — a silence-only envelope.
             if adapter == "root_v2":
                 silent_root = "" if isolated else ((f'  "{state_key}": {{ "key": "value" }}'
                                                     if spec.offers("variable_updates") else "")
-                                                 + (f',\n  "{data_key}": []' if data_key and sidecar else ""))
+                                                 + (f',\n  "{data_key}": []' if data_key else ""))
                 body = "{\n" + silent_root + "\n}" if silent_root else "{\n}"
                 rule = 'Do NOT include an "insight" object: no human-facing message is permitted for this agent in this run.'
             else:
                 silent_channels = "" if isolated else self._channel_block(
-                    spec, empty=True, data_key=(data_key if sidecar else None))
+                    spec, empty=True, data_key=data_key)
                 head = '{\n  "has_insight": false' + (',\n  "insight": null' if spec.insight_key else '')
                 body = head + (',\n' + silent_channels if silent_channels else '') + '\n}'
                 rule = '"has_insight" MUST be the JSON boolean false: no human-facing message is permitted for this agent in this run. You may still return state updates.'
@@ -1008,10 +1045,11 @@ class DynamicAgent(BaseAgent):
         return "IMPORTANT: Return ONLY a valid JSON object.\n\nOUTPUT FORMAT:\n" + body + "\n\nRULES:\n" + "\n".join(f"- {r}" for r in rules)
 
     #: What a widget format says when the host declared no widgets for the run.
-    #: Missing declarations authorize nothing, and the prompt says so rather than
-    #: inviting actions the boundary will reject (§6.2).
-    _NO_WIDGETS_RULE = ('Do NOT include "{key}": no widget is available to you in this run, and any '
-                        'action would reject your whole response.')
+    #: Missing declarations authorize nothing — but the CHANNEL is still the
+    #: format's, and the strict projection requires its key, so the rule asks for
+    #: the empty array rather than forbidding the key (§6.2 rule 1, R4).
+    _NO_WIDGETS_RULE = ('"{key}" must be the empty array []: no widget is available to you in this '
+                        'run, and any action would reject your whole response.')
 
     @staticmethod
     def _forbidden_output_fields(content_plan: Optional[Dict[str, Any]]) -> List[str]:
@@ -1156,7 +1194,7 @@ class DynamicAgent(BaseAgent):
         # so a false gate can no longer smuggle an undeclared write past the
         # field checks (F4). A speech gate never grants a write permission.
         channels, domain_issues = validate_domain_channels(
-            result, spec,
+            result, spec, offered=self._offered_sinks(content_plan),
             widget_authorization=self._widget_authorization(context),
             widget_validator=self.widget_validator)
 

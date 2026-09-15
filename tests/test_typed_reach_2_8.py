@@ -255,14 +255,19 @@ class TestWidgetFormats:
 
     def test_control_no_declarations_no_action_block_and_no_authorization(self):
         """NEGATIVE CONTROL: the action block is generated from the HOST's
-        declarations. With none, the prompt says the agent may not act AND the
-        boundary refuses the action — prompt and parser agree in both directions."""
+        declarations. With none, the prompt offers the channel as the empty array
+        its schema requires, names no target, and the boundary refuses any action
+        — prompt and parser agree in both directions.
+
+        AMENDED (3.1.1, R4): this asserted the key was omitted from the prompt,
+        which contradicted the strict projection that requires it."""
         agent = self.widget({"has_insight": False, "insight": None, "ui_actions": [self.ACTION]})
         tengine(agent)
         resp = run(agent.evaluate(tctx()))                       # no widget_capabilities
         prompt = prompt_of(agent)
+        assert '"ui_actions": []' in output_format_of(prompt)
         assert '"ui_actions": [ ... ]' not in output_format_of(prompt)
-        assert 'Do NOT include "ui_actions"' in rules_of(prompt)
+        assert "must be the empty array" in rules_of(prompt) and "goals_widget" not in prompt
         assert resp.acceptance_status == "rejected"
         assert [(d.code, d.classification) for d in resp.diagnostics] == \
             [("unauthorized_ui_action", "no_widgets_declared")]
