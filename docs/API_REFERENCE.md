@@ -1,6 +1,6 @@
 # API reference
 
-**Applies to runtime:** 3.1.5 · **Surface declared in:** [`api/inventory.yaml`](api/inventory.yaml)
+**Applies to runtime:** 3.1.6 · **Surface declared in:** [`api/inventory.yaml`](api/inventory.yaml)
 
 This page is written by hand, and the fact tables in it are generated from the shipped code.
 Neither half is trusted on its own: `tools/check_api_docs.py` fails the build when a public

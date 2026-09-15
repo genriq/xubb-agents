@@ -15,6 +15,75 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [3.1.6] - 2026-09-15
+
+### Fixed — the two residuals of the documentation design review
+
+No runtime behaviour changes. Tiers 1-3 closed every measured finding of the 2026-09-15
+review except two, which a closure audit against the merged result found still open.
+
+**The prompt guide no longer recommends a deprecated format.** Finding 3 was only half
+repaired in tier 1: a superseded banner went in at the top of
+[`prompt_engineering_guide.md`](docs/prompt_engineering_guide.md), but the instruction at
+the bottom still read *"For anything that also writes the Blackboard, use `default_v2`"* -
+a format removed in 4.0.0 - and both the worked example and the field reference described
+that flat envelope rather than the canonical one.
+
+Section 4 now documents **`insight_v1`**: the nested `insight` candidate, the explicit
+Boolean gate, silence as `has_insight: false` that may still commit state, and
+`widget_control` as the same envelope plus `ui_actions`. The field reference gains a
+**Where** column, because *where* a field goes is the whole difference between the current
+envelope and the deprecated ones. The four deprecated formats are described in one note as
+an envelope difference, with a pointer to the migration guide.
+
+The purpose table listed **5 of the 9** model-authorable types. It now lists all nine, says
+that `reply`, `question` and `correction` need both a permission flag and a
+`principal_id`, and records that `error` is a framework diagnostic no model may author.
+
+Its header stamps are separated onto the two axes the review named: a document revision
+(3.3) and an explicit **applies to runtime** line, replacing `Status: Production
+(xubb_agents v2.8.1)`.
+
+**`docs/PROCESS.md` now describes the documentation gate, and what a green gate proves.**
+The A1-A5 checks have run in CI since 3.1.4, but the page of record for the registry and
+gates never mentioned them and carried no statement of reach - the review's *"State what
+the gate proves"*. Added: a table of A1-A5, and a section drawing the line explicitly. A
+green contract gate proves every **registered** rule names a test that ran and passed; it
+does not prove the registry is complete, that a test reaches the input path a user
+supplies (two of the six defects found in 3.1.0 were exactly that shape, against a green
+gate), or that any prose is true. A green documentation gate proves the declared surface is
+present and its generated facts match the code; A1-A5 cannot read a paragraph.
+
+### Added
+
+- **`tests/test_prompt_guide_envelopes.py`** - the guide's documented JSON envelopes are
+  executed against the real engine with only the provider boundary substituted. A spoken
+  envelope must publish an insight; a silent one must read `accepted_silent` **and** still
+  commit its state channels; neither may raise an engine deprecation warning. The negative
+  control feeds the flat `default_v2` shape and requires the engine to **reject** it, so
+  the envelope distinction the guide now teaches is proved rather than asserted.
+  Registered as `PROMPT-GUIDE-ENVELOPES`. Correcting the prose alone would have left
+  nothing to catch the next such error.
+
+### Compatibility
+
+Registry: **110 contracts**, 100% covered, strict gate green. API documentation gate: PASS.
+Suite: 1127 passed. Relative links across the doc set: 0 broken.
+
+Runtime stamps moved only where a check re-verifies the document against the runtime on
+every build - `API_REFERENCE.md` and `DIAGNOSTICS.md` (gate-derived), the prompt guide
+(revalidated by hand and now executed). `DESIGN_GUIDE.md` and the four task guides stay at
+3.1.5: their runnable examples are verified, their prose was not revalidated for this
+release, and the review's rule is to replace misleading runtime claims rather than bump
+headers over unrevised bodies.
+
+Version note: **3.2.0 remains reserved** for
+[`SPEC_CONFIG_KEY_OWNERSHIP`](docs/SPEC_CONFIG_KEY_OWNERSHIP.md).
+
+Still open from the review and **not** addressed here: `SECURITY.md` leaves 3.0.x
+unstated. That is a maintainer policy statement, and the review's instruction was to record
+the actual policy rather than invent one during editing.
+
 ## [3.1.5] - 2026-09-15
 
 ### Changed — the reader journey, and the Playbook split

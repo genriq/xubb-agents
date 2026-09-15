@@ -1,6 +1,6 @@
 # Diagnostics reference
 
-**Applies to runtime:** 3.1.5 · Every code in `DIAGNOSTIC_CODES`, with what it means and what
+**Applies to runtime:** 3.1.6 · Every code in `DIAGNOSTIC_CODES`, with what it means and what
 to do about it.
 
 When the engine refuses something, it says so in a `InsightDiagnostic` on the `AgentResponse`.

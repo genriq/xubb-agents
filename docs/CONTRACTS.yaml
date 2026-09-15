@@ -2016,12 +2016,32 @@ contracts:
     test_control: "tests/test_guides_runnable.py::test_the_guides_carry_runnable_examples"
     status: covered   # 3.1.5
 
+  - id: PROMPT-GUIDE-ENVELOPES
+    statement: >
+      Every JSON envelope the prompt engineering guide documents as current is accepted by the real
+      engine. The blocks under the guide's `insight_v1` schema section are executed with only the
+      provider boundary substituted: a spoken envelope must publish an insight, a silent one must
+      read `accepted_silent` and still commit its state channels, and neither may raise one of this
+      library's deprecation warnings. The guide can no longer tell a reader to emit a shape the
+      engine refuses.
+    source:
+      - "docs/prompt_engineering_guide.md: 4. Output Schemas"
+      - "tests/test_prompt_guide_envelopes.py"
+      - "the 2026-09-15 documentation design review, finding 3"
+    test: "tests/test_prompt_guide_envelopes.py::test_every_documented_envelope_is_accepted_by_the_engine"
+    test_publishes: "tests/test_prompt_guide_envelopes.py::test_the_documented_spoken_envelope_actually_publishes_an_insight"
+    test_silent_state: "tests/test_prompt_guide_envelopes.py::test_the_documented_silent_envelope_still_commits_state"
+    test_not_deprecated: "tests/test_prompt_guide_envelopes.py::test_the_documented_envelopes_teach_no_deprecated_format"
+    test_control: "tests/test_prompt_guide_envelopes.py::test_control_a_flat_envelope_is_refused_under_insight_v1"
+    test_extractor_control: "tests/test_prompt_guide_envelopes.py::test_the_guide_documents_a_spoken_and_a_silent_envelope"
+    status: covered   # 3.1.6
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:      109   (every contract & invariant names a passing, rule-asserting test)
+# covered:      110   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:        109
+# total:        110
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6
