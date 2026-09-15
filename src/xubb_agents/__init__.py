@@ -14,5 +14,5 @@ from .core.blackboard import Blackboard
 from .core.conditions import ConditionEvaluator
 from .library.dynamic import DynamicAgent
 
-__version__ = "3.1.4"
+__version__ = "3.1.5"
 

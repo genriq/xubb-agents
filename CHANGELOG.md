@@ -15,6 +15,74 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [3.1.5] - 2026-09-15
+
+### Changed — the reader journey, and the Playbook split
+
+**Tier 3** of the documentation design review, and the last of it. No runtime behaviour changes.
+
+**The README now walks a newcomer from nothing to a result they understand.** Its order follows
+the review's §5: what this is and what your host owns → install → **run it now with no API key**
+→ run it with a model → read what came back → where to go next.
+
+The offline example goes first deliberately. It exercises the real engine — eligibility,
+concurrency, validation, acceptance, merge — with a rule-based agent, so a newcomer sees the
+machinery work before adding a provider and a key to the things that could be wrong. It is
+labelled for what it is: a demonstration of the framework, not of a model's judgement.
+
+The model-backed example sets `output_format` explicitly, prints `acceptance_status`, and says
+in as many words that **an empty `insights` list is a normal, successful turn.**
+
+**The Playbook is split rather than patched.** At 355 KB and written against a v2.2 analysis, a
+single superseded banner could not stop a reader landing halfway down and following an
+instruction that no longer works.
+
+| | |
+|---|---|
+| [`docs/DESIGN_GUIDE.md`](docs/DESIGN_GUIDE.md) | The doctrine: restraint as the product, many small observers, what the engine owns and what your host does, trust levels, fail-closed, **and when not to use this framework** |
+| [`docs/guides/authoring-agents.md`](docs/guides/authoring-agents.md) | Both producer paths, narrowing purposes, triggers and cooldowns, memory, how to test |
+| [`docs/guides/orchestration.md`](docs/guides/orchestration.md) | Blackboard containers and how to choose, events and the second phase, fact precedence, per-agent attribution |
+| [`docs/guides/host-integration.md`](docs/guides/host-integration.md) | Declaring capabilities, reading the result, executing actions, questions, corrections, lifecycle |
+| [`docs/guides/long-form-content.md`](docs/guides/long-form-content.md) | The negotiation, why nothing is truncated, the two lanes, when to reach for it |
+
+The original is preserved unchanged at
+[`docs/archive/PLAYBOOK_v2.2.md`](docs/archive/PLAYBOOK_v2.2.md), and `docs/PLAYBOOK.md` is now a
+stub that keeps incoming links working and points at what replaced each part.
+
+### Added
+
+- **`tests/test_guides_runnable.py`** — every fenced example marked `<!-- runnable -->` is
+  executed in CI against the real engine, and must emit no deprecation warnings. **A recipe
+  labelled current is one that ran.** An unmarked block is illustrative and is not executed.
+  Registered as `GUIDE-RECIPES-VERIFIED`.
+
+### Fixed
+
+- **The README's model example now exercises the real engine.** It previously replaced
+  `AgentEngine.process_turn` wholesale, which proved the block constructed and printed while
+  generation, parsing, validation and acceptance never ran — it could not have caught an example
+  whose envelope the engine rejects. The substitution moved to the **provider boundary**, and a
+  negative control feeds it an envelope the engine must refuse.
+
+  Writing that control surfaced something worth documenting: the **merged** turn response reads
+  `accepted` even when its only agent was rejected, because one rejected agent does not fail a
+  turn. The README and the guides now say to read `acceptance_by_agent` when you need to know
+  which agent was refused.
+
+- Two stale status stamps: `SPEC_REMOVE_LEGACY_CONTRACT.md` read "APPROVED — ready to build" for
+  work that shipped as 3.0.0 in September, and `EXECUTIVE_SUMMARY.md` claimed 2.8.1. The summary
+  now carries its runtime **and** an explicit note that its narrative predates the 3.0.0 and
+  3.1.x changes, rather than a bare version bump over unrevised prose.
+
+### Compatibility
+
+Registry: 109 contracts, 100% covered, strict gate green. API documentation gate: PASS. Suite:
+1121 passed, 0 skipped, 0 xfail. Relative links across the doc set: 0 broken.
+
+Version note: **3.2.0 is deliberately not used here.**
+[`SPEC_CONFIG_KEY_OWNERSHIP`](docs/SPEC_CONFIG_KEY_OWNERSHIP.md) published that number for the
+configuration-key work, and a documentation release should not consume it.
+
 ## [3.1.4] - 2026-09-15
 
 ### Added — a complete API reference, a diagnostics reference, and a gate that keeps them true

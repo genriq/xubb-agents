@@ -6,7 +6,9 @@
 |-----|-----------|
 | [API_REFERENCE.md](API_REFERENCE.md) | **The supported public API.** Human-written meaning around fact tables generated from the shipped code; the declared surface is [api/inventory.yaml](api/inventory.yaml). Gated by `tools/check_api_docs.py`. |
 | [DIAGNOSTICS.md](DIAGNOSTICS.md) | **Every diagnostic code**, what raises it, its effect on acceptance, what to do about it, and its lifecycle status. Start here when a code appears in a log. |
-| [PLAYBOOK.md](PLAYBOOK.md) | The deep guide: how to design and compose agents well — doctrine, patterns, anti-patterns, and a golden-path build. |
+| [DESIGN_GUIDE.md](DESIGN_GUIDE.md) | **How to use this well** — restraint, specialized observers, what the engine owns and what your host does, trust levels, when *not* to use the framework. |
+| [guides/](guides/) | Task guides: [authoring agents](guides/authoring-agents.md), [orchestration](guides/orchestration.md), [host integration](guides/host-integration.md), [long-form content](guides/long-form-content.md). Every runnable example in them is executed in CI. |
+| [PLAYBOOK.md](PLAYBOOK.md) | A stub: the original 355 KB Playbook was written against a v2.2 analysis and is archived at [archive/PLAYBOOK_v2.2.md](archive/PLAYBOOK_v2.2.md). The stub points at what replaced each part of it. |
 | [technical_spec_agents.md](technical_spec_agents.md) | Data models and implementation reference. |
 | [prompt_engineering_guide.md](prompt_engineering_guide.md) | Writing effective agent prompts. |
 | [SPEC_V2_8_TYPED_REACH.md](SPEC_V2_8_TYPED_REACH.md) | The v2.8 typed-reach spec: adapters for every shipped schema, evidence coordinates and citations on demand, the result-only isolated-path instruction, urgency provenance, content-slot ordering, correctable targets, per-agent sidecars (invariants INV-49…INV-55). |
@@ -54,4 +56,4 @@ These documents describe the agreed design direction.
 
 The full reference-code and fixture ZIP remains a separately supplied design artifact; this documentation adoption does not claim to import those executables or certify Xubb/host/provider behavior. See the adoption note for source hashes and validation boundaries.
 
-New here? Start with the [README](../README.md) quickstart, then read the [PLAYBOOK](PLAYBOOK.md).
+New here? Work down the [README](../README.md) — install, run it offline, run it with a model, read the result — then the [design guide](DESIGN_GUIDE.md).

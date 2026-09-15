@@ -6,89 +6,61 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-**Version:** 3.1.4 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+**Version:** 3.1.5 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
 
 📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
 
 > **Note**: This is a **separate, standalone library**, designed to be embedded in any host application that needs real-time conversation agents — a web server, a desktop app, a CLI tool.
 
-> 📖 **New here? Read [THE PLAYBOOK](docs/PLAYBOOK.md)** — the definitive guide to leveraging this framework to its full potential in a real-time copilot (the design doctrine, patterns, anti-patterns, a checklist, a golden-path build, testing & metrics, and an end-to-end worked agent suite). The README is the reference; the Playbook is how to *wield* it.
+> 📖 **New here?** Work down this page — install, run it offline, run it with a model, read the result — then [**the design guide**](docs/DESIGN_GUIDE.md) for how to wield it well. The [API reference](docs/API_REFERENCE.md) and [diagnostics](docs/DIAGNOSTICS.md) are for when you are building against it.
 
 ## Contents
 
-- [Installation](#installation)
-- [Quickstart](#quickstart-copy-paste-runnable)
-- [Usage in Other Projects](#usage-in-other-projects)
-- [Architecture](#architecture)
-- [Core Concepts](#core-concepts)
-- [Blackboard Architecture](#blackboard-architecture)
-- [Trigger System](#trigger-system)
-- [Agent Configuration](#agent-configuration)
-- [Agent Communication](#agent-communication)
-- [Usage Guide](#usage-guide)
-- [API Reference](#api-reference)
-- [Best Practices](#best-practices)
-- [Migration from v1.0 / v2.0](#migration-from-v10--v20)
-- [Contributing](#contributing)
+**Start here** — [What this is](#what-this-is) · [Install](#install) · [Run it now](#run-it-now-no-api-key) · [With a model](#with-a-model) · [Reading the result](#reading-the-result) · [Where to go next](#where-to-go-next)
 
-## Installation
+**Reference** — [Architecture](#architecture) · [Core Concepts](#core-concepts) · [Blackboard](#blackboard-architecture) · [Triggers](#trigger-system) · [Agent Configuration](#agent-configuration) · [Agent Communication](#agent-communication) · [Usage Guide](#usage-guide) · [API Reference](#api-reference) · [Best Practices](#best-practices) · [Migration](#migration-from-v10--v20) · [Contributing](#contributing)
 
-Requires **Python >= 3.11**. Runtime dependencies: `openai`, `pydantic` (v2), `jinja2`.
+## What this is
+
+A library for running **many small, specialized agents against a live conversation**, where the
+hard part is not producing text — it is deciding that almost all of the time, nothing should be
+said. The framework's job is to make silence the default and to make what does get through
+trustworthy.
+
+**What it does:** selects which agents are eligible this turn, runs them concurrently, validates
+everything they produce at one acceptance boundary, and merges the results into a single
+response.
+
+**What your host owns:** everything the user sees or feels. The engine never renders a card,
+never executes a UI action, and never decides what is on screen. It tells you what an agent is
+*permitted* to say and hands you a validated result; presentation, timing and action execution
+are yours.
+
+**Runtime:** 3.1.5 · **Python:** 3.11, 3.12, 3.13 · **Dependencies:** `openai`, `pydantic` v2,
+`jinja2`.
+
+## Install
+
+```bash
+pip install -e .
+```
+
+From a clone, for development — the suite needs no API key and makes no network calls:
 
 ```bash
 git clone https://github.com/genriq/xubb-agents.git
 cd xubb-agents
-pip install -e .
-```
-
-Running the test suite needs no API key and makes no network calls:
-
-```bash
 pip install -e ".[dev]"
 pytest
 ```
 
-## Quickstart (copy-paste runnable)
+## Run it now (no API key)
 
-```python
-import asyncio
-from xubb_agents import AgentEngine, DynamicAgent, AgentContext, Blackboard
-from xubb_agents.core.models import TranscriptSegment
+Start here rather than with a model: this exercises the **real engine** — eligibility,
+concurrency, validation, the acceptance boundary, the merge — with a rule-based agent instead
+of an LLM-backed one. No key, no network, deterministic output.
 
-agent = DynamicAgent({
-    "id": "echo-coach",
-    "name": "Echo Coach",
-    "text": "You observe a live conversation. If the customer sounds hesitant, "
-            "give the salesperson ONE short, concrete suggestion.",
-    "output_format": "insight_v1",          # always set this explicitly
-    "trigger_config": {"mode": "turn_based", "cooldown": 0},
-})
-
-async def main():
-    engine = AgentEngine(api_key="your-openai-key")  # a real key: process_turn makes one live call
-    engine.register_agent(agent)
-    context = AgentContext(
-        session_id="demo",
-        recent_segments=[
-            TranscriptSegment(speaker="customer", timestamp=0.0,
-                              text="I'm not sure this fits our budget..."),
-            TranscriptSegment(speaker="sales", timestamp=4.2,
-                              text="What range did you have in mind?"),
-        ],
-        blackboard=Blackboard(),
-    )
-    response = await engine.process_turn(context)
-    for insight in response.insights:
-        # insights are AgentInsight objects, not dicts — use attribute access
-        print(f"[{insight.type.value}] {insight.content}")
-
-asyncio.run(main())
-```
-
-### Run it offline (no API key)
-
-The block above makes one OpenAI call. To see real output with no key and no network,
-register a rule-based agent (any `BaseAgent` subclass) instead of an LLM-backed one:
+It demonstrates the machinery, not the quality of a language model's judgement.
 
 ```python
 import asyncio
@@ -121,6 +93,94 @@ async def main():
 
 asyncio.run(main())
 ```
+
+Writing a `BaseAgent` subclass like this is a **first-class path**, not a toy: custom producers
+go through exactly the same validation as LLM-backed ones.
+
+## With a model
+
+The same shape, with a `DynamicAgent` — an agent defined by data rather than code. This one
+makes **one real provider call**, so it needs credentials you supply.
+
+Two things to expect. **`output_format` is set explicitly**; omitting it inherits a deprecated
+format and warns. And **the agent may say nothing at all** — an empty `insights` list is a
+normal, successful turn, not a failure.
+
+```python
+import asyncio, os
+from xubb_agents import AgentEngine, DynamicAgent, AgentContext, Blackboard
+from xubb_agents.core.models import TranscriptSegment
+
+agent = DynamicAgent({
+    "id": "echo-coach",
+    "name": "Echo Coach",
+    "text": "You observe a live conversation. If the customer sounds hesitant, "
+            "give the salesperson ONE short, concrete suggestion.",
+    "output_format": "insight_v1",          # always set this explicitly
+    "trigger_config": {"mode": "turn_based", "cooldown": 0},
+})
+
+async def main():
+    engine = AgentEngine(api_key=os.environ.get("OPENAI_API_KEY"))
+    engine.register_agent(agent)
+    context = AgentContext(
+        session_id="demo",
+        recent_segments=[
+            TranscriptSegment(speaker="customer", timestamp=0.0,
+                              text="I'm not sure this fits our budget..."),
+            TranscriptSegment(speaker="sales", timestamp=4.2,
+                              text="What range did you have in mind?"),
+        ],
+        blackboard=Blackboard(),
+    )
+    response = await engine.process_turn(context)
+
+    print(f"acceptance: {response.acceptance_status}")
+    for insight in response.insights:
+        # insights are AgentInsight objects, not dicts — use attribute access
+        print(f"[{insight.type.value}] {insight.content}")
+    if not response.insights:
+        print("(silent — nothing was worth saying this turn)")
+
+asyncio.run(main())
+```
+
+## Reading the result
+
+A turn returns one `AgentResponse`. Three things on it answer most questions:
+
+| | |
+|---|---|
+| `insights` | What to show. Empty is valid and common. |
+| `acceptance_status` | `accepted`, `accepted_silent`, or `rejected`. **Rejection is whole-response** — a rejected agent commits nothing at all, so a diagnostic never means "some of this applied". On the *merged* turn response this is an aggregate: one rejected agent does not fail the turn, so read `acceptance_by_agent` when you need to know which agent was refused. |
+| `diagnostics` | Why something was refused. Codes are documented in [DIAGNOSTICS.md](docs/DIAGNOSTICS.md). |
+
+On an insight, read `type` for its purpose, `content` for the text, and `urgency` for when it
+needs to be seen. One field deserves a warning: **`confidence` is `1.0` on insights whose model
+offered no estimate**, so it is not evidence that confidence was assessed —
+`confidence_provided` is the field that tells you.
+
+Not every diagnostic is a failure: `capability_unavailable` and `unsupported_structured_output`
+appear on accepted responses. Read `acceptance_status` alongside them.
+
+## Where to go next
+
+| If you want to | Read |
+|---|---|
+| Understand how to use this well | [**Design guide**](docs/DESIGN_GUIDE.md) — restraint, specialized observers, what the engine owns and what you do |
+| Write an agent | [Authoring agents](docs/guides/authoring-agents.md) |
+| Coordinate several agents | [Orchestration](docs/guides/orchestration.md) |
+| Wire it into your application | [Host integration](docs/guides/host-integration.md) |
+| Generate long-form output | [Long-form content](docs/guides/long-form-content.md) |
+| Look up a class or field | [API reference](docs/API_REFERENCE.md) |
+| Look up a diagnostic code | [Diagnostics](docs/DIAGNOSTICS.md) |
+| Move off a deprecated output format | [Migration](docs/MIGRATION_OUTPUT_FORMATS.md) |
+
+Release history is in the [changelog](CHANGELOG.md); the sections below are reference material
+you do not need to read front to back.
+
+---
+
 
 ## Usage in Other Projects
 
@@ -250,7 +310,7 @@ Full release notes in the [CHANGELOG](CHANGELOG.md); design rationale in [SPEC_L
 - **ConditionEvaluator**: Evaluates trigger conditions against Blackboard state
 - **LLMClient**: Isolated OpenAI client for agent LLM calls
 
-> **To learn how to design and compose agents well, see [THE PLAYBOOK](docs/PLAYBOOK.md).**
+> **To learn how to design and compose agents well, see the [design guide](docs/DESIGN_GUIDE.md)** and the task guides it links to.
 > **For detailed implementation and data models, see [technical_spec_agents.md](docs/technical_spec_agents.md).**
 > **For prompt writing best practices, see [prompt_engineering_guide.md](docs/prompt_engineering_guide.md).**
 
