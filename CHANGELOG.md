@@ -13,7 +13,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A written release procedure** — [docs/PROCESS.md](docs/PROCESS.md#releasing), linked
+  from `CONTRIBUTING.md`. There was none, and the cost showed: nine tagged versions
+  (`v2.8.0` through `v3.1.5`, including the breaking `v3.0.0`) had been tagged and pushed
+  but never published as GitHub Releases, so the Releases page advertised **`v2.7.0` as
+  Latest** while the library shipped 3.1.6. The nine have since been published
+  retrospectively from their changelog entries, with only `v3.1.6` marked Latest.
+
+  The procedure requires publishing the release against the **existing** tag (never letting
+  the release form create or move one), **verifying the install** from a clean checkout by
+  the method the README documents, and **pinning documentation links to that release's
+  tag** rather than `main` — a release page is a historical record, and links to `main`
+  silently re-point as the docs change.
+
+  No version bump: this is a release-record cleanup, and the runtime is unchanged.
+
+### Fixed
+
+- **`typed_v1` shipped in 2.7.0, not 2.8.0.** The `[3.0.0]` entry below — and
+  [SPEC_REMOVE_LEGACY_CONTRACT.md](docs/SPEC_REMOVE_LEGACY_CONTRACT.md) — said the typed
+  insight contract was *added* in 2.8.0. It was not: `insight_contract="typed_v1"` is
+  accepted at the `v2.7.0` tag (validated against `INSIGHT_CONTRACTS` in the constructor),
+  and 2.7.0's own entry announces the contract. 2.8.0 extended its **reach** across the
+  shipped schemas. Both places corrected in place with a dated note; the historical tags
+  are unchanged, and the published `v3.0.0` release notes were corrected to match.
 
 ## [3.1.6] - 2026-09-15
 
@@ -445,10 +470,13 @@ format name, `speak_without_gate`, and a structural mapping override.
 
 ### Removed — BREAKING: the `legacy_v2` insight contract
 
-`typed_v1` (XUBB-ITC-1) was added in 2.8.0 **alongside** `legacy_v2` so embedders
-could migrate. That migration is complete, and this release removes the superseded
-regime, the parameter that selected between them, and everything that served only
-the removed path.
+`typed_v1` (XUBB-ITC-1) shipped in **2.7.0** **alongside** `legacy_v2`, selectable
+through `insight_contract=`, so embedders could migrate; 2.8.0 extended its *reach*
+across the shipped schemas. *(Corrected 2026-09-15: this entry originally said `typed_v1`
+was added in 2.8.0. It was not — `insight_contract="typed_v1"` is accepted at the `v2.7.0`
+tag, and that release's own entry announces the contract. The historical tag is unchanged.)*
+That migration is complete, and this release removes the superseded regime, the
+parameter that selected between them, and everything that served only the removed path.
 
 **What an embedder does.**
 

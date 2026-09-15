@@ -47,6 +47,13 @@ checkout, not from an installed copy.)
    `contract-gate` workflow runs automatically on the PR (it needs no secrets, so it
    passes for fork PRs).
 
+## Releasing
+
+Maintainers only. The procedure — version, changelog, gates, merge, annotated tag,
+**GitHub Release against the existing tag**, installation verification, and
+tag-pinned documentation links — is in
+[docs/PROCESS.md § Releasing](docs/PROCESS.md#releasing).
+
 ## Reporting bugs and vulnerabilities
 
 - Bugs and feature requests: open a [GitHub issue](https://github.com/genriq/xubb-agents/issues)

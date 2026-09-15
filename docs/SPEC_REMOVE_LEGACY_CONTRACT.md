@@ -7,7 +7,7 @@
 
 ## 1. Summary
 
-The library implements two insight contracts. `legacy_v2` is the original: a fixed five-value type vocabulary, a static per-schema instruction string, and an adapter that normalises a loosely-shaped model response. `typed_v1` (XUBB-ITC-1, added in 2.8.0) replaced it: a nine-value vocabulary, an instruction composed per run from the run's effective permissions, and boundary validation that rejects what it did not ask for.
+The library implements two insight contracts. `legacy_v2` is the original: a fixed five-value type vocabulary, a static per-schema instruction string, and an adapter that normalises a loosely-shaped model response. `typed_v1` (XUBB-ITC-1, shipped in 2.7.0; its reach across the shipped schemas extended in 2.8.0 — *corrected 2026-09-15, this line read "added in 2.8.0"*) replaced it: a nine-value vocabulary, an instruction composed per run from the run's effective permissions, and boundary validation that rejects what it did not ask for.
 
 `typed_v1` was added **alongside** `legacy_v2` so embedders could migrate. That migration is complete. This release removes `legacy_v2`, the selection parameter that chose between them, and everything that exists only to serve the removed path.
 
