@@ -98,10 +98,15 @@ def test_every_documented_envelope_is_accepted_by_the_engine():
     for envelope in _documented_envelopes():
         response, _ = _run(envelope)
         status = response.acceptance_by_agent.get("guide_agent")
+        # AgentResponse carries `diagnostics` (a flat list carrying agent_id), not a
+        # `diagnostics_by_agent` mapping — an earlier draft of this message assumed the
+        # latter, which would have raised AttributeError instead of reporting the cause
+        # on the one path that matters.
+        codes = [d.code for d in (response.diagnostics or [])
+                 if getattr(d, "agent_id", None) == "guide_agent"]
         assert status != "rejected", (
             f"the prompt guide documents an envelope the engine rejects: "
-            f"{json.dumps(envelope)} -> {status} "
-            f"({response.diagnostics_by_agent.get('guide_agent')})")
+            f"{json.dumps(envelope)} -> {status} ({codes})")
 
 
 def test_the_documented_spoken_envelope_actually_publishes_an_insight():
