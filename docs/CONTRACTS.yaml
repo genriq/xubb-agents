@@ -2036,12 +2036,95 @@ contracts:
     test_extractor_control: "tests/test_prompt_guide_envelopes.py::test_the_guide_documents_a_spoken_and_a_silent_envelope"
     status: covered   # 3.1.6
 
+  - id: CONTEXT-UNKNOWN-KEY-WARNS
+    statement: >
+      `AgentContext` is closed in 4.0.0 and warns from 3.2.0. An unknown key is still ignored and
+      the field it resembles still keeps its default, but one DeprecationWarning per unknown key
+      names the surface, the key, the release that will refuse it, and the closest declared field
+      when one is close. A hint never repairs: `principl_id` does not populate `principal_id` and
+      `widget_capabilties` does not populate `widget_capabilities`. The allowed names are derived
+      from the model declaration; no second list exists. Detection covers the constructor,
+      `model_validate` and `model_validate_json`, and never logs the supplied value.
+    source:
+      - "docs/SPEC_AGENT_CONTEXT_CLOSURE.md SS4, SS5"
+      - "src/xubb_agents/core/models.py: AgentContext._warn_unknown_context_keys"
+    test: "tests/test_agent_context_closure.py::test_unknown_key_warns_naming_key_and_target"
+    test_hint_never_repairs: "tests/test_agent_context_closure.py::test_a_hint_never_repairs_the_field_it_names"
+    test_entry_points: "tests/test_agent_context_closure.py::test_every_public_validation_entry_point_warns"
+    test_derived: "tests/test_agent_context_closure.py::test_allowed_names_are_derived_from_the_model"
+    test_no_value_logged: "tests/test_agent_context_closure.py::test_the_warning_never_carries_the_supplied_value"
+    test_control: "tests/test_agent_context_closure.py::test_control_a_correctly_spelled_context_warns_about_nothing"
+    status: covered   # 3.2.0
+
+  - id: CONTEXT-WARNING-RELAXES-NOTHING
+    statement: >
+      The 3.2.0 warning window is a grace period for newly introduced behaviour, never a downgrade
+      of behaviour that exists. A nested declaration that forbids extras today keeps RAISING, and a
+      malformed value for a known field keeps raising. `model_copy(update=...)` is a trusted
+      internal operation on an already-validated context: it does not validate, does not warn, and
+      cannot be used as evidence of phase propagation.
+    source:
+      - "docs/SPEC_AGENT_CONTEXT_CLOSURE.md SS5"
+      - "the 2026-09-17 engine-status correction: no engine phase path uses model_construct"
+    test: "tests/test_agent_context_closure.py::test_a_nested_unknown_key_still_raises_at_the_warning_stage"
+    test_malformed: "tests/test_agent_context_closure.py::test_a_malformed_known_field_still_raises"
+    test_copy_exempt: "tests/test_agent_context_closure.py::test_control_model_copy_is_exempt_and_does_not_validate"
+    status: covered   # 3.2.0
+
+  - id: CONTEXT-TRUSTED-FIELDS-REACH-PHASE-2
+    statement: >
+      The engine builds its second-phase context with the CONSTRUCTOR, so the trusted host inputs
+      must survive into phase 2 and be observable by the agents that run there. Driving a real
+      `process_turn` through both phases, a phase-2 agent sees `principal_id`,
+      `insight_capabilities`, `widget_capabilities`, `insight_reference_context` and the Blackboard
+      as the host supplied them. A copy-based assertion cannot establish this.
+    source:
+      - "docs/SPEC_AGENT_CONTEXT_CLOSURE.md SS6"
+      - "src/xubb_agents/core/engine.py: the phase-2 AgentContext construction"
+    test: "tests/test_agent_context_closure.py::test_trusted_fields_are_observed_by_agents_in_phase_two"
+    test_arbitrary_types: "tests/test_agent_context_closure.py::test_arbitrary_types_allowed_stays_enabled"
+    status: covered   # 3.2.0
+
+  - id: CONFIG-BLOCK-UNKNOWN-KEY-WARNS
+    statement: >
+      `model_config` and `trigger_config` are closed in 4.0.0 and warn from 3.2.0. An unknown key
+      in either block warns once, naming the agent, the block, the key and the removal release, and
+      is still ignored. The top level stays OPEN and warns about nothing. `model_config.temperature`
+      — carried by agents but read by nothing, so never reaching a model — is the measured case, and
+      it is deliberately offered no hint, because moving it into `model_params` would make an
+      ignored setting effective and change provider behaviour.
+    source:
+      - "docs/SPEC_CONFIG_KEY_OWNERSHIP.md SS5, SS7"
+      - "src/xubb_agents/library/dynamic.py: _warn_unknown_block_keys"
+    test: "tests/test_config_key_ownership.py::test_the_measured_temperature_case_warns"
+    test_no_mechanical_hint: "tests/test_config_key_ownership.py::test_temperature_is_not_offered_model_params_as_a_hint"
+    test_hint_never_repairs: "tests/test_config_key_ownership.py::test_a_hint_never_repairs_a_config_key"
+    test_top_level_open: "tests/test_config_key_ownership.py::test_the_top_level_stays_open"
+    test_control: "tests/test_config_key_ownership.py::test_control_every_declared_key_is_accepted_in_silence"
+    status: covered   # 3.2.0
+
+  - id: CONFIG-BLOCK-KEYS-DERIVED
+    statement: >
+      The declared key set of each closed configuration block equals, exactly and in both
+      directions, the set of keys the loader actually reads. The check is an AST walk of
+      `library/dynamic.py`, not a regex over its text, so prose describing the check cannot satisfy
+      it. A read the parse cannot resolve to a literal key fails the build rather than being
+      skipped. This is the 3.1.1 lesson registered as a rule: a hand-maintained list of policed
+      keys is how the first repair missed the key nobody listed.
+    source:
+      - "docs/SPEC_CONFIG_KEY_OWNERSHIP.md SS6"
+      - "the 3.1.1 -> 3.1.2 enumeration defect"
+    test: "tests/test_config_key_ownership.py::test_declared_keys_equal_the_keys_the_loader_reads"
+    test_reachable: "tests/test_config_key_ownership.py::test_every_read_is_reachable_by_the_parse"
+    test_control: "tests/test_config_key_ownership.py::test_control_the_conformance_check_can_fail"
+    status: covered   # 3.2.0
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:      110   (every contract & invariant names a passing, rule-asserting test)
+# covered:      115   (every contract & invariant names a passing, rule-asserting test)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
-# total:        110
+# total:        115
 # → Registry fully certified: blackboard invariants, engine/tracing invariants
 #   (callbacks-once, sys-key flagging, tracing-resilience, callback-base-complete),
 #   config parsing, fail-closed evaluation, bounded cascades, and the v2.5/v2.6
