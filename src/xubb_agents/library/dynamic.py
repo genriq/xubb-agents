@@ -27,14 +27,62 @@ from ..core.models import (
 )
 from ..core.output_format import (
     FormatSpec, OutputFormatError, deprecation_message, known_channel_wire_keys,
-    override_violations, resolve as resolve_output_format, select_shape,
+    override_violations, removal_release, resolve as resolve_output_format, select_shape,
 )
+from ..core.input_keys import warn_unknown_keys
 from ..core.provider_schema import compile_schema, schema_issues, decode_response
 from ..core.content_contract import (
     check_content_contract, build_configuration, completion_status_from, CONTRACT as CONTENT_CONTRACT,
 )
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# SPEC_CONFIG_KEY_OWNERSHIP — the two newly closed blocks
+#
+# `model_config` and `trigger_config` are the engine's own vocabulary. An
+# unknown key in either is a setting the caller wrote and the engine drops: the
+# spec's measured case is `model_config.temperature`, carried by sixteen agents,
+# read by nothing, so a sampling temperature nobody could observe was never
+# tuned.
+#
+# Warn in 3.2.0, refuse in 4.0.0. The top level stays OPEN — a host catalogue
+# legitimately carries its own fields there and it is not the engine's business.
+#
+# DERIVATION, NOT ENUMERATION (spec SS6): these sets are conformance-tested
+# against the code that reads them. `tests/test_config_key_ownership.py` parses
+# this module for `model_conf.get(...)` / `trigger_conf.get(...)` and asserts
+# the declared set equals the read set EXACTLY, in both directions. Adding a
+# read without declaring it, or declaring a key nothing reads, fails the build.
+# That is the 3.1.1 lesson: a hand-maintained list of "the keys we police" is
+# how the first repair missed the key nobody listed.
+# ---------------------------------------------------------------------------
+
+#: Keys `DynamicAgent` reads from `model_config`.
+MODEL_CONFIG_KEYS = frozenset({
+    "context_turns", "max_tokens", "model", "model_params",
+    "reasoning_effort", "timeout",
+})
+
+#: Keys `DynamicAgent` reads from `trigger_config`.
+TRIGGER_CONFIG_KEYS = frozenset({
+    "cooldown", "keywords", "mode", "priority", "silence_threshold",
+    "subscribed_events", "trigger_interval",
+})
+
+
+def _warn_unknown_block_keys(agent_id, block_name, block, known):
+    """Warn once per unknown key in a closed configuration block."""
+    if isinstance(block, dict):
+        warn_unknown_keys(
+            f"Agent '{agent_id}': {block_name}",
+            block.keys(),
+            known,
+            removal_release=removal_release(),
+            reference="docs/SPEC_CONFIG_KEY_OWNERSHIP.md",
+            stacklevel=4,
+        )
+
 
 class DynamicAgent(BaseAgent):
     """
@@ -69,6 +117,8 @@ class DynamicAgent(BaseAgent):
         self._source_config = _deepcopy(config_dict)
         # Parse Trigger Config
         trigger_conf = config_dict.get("trigger_config", {})
+        _warn_unknown_block_keys(config_dict.get("id"), "trigger_config",
+                                 trigger_conf, TRIGGER_CONFIG_KEYS)
         cooldown = trigger_conf.get("cooldown", 15)
         
         # Parse trigger types (default: turn_based)
@@ -151,6 +201,7 @@ class DynamicAgent(BaseAgent):
         # Parse Model Config
         # Support top-level keys or nested 'model_config'
         model_conf = config_dict.get("model_config", {})
+        _warn_unknown_block_keys(agent_id, "model_config", model_conf, MODEL_CONFIG_KEYS)
         model = model_conf.get("model", config_dict.get("model", DEFAULT_MODEL))
 
         # v2.6 RC-1/RC-3: per-agent LLM-call config — coerced defensively per

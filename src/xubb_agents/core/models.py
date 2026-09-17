@@ -1,5 +1,9 @@
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from typing import List, Optional, Dict, Any, Literal, TYPE_CHECKING
+
+# Neither module imports models.py, so neither creates a cycle.
+from .input_keys import warn_unknown_keys
+from .output_format import removal_release
 from enum import Enum
 
 if TYPE_CHECKING:
@@ -492,6 +496,38 @@ class AgentContext(BaseModel):
     content_execution_context: Optional[ContentExecutionContext] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    # ---- SPEC_AGENT_CONTEXT_CLOSURE, 3.2.0 warning stage ----------------------
+    # This model is the one input surface that still IGNORES unknown keys, while
+    # every declaration nested inside it forbids them — so a caller is refused
+    # for `insight_capabilities={"supported_tpyes": ...}` and accepted for
+    # `insight_capabilties={...}`, which withdraws a capability for the whole run
+    # with nothing said about the cause.
+    #
+    # Until 4.0.0 refuses, this warns. Behaviour is otherwise EXACTLY as before:
+    # the key is still ignored and the field the caller meant keeps its default.
+    # A hint never repairs — guessing would silently grant a capability nobody
+    # successfully declared.
+    #
+    # `mode="before"` sees the raw mapping, so detection runs before pydantic
+    # discards the extras. It covers the constructor, `model_validate` and
+    # `model_validate_json` — every public entry point that builds a context from
+    # caller data. `model_copy(update=...)` does not run validators and is
+    # deliberately out of scope: it is a trusted internal operation on an
+    # already-validated context, not a boundary.
+    @model_validator(mode="before")
+    @classmethod
+    def _warn_unknown_context_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            warn_unknown_keys(
+                cls.__name__,
+                data.keys(),
+                cls.model_fields.keys(),   # derived; never a second hand-written list
+                removal_release=removal_release(),
+                reference="docs/SPEC_AGENT_CONTEXT_CLOSURE.md",
+                stacklevel=4,              # report the caller's construction site
+            )
+        return data
 
 # ---- XUBB-ITC-1 §6.3 typed payloads (normative shapes; unknown keys rejected) ----
 

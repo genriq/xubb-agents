@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-**Version:** 3.1.6 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
+**Version:** 3.2.0 · **Status:** Beta, production-hardened (every documented contract is CI-gated; see [docs/PROCESS.md](docs/PROCESS.md))
 
 📚 [Docs index](docs/) · 🔒 [Security](SECURITY.md) · 📝 [Changelog](CHANGELOG.md) · 🏛 [Architecture](#architecture)
 
@@ -36,7 +36,7 @@ never executes a UI action, and never decides what is on screen. It tells you wh
 *permitted* to say and hands you a validated result; presentation, timing and action execution
 are yours.
 
-**Runtime:** 3.1.6 · **Python:** 3.11, 3.12, 3.13 · **Dependencies:** `openai`, `pydantic` v2,
+**Runtime:** 3.2.0 · **Python:** 3.11, 3.12, 3.13 · **Dependencies:** `openai`, `pydantic` v2,
 `jinja2`.
 
 ## Install
@@ -608,7 +608,7 @@ Define preconditions that must be satisfied:
 | `model_config.max_tokens` | int | null | v2.6: per-agent token cap (wire: `max_completion_tokens`; includes reasoning tokens — deep-effort agents need ≥ 4096, OpenAI suggests ~25000). |
 | `model_config.model_params` | object | {} | v2.6: verbatim Chat-Completions passthrough (e.g. `verbosity`). Framework-owned keys are rejected at load; not transport-portable. |
 | `text` | string | required | System prompt (Jinja2) |
-| `output_format` | string | **current (3.1.6):** omitted inherits `"default"`, which is deprecated and warns | **Set it explicitly.** Supported: `insight_v1`, `widget_control`. Deprecated, removed in 4.0.0: `default`, `default_v2`, `v2_raw`, `ui_control`. An unknown, null, empty or non-string value raises at registration — there is no fallback. **Approved for 4.0.0, not yet shipped:** the key becomes *required* rather than defaulting ([SPEC_CONFIG_KEY_OWNERSHIP §5.3](docs/SPEC_CONFIG_KEY_OWNERSHIP.md), which amends the earlier plan to default it to `insight_v1`). See [MIGRATION_OUTPUT_FORMATS](docs/MIGRATION_OUTPUT_FORMATS.md). |
+| `output_format` | string | **current (3.2.0):** omitted inherits `"default"`, which is deprecated and warns | **Set it explicitly.** Supported: `insight_v1`, `widget_control`. Deprecated, removed in 4.0.0: `default`, `default_v2`, `v2_raw`, `ui_control`. An unknown, null, empty or non-string value raises at registration — there is no fallback. **Approved for 4.0.0, not yet shipped:** the key becomes *required* rather than defaulting ([SPEC_CONFIG_KEY_OWNERSHIP §5.3](docs/SPEC_CONFIG_KEY_OWNERSHIP.md), which amends the earlier plan to default it to `insight_v1`). See [MIGRATION_OUTPUT_FORMATS](docs/MIGRATION_OUTPUT_FORMATS.md). |
 | `include_context` | bool | true | Inject user profile & RAG docs into prompt. Set `false` for widget trackers and agents that don't need user/session context. Language directive always injected. |
 
 ---

@@ -13,25 +13,88 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
+Nothing yet.
 
-- **[`SPEC_AGENT_CONTEXT_CLOSURE`](docs/SPEC_AGENT_CONTEXT_CLOSURE.md) — APPROVED, announcing
-  two future changes.** `AgentContext` is the one input model that still ignores unknown
-  keys: **20 models in `core/models.py` declare `extra="forbid"`**, including every
-  declaration nested *inside* the context, so the inner models are stricter than the outer
-  one holding them. A caller who writes `principl_id` or `widget_capabilties` — one
-  transposed letter — constructs a valid context, keeps the default for the field they
-  meant to set, and loses a capability for the whole run with no statement of the cause.
+## [3.2.0] - 2026-09-17
 
-  Planned, **not yet implemented**: **warn in 3.2.0**, **refuse in 4.0.0**, following the
-  staging precedent of [`SPEC_CONFIG_KEY_OWNERSHIP`](docs/SPEC_CONFIG_KEY_OWNERSHIP.md) and
-  joining the release that already removes the deprecated output formats — one breaking
-  release to plan for, not two. A hint never repairs: `principl_id` will not populate
-  `principal_id`, because guessing there would silently grant a capability the caller never
-  successfully declared.
+### Added — the warning stage for both closed-input specs
 
-  Nothing changes at 3.1.6. A caller that validates its own keyword arguments before
-  constructing a context already satisfies both stages.
+3.2.0 is the **warning release** both approved specs named. Nothing refuses that did not
+refuse before, and nothing that refuses today starts warning instead. Every unknown key is
+still ignored and every field it resembles still keeps its default — callers get one
+release of notice before 4.0.0 turns these into errors.
+
+**`AgentContext` now warns on unknown keys**
+([SPEC_AGENT_CONTEXT_CLOSURE](docs/SPEC_AGENT_CONTEXT_CLOSURE.md)). It was the one input
+surface that ignored them, while all twenty declarations nested *inside* it forbid
+them — so a caller was refused for `insight_capabilities={"supported_tpyes": …}` and
+accepted for `insight_capabilties={…}`, losing a capability for the whole run with
+nothing said about the cause.
+
+```
+AgentContext: unknown key 'principl_id' is ignored and will be refused in 4.0.0.
+Did you mean 'principal_id'? The key is not repaired: 'principal_id' keeps its default.
+See docs/SPEC_AGENT_CONTEXT_CLOSURE.md.
+```
+
+**A hint never repairs.** `principl_id` does not populate `principal_id`. Guessing would
+silently grant a capability the caller never successfully declared — strictly worse than
+the silence being fixed.
+
+**`model_config` and `trigger_config` now warn on unknown keys**
+([SPEC_CONFIG_KEY_OWNERSHIP](docs/SPEC_CONFIG_KEY_OWNERSHIP.md)). The measured case is
+`model_config.temperature`: the engine reads only `model_config.model_params`, so a
+sampling temperature set there has never reached a model. It is deliberately offered **no
+hint**, because moving it into `model_params` would make an ignored setting effective and
+change provider behaviour — that is a per-agent decision, not a mechanical rewrite.
+
+**The top level stays open.** A host catalogue's own fields (`type`, `description`, and
+whatever else it carries) are not the engine's business and warn about nothing.
+
+### How it is built
+
+- **Detection runs before pydantic discards extras**, through a `mode="before"` validator,
+  so it covers the **constructor**, `model_validate` and `model_validate_json` — every
+  public entry point that builds a context from caller data.
+- **`model_copy(update=…)` is exempt and does not warn.** It does not validate, it is a
+  trusted internal operation on an already-validated context, and it cannot be used as
+  evidence of phase propagation.
+- **Derivation, not enumeration.** Allowed names come from the model declaration.
+  `model_config` / `trigger_config` declare their sets in `library/dynamic.py`, and
+  `CONFIG-BLOCK-KEYS-DERIVED` checks them against the keys the loader actually reads with
+  an **AST walk** — bidirectionally, and failing loudly on any read it cannot resolve to a
+  literal. This is the 3.1.1 lesson as a rule: the first repair enumerated the keys it
+  policed, and the enumeration *was* the bug.
+- **Nothing sensitive is logged.** The supplied value is never read into a message and the
+  context is never serialized; these surfaces carry principal identity and capability
+  declarations.
+
+### Verification
+
+Five contracts registered — `CONTEXT-UNKNOWN-KEY-WARNS`,
+`CONTEXT-WARNING-RELAXES-NOTHING`, `CONTEXT-TRUSTED-FIELDS-REACH-PHASE-2`,
+`CONFIG-BLOCK-UNKNOWN-KEY-WARNS`, `CONFIG-BLOCK-KEYS-DERIVED` — each with the negative
+control that must fail when its rule is removed.
+
+`CONTEXT-TRUSTED-FIELDS-REACH-PHASE-2` drives a real `process_turn` through **both
+phases** and asserts the trusted host inputs as a phase-2 agent observes them. The engine
+builds that context with the **constructor**, so closure will apply to it; a copy-based
+assertion could not establish this.
+
+Registry: **115 contracts**, 100% covered, strict gate green. Suite: **1158 passed** (+31),
+with the engine's own deprecation-warning count unchanged — the new stage fires on no
+existing engine path. API documentation gate: PASS.
+
+### Compatibility
+
+No behaviour changes. A caller that already validates its own keyword arguments before
+constructing a context sees no warnings and needs no change at 4.0.0.
+
+**4.0.0 will refuse** what 3.2.0 warns about, alongside the removal of the four deprecated
+output formats and `output_format` becoming required — one breaking release to plan for,
+not four.
+
+### Also in this release
 
 - **A written release procedure** — [docs/PROCESS.md](docs/PROCESS.md#releasing), linked
   from `CONTRIBUTING.md`. There was none, and the cost showed: nine tagged versions
