@@ -1,6 +1,6 @@
 # SPEC — Declared ownership for agent configuration keys
 
-- **Status:** APPROVED — ready to build
+- **Status:** APPROVED — **3.2.0 warning stage SHIPPED** (PR #57, released as 3.2.0, tagged `v3.2.0` at `98b65b6`). The **4.0.0 refusal stage remains to build**: both specs land it in the same release, alongside the deprecated-format removal and `output_format` becoming required.
 - **Reviewed by Codex —** APPROVED round 2 (round 1: one blocker, F1 — §7's "nothing is refused" contradicted §4, which listed three blocks that already refuse, so the same input had two dispositions. Fixed by scoping the warning window to the two newly closed blocks, stating that nothing which refuses today starts warning, and splitting the release matrix by block. Round 2 clean. Nothing contested.)
 - **Target releases:** **3.2.0** (warn) and **4.0.0** (refuse). Both numbers published by 3.2.0.
 - **Baseline:** 3.1.2, commit `88c85696c5f4687f0428788b9a09b071ea51f032`
