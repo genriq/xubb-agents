@@ -1,6 +1,6 @@
 # SPEC — Closing `AgentContext` to unknown keys
 
-- **Status:** APPROVED — ready to build
+- **Status:** APPROVED — **3.2.0 warning stage SHIPPED** (PR #57, released as 3.2.0, tagged `v3.2.0` at `98b65b6`). The **4.0.0 refusal stage remains to build**: both specs land it in the same release, alongside the deprecated-format removal and `output_format` becoming required.
 - **Reviewed by Codex —** APPROVED round 1 (0 blockers, 0 majors, 3 minors), and re-reviewed after fixing them: round 2 APPROVED with one new minor (a stale paragraph in §6 still describing the phase path the way §4 had just stopped describing it), round 3 APPROVED clean, 0 findings. All four findings fixed; nothing contested.
 - **Target releases:** **3.2.0** (warn) and **4.0.0** (refuse). Both numbers published by 3.2.0.
 - **Baseline:** 3.1.6, commit `ebcf994ca496730e3ec288aa18287b724f9f6ebe`
