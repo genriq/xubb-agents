@@ -15,6 +15,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **[`SPEC_AGENT_CONTEXT_CLOSURE`](docs/SPEC_AGENT_CONTEXT_CLOSURE.md) — APPROVED, announcing
+  two future changes.** `AgentContext` is the one input model that still ignores unknown
+  keys: **20 models in `core/models.py` declare `extra="forbid"`**, including every
+  declaration nested *inside* the context, so the inner models are stricter than the outer
+  one holding them. A caller who writes `principl_id` or `widget_capabilties` — one
+  transposed letter — constructs a valid context, keeps the default for the field they
+  meant to set, and loses a capability for the whole run with no statement of the cause.
+
+  Planned, **not yet implemented**: **warn in 3.2.0**, **refuse in 4.0.0**, following the
+  staging precedent of [`SPEC_CONFIG_KEY_OWNERSHIP`](docs/SPEC_CONFIG_KEY_OWNERSHIP.md) and
+  joining the release that already removes the deprecated output formats — one breaking
+  release to plan for, not two. A hint never repairs: `principl_id` will not populate
+  `principal_id`, because guessing there would silently grant a capability the caller never
+  successfully declared.
+
+  Nothing changes at 3.1.6. A caller that validates its own keyword arguments before
+  constructing a context already satisfies both stages.
+
 - **A written release procedure** — [docs/PROCESS.md](docs/PROCESS.md#releasing), linked
   from `CONTRIBUTING.md`. There was none, and the cost showed: nine tagged versions
   (`v2.8.0` through `v3.1.5`, including the breaking `v3.0.0`) had been tagged and pushed
