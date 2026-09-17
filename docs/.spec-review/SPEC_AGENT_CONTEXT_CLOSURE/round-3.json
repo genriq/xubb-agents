@@ -1,0 +1,6 @@
+{
+  "verdict": "APPROVED",
+  "summary": "The revised §6 resolves F1 by requiring process_turn through both phases and assertions on trusted fields observed by phase-2 agents, with model_copy propagation tested separately. The specification remains consistent about scope, migration behavior, and acceptance criteria; no blocker or major findings remain.",
+  "findings": [],
+  "resolved_from_previous_round": ["F1"]
+}

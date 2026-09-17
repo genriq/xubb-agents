@@ -1,0 +1,31 @@
+{
+  "verdict": "APPROVED",
+  "summary": "The spec clearly defines the staged closure, preserves existing refusals, and prevents typo hints from granting capabilities. No blocker or major issue remains; the findings concern inaccurate implementation descriptions and one ineffective negative control.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "minor",
+      "section": "§4 and §6 — Internal phase-context derivation",
+      "issue": "The spec says phase contexts use model_copy/model_construct, but engine.py:998 constructs them through AgentContext(...). model_copy is used for other derived views; the inspected engine contains no model_construct call.",
+      "why_it_matters": "The explanation could steer propagation tests toward helper operations rather than the actual phase reconstruction path.",
+      "suggested_fix": "Correct the description and explicitly exercise process_turn through both phases, asserting the trusted fields observed by agents. Keep the stated exclusions for trusted construction methods."
+    },
+    {
+      "id": "F2",
+      "severity": "minor",
+      "section": "§6 — “Closure preserves arbitrary types”",
+      "issue": "Removing arbitrary_types_allowed will not make the specified Blackboard fixture fail: Blackboard inherits Pydantic BaseModel (blackboard.py:25), so it does not exercise arbitrary-type support.",
+      "why_it_matters": "The proposed negative control cannot demonstrate preservation of the configuration setting it claims to test.",
+      "suggested_fix": "Keep Blackboard acceptance as a compatibility assertion and separately assert that arbitrary_types_allowed remains enabled. Remove the claim that the Blackboard fixture detects removal of that setting."
+    },
+    {
+      "id": "F3",
+      "severity": "minor",
+      "section": "§8 — “declared open”",
+      "issue": "This section calls models that discard unknown keys “open,” while §1 defines open as preserving unknown keys untouched.",
+      "why_it_matters": "The terminology incorrectly suggests a preservation guarantee for models explicitly left unchanged.",
+      "suggested_fix": "Describe these models as retaining legacy extra=\"ignore\" behavior with closure deferred, rather than declaring them open under the passthrough definition."
+    }
+  ],
+  "resolved_from_previous_round": []
+}
