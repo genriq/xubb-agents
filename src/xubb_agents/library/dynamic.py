@@ -713,9 +713,14 @@ class DynamicAgent(BaseAgent):
             # `state_updates` and `data` required of the model on a format whose
             # parser reads neither — a provider-required field whose meaningful
             # output was silently discarded.
+            # SPEC_PROVIDER_PROJECTION_ALIGNMENT §3.1: the projection is specialised
+            # to this run's profile, so the provider offers only shapes local
+            # validation can accept here — a conditional field the run cannot use is
+            # null-only, and the observation kinds are branched by type.
             response_schema = compile_schema(full=True, content_extension=content_plan is not None,
                                              allowed_types=list(self._effective_types(context).types),
-                                             channels=self._projection_channels(content_plan))
+                                             channels=self._projection_channels(content_plan),
+                                             analysis_profile=self.config.insight_config.analysis_profile)
             lint = schema_issues(response_schema)
             if lint:
                 response = AgentResponse(execution_id=execution_id, acceptance_status="rejected")
@@ -1078,16 +1083,38 @@ class DynamicAgent(BaseAgent):
                          f'plain-text summary or excerpt of the same body (at most {content_plan["effective_max_preview_chars"]} '
                          f'characters) that adds no claim and hides no caveat; "content_format" must be one of '
                          f'{", ".join(content_plan["formats"])}. Do not invent material to fill the depth.')
+        # SPEC_PROVIDER_PROJECTION_ALIGNMENT §3.2: say where every conditional field
+        # belongs, in every structured-output mode — json_object sends no schema, so
+        # these lines are the only statement of the contract's placement rules there.
+        # Always "must be null", never "omit": the strict projection requires the field.
         if consulting:
-            rules.append("A hypothesis needs evidence_refs, a rationale and a validation_step; an implication needs evidence_refs and a rationale. "
-                         "Evidence references must name items you were actually given.")
+            rules.append("observation_kind is only for an observation, and is null on every other type. "
+                         "A hypothesis needs evidence_refs, a rationale and a validation_step; an implication needs "
+                         "evidence_refs and a rationale. validation_step is null unless the type is observation and "
+                         "observation_kind is hypothesis, so it is also null on an observation whose observation_kind "
+                         "is null. A check or pilot you recommend belongs in the content of a suggestion, not in "
+                         "validation_step. Evidence references must name items you were actually given.")
+        else:
+            rules.append("observation_kind and validation_step must be null.")
+        rules.append("question is null unless the type is question." if "question" in types
+                     else "question must be null.")
+        rules.append("correction is null unless the type is correction." if "correction" in types
+                     else "correction must be null.")
+        if not isolated and spec.offers("queue_pushes"):
+            # §3.3: the output-format example shows the channel as {}, which says
+            # nothing about its values; a scalar queue value always rejects.
+            rules.append(f'Each queue in {spec.wire_key_for("queue_pushes")} holds a list of items, '
+                         'for example {"queue_name": ["item"]}.')
         if consulting or "correction" in types or reference is not None:
             # H2 (XA-06): whenever an enabled type needs an evidence basis, the
             # citation contract and the citable ids are exposed — not only for
             # the consulting profile. v2.8 (EC-1): also whenever the host asked
             # for citations (a reference context is exposed to the run).
             rules.append('An evidence reference is {"kind": "segment" | "document" | "fact" | "insight", "ref_id": "<id>", "revision": null}. '
-                         'Cite the ids shown in [brackets] before transcript lines and documents; never invent an id.')
+                         'Cite the ids shown in [brackets] before transcript lines and documents; never invent an id. '
+                         # §3.4: resolution is exact; a shortened id matches nothing.
+                         'Copy each id exactly as shown in the brackets, including its snap: prefix. A shortened or '
+                         'reconstructed id does not resolve, and the insight is rejected.')
             if reference is not None:
                 host_ids = [f"{kind}:{rid}" for (kind, rid) in reference.entries
                             if not rid.startswith(f"snap:{reference.snapshot_id}:")][:50]

@@ -13,7 +13,51 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed — the provider projection no longer invites what local validation always rejects
+
+[`SPEC_PROVIDER_PROJECTION_ALIGNMENT`](docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md), APPROVED at
+review round 2. A downstream host's rehearsal with production prompts and current models saw most
+typed insights rejected with `only_for_hypothesis`, `subtype_on_non_observation`,
+`consulting_profile_required`, a question payload on a non-question, scalar queue values and
+shortened evidence ids. The strict schema the engine sent allowed every one of those shapes: the
+contract's conditional rules are local-only keywords the provider subset does not carry, and the
+projection never knew the run's analysis profile. Prompts that used the field names as ordinary
+words ("implication", "validation step", "question") were the trigger; the engine, which owns the
+output contract, was the cause.
+
+- **The per-run projection offers only what the run can have accepted.** `compile_schema` takes
+  an optional `analysis_profile`. Without one, the generic projection is byte-identical to the
+  packaged one. With one, which `DynamicAgent` always passes:
+  - `observation_kind` and `validation_step` are null-only unless the profile is consulting and
+    observation is allowed;
+  - the question and correction payloads are null-only unless their type is allowed;
+  - when any of them is available, the candidate becomes named branches, one per allowed type,
+    with observation split into plain, implication and hypothesis, and `validation_step` carried
+    only by the hypothesis.
+  Every locally valid response for the run stays representable, and local validation is
+  unchanged and authoritative. `PROVIDER-PROJECTION-FIELD-AVAILABILITY`.
+- **Queues are lists in the projection.** The response descriptor marks `queue_pushes` with
+  `"map_value": "array"`, and the per-run projection carries list values for it. The other maps
+  keep arbitrary values. The codec is unchanged. `PROVIDER-PROJECTION-QUEUE-LISTS`.
+- **The generated rules say where each field belongs,** in every structured-output mode, because
+  `json_object` sends no schema: where the observation fields, `question` and `correction` must be
+  null; that `validation_step` belongs only to a hypothesis; that a recommended check belongs in a
+  suggestion's content; and that each queue holds a list. No rule tells the model to omit a
+  required field. `GENERATED-RULES-FIELD-PLACEMENT`.
+- **Citations are copied exactly.** The citation rule now says to copy each id exactly as shown,
+  including its `snap:` prefix. Resolution is unchanged: exact match only. `CITATION-EXACT-COPY`.
+- **Endpoint acceptance gates the release tag.** `tools/check_provider_acceptance.py` sends a
+  representative set of the specialised projections to named models and reports each schema's
+  digest, whether it was accepted, and whether the returned envelope validates. The maintainer
+  runs it before tagging, with the models the pinned hosts use; it is tested offline and is not
+  part of the suite. `PROVIDER-ACCEPTANCE-TOOL`.
+- **An escaped-defect probe,** `tests/qa_probes/test_probe_provider_projection_alignment.py`,
+  drives the engine end to end through a strict-decoding fake provider: before the repair the
+  rehearsal's shapes were emitted and rejected; after it they cannot be emitted.
+
+What changes for a host: the wire schema and the generated rules are different, so a host that
+digests prompts or schemas sees new digests, which is a new treatment by design. Predicted
+acceptance improvements are hypotheses until a host measures them in a fresh run.
 
 ## [3.2.0] - 2026-09-17
 

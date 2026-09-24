@@ -112,9 +112,87 @@ def project(node: Any) -> Any:
     return out
 
 
+NULL_ONLY: Dict[str, Any] = {"type": "null"}
+#: The candidate fields whose availability depends on the run (§3.1 of
+#: docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md).
+OBSERVATION_FIELDS: Tuple[str, ...] = ("observation_kind", "validation_step")
+
+
+def _without_null(prop: Dict[str, Any]) -> Dict[str, Any]:
+    """The non-null alternative of a projected nullable property."""
+    if "anyOf" in prop:
+        rest = [branch for branch in prop["anyOf"] if branch != NULL_ONLY]
+        if len(rest) != 1:
+            raise ValueError("unprojectable_nullable")
+        return deepcopy(rest[0])
+    out = deepcopy(prop)
+    if "enum" in out:
+        out["enum"] = [v for v in out["enum"] if v is not None]
+    if isinstance(out.get("type"), list):
+        kinds = [t for t in out["type"] if t != "null"]
+        out["type"] = kinds[0] if len(kinds) == 1 else kinds
+    return out
+
+
+def specialise_candidate(candidate: Dict[str, Any], allowed: List[str],
+                         analysis_profile: str) -> List[Tuple[str, Dict[str, Any]]]:
+    """The candidate projection for ONE run: offer only shapes local validation
+    can accept for it (docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md §3.1).
+
+    The contract's conditional rules are local-only keywords (``allOf``/``if``)
+    the provider subset does not carry, so a generic projection offers every
+    conditional field on every type — and the model fills them. Here an
+    UNAVAILABLE field keeps its property (still required) as null-only; when a
+    conditional field IS available, the candidate becomes named branches, one per
+    allowed shape, each a closed object. Returns ``[(name, branch), ...]``; a
+    single entry means no branching was needed.
+    """
+    props = candidate["properties"]
+    observation = analysis_profile == "consulting" and "observation" in allowed
+    question = "question" in allowed
+    correction = "correction" in allowed
+    shared = deepcopy(candidate)
+    if not observation:
+        for name in OBSERVATION_FIELDS:
+            shared["properties"][name] = dict(NULL_ONLY)
+    if not question:
+        shared["properties"]["question"] = dict(NULL_ONLY)
+    if not correction:
+        shared["properties"]["correction"] = dict(NULL_ONLY)
+    if not (observation or question or correction):
+        return [("", shared)]
+    branches: List[Tuple[str, Dict[str, Any]]] = []
+    for t in allowed:
+        branch = deepcopy(shared)
+        branch["properties"]["type"] = {"type": "string", "enum": [t]}
+        if question:
+            branch["properties"]["question"] = (_without_null(props["question"]) if t == "question"
+                                                else dict(NULL_ONLY))
+        if correction:
+            branch["properties"]["correction"] = (_without_null(props["correction"]) if t == "correction"
+                                                  else dict(NULL_ONLY))
+        if observation and t == "observation":
+            # Three shapes: a plain observation, an implication, a hypothesis.
+            # Only a hypothesis carries a validation step (the contract's rules 2-4).
+            for kind, step in ((None, dict(NULL_ONLY)), ("implication", dict(NULL_ONLY)),
+                               ("hypothesis", _without_null(props["validation_step"]))):
+                shaped = deepcopy(branch)
+                shaped["properties"]["observation_kind"] = (dict(NULL_ONLY) if kind is None
+                                                           else {"type": "string", "enum": [kind]})
+                shaped["properties"]["validation_step"] = step
+                branches.append((f"observation_{kind or 'plain'}", shaped))
+            continue
+        if observation:
+            for name in OBSERVATION_FIELDS:
+                branch["properties"][name] = dict(NULL_ONLY)
+        branches.append((t, branch))
+    return branches
+
+
 def compile_schema(*, full: bool = False, content_extension: bool = True,
                    allowed_types: Optional[List[str]] = None,
-                   channels: Optional[List[str]] = None) -> Dict[str, Any]:
+                   channels: Optional[List[str]] = None,
+                   analysis_profile: Optional[str] = None) -> Dict[str, Any]:
     """The provider projection for one run.
 
     ``allowed_types`` restricts the type enum to the effective set (None = the
@@ -125,6 +203,14 @@ def compile_schema(*, full: bool = False, content_extension: bool = True,
     (``None`` = every channel the descriptor knows). Offering a channel the
     format's parser does not read would make the provider require output that is
     then discarded, which is the defect this parameter closes (F7).
+
+    ``analysis_profile`` (``None`` = the generic projection, byte-identical to the
+    packaged one) specialises the projection to the run: conditional fields the run
+    cannot use are null-only, the shapes it can use are branched by type and
+    observation kind (:func:`specialise_candidate`), and a map channel the
+    descriptor marks ``"map_value": "array"`` carries list values. Every response
+    local validation accepts for the run stays representable; local validation
+    remains authoritative.
     """
     local = load_normalized_schema()
     source = local["$defs"]["candidate"]
@@ -147,8 +233,17 @@ def compile_schema(*, full: bool = False, content_extension: bool = True,
             for name in ("preview", "content_format"):
                 candidate["properties"].pop(name, None)
             candidate["required"] = list(candidate["properties"])
-        defs["candidate"] = candidate
-        props["insight"] = {"anyOf": [{"$ref": "#/$defs/candidate"}, {"type": "null"}]}
+        branches = ([("", candidate)] if analysis_profile is None
+                    else specialise_candidate(candidate, allowed, analysis_profile))
+        if len(branches) == 1:
+            defs["candidate"] = branches[0][1]
+            props["insight"] = {"anyOf": [{"$ref": "#/$defs/candidate"}, {"type": "null"}]}
+        else:
+            refs = []
+            for name, branch in branches:
+                defs[f"candidate_{name}"] = branch
+                refs.append({"$ref": f"#/$defs/candidate_{name}"})
+            props["insight"] = {"anyOf": refs + [{"type": "null"}]}
     else:
         props["has_insight"]["enum"] = [False]
     if full:
@@ -162,7 +257,15 @@ def compile_schema(*, full: bool = False, content_extension: bool = True,
             if channels is not None and name not in channels:
                 continue
             if item["encoding"] == "map_entries_v1":
-                props[name] = {"$ref": "#/$defs/map"}
+                if analysis_profile is not None and item.get("map_value") == "array":
+                    # §3.3: a queue's value is a list; the generic map would offer
+                    # any JSON value, and a scalar there always rejects locally.
+                    defs.setdefault("list_map", closed({"entries": {"type": "array", "items": closed({
+                        "key": {"type": "string"},
+                        "value": {"type": "array", "items": {"$ref": "#/$defs/json_value"}}})}}))
+                    props[name] = {"$ref": "#/$defs/list_map"}
+                else:
+                    props[name] = {"$ref": "#/$defs/map"}
             else:
                 props[name] = project(item["provider_shape"])
     result = closed(props)

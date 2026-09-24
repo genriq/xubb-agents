@@ -2119,8 +2119,114 @@ contracts:
     test_control: "tests/test_config_key_ownership.py::test_control_the_conformance_check_can_fail"
     status: covered   # 3.2.0
 
+  # ---- Provider projection alignment (docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md, APPROVED round 2) ----
+  - id: PROVIDER-PROJECTION-FIELD-AVAILABILITY
+    statement: >
+      For a run with effective types T and analysis profile P, the projection the agent sends
+      offers only shapes local validation can accept for that run. observation_kind and
+      validation_step are null-only unless P is consulting and observation is in T; the question
+      and correction payloads are null-only unless their type is in T. When any of them is
+      available, the candidate is an anyOf of closed branches, one per allowed type, with
+      observation split into plain, implication and hypothesis, and validation_step carried only
+      by the hypothesis. The generic projection (no profile) stays byte-identical to the packaged
+      one; every specialised projection passes the subset lint; every packaged valid example
+      allowed for the run stays representable. Local validation is unchanged: the same shapes,
+      sent without a schema, still reject with the same codes. The escaped defect's probe drives a
+      strict-decoding provider end to end.
+    source:
+      - "docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md: §3.1, §6 items 1-4 and 6"
+      - "src/xubb_agents/core/provider_schema.py: compile_schema / specialise_candidate"
+      - "src/xubb_agents/library/dynamic.py: the json_schema branch passes the run's analysis profile"
+    invariant: SO-1
+    test: "tests/test_provider_projection_alignment.py::TestGeneralProfileProjection::test_shapes_local_validation_always_rejects_are_not_offered"
+    test_consulting: "tests/test_provider_projection_alignment.py::TestConsultingProfileProjection::test_shapes_the_contract_forbids_are_not_offered"
+    test_hypothesis_offered: "tests/test_provider_projection_alignment.py::TestConsultingProfileProjection::test_a_hypothesis_observation_with_its_validation_step_is_offered"
+    test_general_structure: "tests/test_provider_projection_alignment.py::TestSpecialisationStructure::test_a_general_run_is_one_candidate_with_null_only_conditional_fields"
+    test_branches: "tests/test_provider_projection_alignment.py::TestSpecialisationStructure::test_a_consulting_run_branches_by_type_and_observation_kind"
+    test_payloads: "tests/test_provider_projection_alignment.py::TestSpecialisationStructure::test_granted_payloads_are_required_in_their_own_branch_only"
+    test_generic_unchanged: "tests/test_provider_projection_alignment.py::TestSpecialisationStructure::test_the_generic_projection_is_unchanged"
+    test_lint: "tests/test_provider_projection_alignment.py::TestSpecialisationStructure::test_every_specialised_projection_passes_the_subset_lint"
+    test_superset: "tests/test_provider_projection_alignment.py::TestPerRunSuperset::test_every_packaged_valid_example_allowed_for_the_run_stays_representable"
+    test_still_rejects: "tests/test_provider_projection_alignment.py::TestInvalidShapesStillReject::test_invalid_candidates_reject_with_their_codes"
+    test_probe: "tests/qa_probes/test_probe_provider_projection_alignment.py::test_a_strict_provider_can_no_longer_emit_what_the_engine_rejects"
+    status: covered   # Negative controls: 16 of the new assertions red on the unchanged code; the probe's 5 cases red with the generic projection restored.
+
+  - id: PROVIDER-PROJECTION-QUEUE-LISTS
+    statement: >
+      The queue_pushes channel, marked "map_value": "array" in the response descriptor, is
+      projected for a run with a profile as a map_entries_v1 map whose values are arrays, so a
+      scalar queue value is not offered. Decoding yields lists and the envelope is accepted. The
+      other maps (variable_updates, memory_updates, the candidate's metadata) keep arbitrary values.
+      Local validation still rejects a scalar queue value sent without a schema.
+    source:
+      - "docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md: §3.3"
+      - "src/xubb_agents/library/contract/provider_response_contract.json: queue_pushes.map_value"
+      - "src/xubb_agents/core/provider_schema.py: compile_schema (list_map)"
+    test: "tests/test_provider_projection_alignment.py::TestQueueProjection::test_a_queue_holding_a_scalar_is_not_offered"
+    test_list_offered: "tests/test_provider_projection_alignment.py::TestQueueProjection::test_a_queue_holding_a_list_is_offered"
+    test_other_maps: "tests/test_provider_projection_alignment.py::TestQueueProjection::test_other_maps_keep_arbitrary_values"
+    test_structure: "tests/test_provider_projection_alignment.py::TestSpecialisationStructure::test_only_the_marked_channel_carries_lists"
+    test_decoded: "tests/test_provider_projection_alignment.py::TestRealPath::test_a_list_valued_queue_decodes_and_is_accepted"
+    test_still_rejects: "tests/test_provider_projection_alignment.py::TestInvalidShapesStillReject::test_a_scalar_queue_value_still_rejects"
+    status: covered   # Negative control: the scalar case red on the unchanged code.
+
+  - id: GENERATED-RULES-FIELD-PLACEMENT
+    statement: >
+      The generated rules state where every conditional field belongs, in every structured-output
+      mode, because json_object sends no schema. A run without the observation fields is told they
+      must be null. A consulting run with observation is told observation_kind is only for an
+      observation, validation_step only for a hypothesis (so it is null on a plain observation
+      too), and that a recommended check belongs in a suggestion's content. question and correction
+      must be null unless granted. A run offering queue_pushes is told each queue holds a list. No
+      rule tells the model to omit a field the strict projection requires.
+    source:
+      - "docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md: §3.2, §3.3, §6 item 5"
+      - "src/xubb_agents/library/dynamic.py: _typed_instruction"
+    test: "tests/test_provider_projection_alignment.py::TestInstructions::test_a_consulting_run_is_told_where_each_field_belongs"
+    test_general: "tests/test_provider_projection_alignment.py::TestInstructions::test_a_general_run_is_told_the_observation_fields_are_null"
+    test_payloads: "tests/test_provider_projection_alignment.py::TestInstructions::test_ungranted_payloads_are_null"
+    test_queues: "tests/test_provider_projection_alignment.py::TestInstructions::test_a_run_offering_queues_is_told_they_hold_lists"
+    test_no_omit: "tests/test_provider_projection_alignment.py::TestInstructions::test_no_rule_tells_the_model_to_omit_a_field"
+    status: covered   # Negative control: the four placement assertions red on the unchanged code.
+
+  - id: CITATION-EXACT-COPY
+    statement: >
+      When citation rules are exposed, the model is told to copy each id exactly as shown,
+      including its snap: prefix, because a shortened or reconstructed id does not resolve.
+      Resolution itself is unchanged: exact match only, with no prefix matching, aliasing or
+      nearest-source guess.
+    source:
+      - "docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md: §3.4"
+      - "src/xubb_agents/library/dynamic.py: the citation rule"
+      - "src/xubb_agents/core/insight_validation.py: ReferenceContext.resolve"
+    test: "tests/test_provider_projection_alignment.py::TestInstructions::test_citations_must_be_copied_exactly"
+    test_exact_resolves: "tests/test_provider_projection_alignment.py::TestCitationResolutionUnchanged::test_the_exact_id_resolves"
+    test_shortened_rejects: "tests/test_provider_projection_alignment.py::TestCitationResolutionUnchanged::test_a_shortened_or_reconstructed_id_does_not_resolve"
+    status: covered   # Negative control: the instruction assertion red on the unchanged code.
+
+  - id: PROVIDER-ACCEPTANCE-TOOL
+    statement: >
+      tools/check_provider_acceptance.py builds the representative specialised projections the
+      spec names (general and consulting runs, the observation-kind branches, question and
+      correction granted, with and without the content extension, every map including the
+      list-valued queue), digests each stably, sends each as a strict request, and reports a
+      rejection, a refusal or an envelope that violates the sent schema as a failure. It refuses
+      to run without a key. Running it against live endpoints is the maintainer's release step,
+      which gates the tag; it is not part of the offline suite.
+    source:
+      - "docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md: §5, §6 item 7"
+      - "docs/SPEC_INSIGHT_TYPES.md: §13.3 and the G2 gate"
+      - "tools/check_provider_acceptance.py"
+    test: "tests/test_provider_acceptance_tool.py::test_every_failure_is_reported_as_a_failure"
+    test_set: "tests/test_provider_acceptance_tool.py::test_the_representative_set_covers_the_shapes_the_spec_names"
+    test_digests: "tests/test_provider_acceptance_tool.py::test_digests_are_stable_and_distinct"
+    test_pass: "tests/test_provider_acceptance_tool.py::test_an_accepted_request_with_a_valid_envelope_passes"
+    test_strict: "tests/test_provider_acceptance_tool.py::test_the_request_is_strict_and_carries_the_schema_whose_digest_is_recorded"
+    test_no_key: "tests/test_provider_acceptance_tool.py::test_without_a_key_the_tool_refuses_before_any_call"
+    status: covered   # Offline only by design; the live run is the release gate.
+
 # ---- Coverage summary (informational; check_contracts.py computes this authoritatively) ----
-# covered:      115   (every contract & invariant names a passing, rule-asserting test)
+# covered:      120   (every contract & invariant names a passing, rule-asserting test; +5 for the provider projection alignment)
 # to_verify:      0
 # failing_probe:  0
 # uncovered:      0
