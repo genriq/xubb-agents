@@ -13,6 +13,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [3.1.7] - 2026-09-24
+
+A patch on 3.1.6 carrying only this repair, for hosts pinned to 3.1.x: nothing from 3.2.0 is
+included. The same change is on `main` for 3.2.1.
+
 ### Fixed — the provider projection no longer invites what local validation always rejects
 
 [`SPEC_PROVIDER_PROJECTION_ALIGNMENT`](docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md), APPROVED at
