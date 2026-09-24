@@ -8,7 +8,8 @@
     },
     "queue_pushes": {
       "encoding": "map_entries_v1",
-      "normalized_type": "object"
+      "normalized_type": "object",
+      "map_value": "array"
     },
     "memory_updates": {
       "encoding": "map_entries_v1",
