@@ -1,0 +1,6 @@
+{
+  "verdict": "APPROVED",
+  "summary": "The revision explicitly covers null-kind observations in the validation_step instructions and regression criteria. It also requires live endpoint acceptance with recorded schema digests and named deployment models before tagging. Both previous major findings are adequately resolved, with no remaining blocker or major findings.",
+  "findings": [],
+  "resolved_from_previous_round": ["F1", "F2"]
+}

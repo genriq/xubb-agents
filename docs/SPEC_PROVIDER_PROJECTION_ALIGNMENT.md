@@ -1,6 +1,7 @@
 # SPEC — Provider projection alignment: per-run field availability, list-valued queues, exact citations
 
-**Version:** 1.1 · 2026-09-24 · **Status:** DRAFT — spec review round 2 pending. Round 1: CHANGES_REQUIRED (F1, F2 major), both addressed in 1.1.
+**Version:** 1.1 · 2026-09-24 · **Status:** APPROVED — build authority for the repair.
+**Reviewed by Codex — APPROVED round 2** (F1, F2 fixed; nothing contested). Round 1 was CHANGES_REQUIRED on two majors: the null-kind observation rule (F1) and endpoint acceptance before the tag (F2).
 **Kind:** a focused, compatible repair of the per-run provider projection and the generated instructions (XUBB-ITC-1 §13.3). **Behaviour base:** v3.1.6 (`ebcf994`). On `main` (3.2.0) the modules this change touches are identical to 3.1.6 except `library/dynamic.py`, where 3.2.0 added the unknown-key warning stage; this change does not touch that code.
 
 ## 1. Problem
