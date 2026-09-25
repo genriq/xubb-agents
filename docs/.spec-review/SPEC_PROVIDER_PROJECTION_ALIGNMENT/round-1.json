@@ -1,0 +1,23 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "The repair is narrowly scoped and preserves authoritative local validation, the codec, and the generic projection. Changes are required because the generated instructions still omit a case of the primary validation_step failure in json_object mode.",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "major",
+      "section": "§3.2 Instructions; §6 items 2 and 5",
+      "issue": "The consulting instructions never require validation_step=null when type=observation and observation_kind=null. They cover hypotheses, implications, and other types, leaving the ordinary-observation branch unspecified.",
+      "why_it_matters": "In json_object mode, no provider schema supplies the missing restriction. An ordinary observation containing a validation_step still triggers only_for_hypothesis in insight_validation.py:651, reproducing the primary failure this repair targets. The listed acceptance tests omit this case too.",
+      "suggested_fix": "State explicitly that validation_step must be null unless type is observation and observation_kind is hypothesis. Add the null-kind observation case to instruction assertions, projection rejection tests, and the json_object engine regression."
+    },
+    {
+      "id": "F2",
+      "severity": "major",
+      "section": "§3.1 final paragraph; §5 Compatibility and release; §6 Acceptance criteria",
+      "issue": "The acceptance criteria enable the new projection on every DynamicAgent run using only local lint, jsonschema validation, and a fake provider. They omit the actual endpoint acceptance requirement in SPEC_INSIGHT_TYPES.md §13.3 and its G2 enablement gate.",
+      "why_it_matters": "Nested anyOf is supported by the [official OpenAI documentation](https://developers.openai.com/api/docs/guides/structured-outputs), so there is no demonstrated incompatibility with that construct. However, the offline checks do not establish acceptance of the complete generated schema by the deployment endpoint/model. A schema rejection would prevent generation, and the existing fallback policy does not downgrade invalid-schema failures.",
+      "suggested_fix": "Add a release acceptance check against a named endpoint/model using representative specialised schemas, including consulting branches and list-valued queues, and retain the schema digest and result. Alternatively, explicitly document endpoint acceptance as an outstanding integration deliverable and distinguish offline completion from the inherited G2 enablement requirement."
+    }
+  ],
+  "resolved_from_previous_round": []
+}
