@@ -4,10 +4,40 @@ Pytest fixtures for xubb_agents tests.
 
 import pytest
 import time
+from pathlib import Path
 from xubb_agents.core.models import (
     AgentContext, TranscriptSegment, TriggerType, Event, Fact
 )
 from xubb_agents.core.blackboard import Blackboard
+
+#: The tracked API reference. The suite reads it and never writes it; only
+#: ``python tools/gen_api_facts.py``, run by hand, may change it.
+_API_REFERENCE = Path(__file__).resolve().parent.parent / "docs" / "API_REFERENCE.md"
+
+
+def _api_reference_bytes():
+    return _API_REFERENCE.read_bytes() if _API_REFERENCE.exists() else None
+
+
+@pytest.fixture(autouse=True)
+def _no_test_changes_the_real_api_reference(request):
+    """Fail, by name, any test that changes docs/API_REFERENCE.md.
+
+    It runs around every test and its function-scoped fixtures; collection and
+    wider-scoped fixtures are outside its reach. A test did change the file
+    until 2026-09-25: the generator bound the real path at import, so the
+    idempotence test rewrote it, and every run on a CRLF checkout left it
+    modified.
+    """
+    before = _api_reference_bytes()
+    yield
+    if _api_reference_bytes() != before:
+        pytest.fail(
+            f"{request.node.nodeid} changed the tracked docs/API_REFERENCE.md. Tests work on a "
+            "scratch copy (the docs fixture in tests/test_api_docs_gate.py). Restore the file "
+            "with: git checkout -- docs/API_REFERENCE.md",
+            pytrace=False,
+        )
 
 
 @pytest.fixture

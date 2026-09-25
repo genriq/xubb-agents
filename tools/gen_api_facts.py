@@ -21,7 +21,8 @@ import io
 import re
 import sys
 
-from api_surface import REFERENCE, derive
+import api_surface
+from api_surface import derive
 
 MARK = "<!-- GENERATED:%s -->"
 END = "<!-- /GENERATED:%s -->"
@@ -89,7 +90,11 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     _doc, surface = derive()
-    current = io.open(REFERENCE, encoding="utf-8").read()
+    # Read from the module when called, never imported by name: the tests point
+    # api_surface.REFERENCE at a scratch copy, and a name bound at import would
+    # keep the real path and rewrite the tracked file.
+    reference = api_surface.REFERENCE
+    current = io.open(reference, encoding="utf-8").read()
     updated, missing = render(current, surface)
 
     if missing:
@@ -103,7 +108,7 @@ def main(argv=None):
         print(f"generated API facts current ({len(surface)} classes)")
         return 0
 
-    io.open(REFERENCE, "w", encoding="utf-8", newline="\n").write(updated)
+    io.open(reference, "w", encoding="utf-8", newline="\n").write(updated)
     print(f"wrote generated facts for {len(surface)} classes into docs/API_REFERENCE.md")
     return 0
 

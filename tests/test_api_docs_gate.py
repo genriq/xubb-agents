@@ -19,7 +19,6 @@ That last one is the reason the inventory records QUALIFIED names. A bare-name
 check passes it — `id` does appear, under another class — which is exactly the
 mistake that inflated the audit this work came from.
 """
-import importlib
 import io
 import os
 import shutil
@@ -36,11 +35,17 @@ if str(TOOLS) not in sys.path:
 
 import api_surface            # noqa: E402
 import check_api_docs         # noqa: E402
+import gen_api_facts          # noqa: E402
 
 
 @pytest.fixture()
 def docs(tmp_path, monkeypatch):
-    """A copy of the real documentation tree the tests may break freely."""
+    """A copy of the real documentation tree the tests may break freely.
+
+    The redirect reaches the tools only because they look both paths up on
+    ``api_surface`` when they run. A tool that imported either name would keep
+    the real path and use the tracked file instead.
+    """
     target = tmp_path / "docs"
     target.mkdir()
     (target / "api").mkdir()
@@ -200,8 +205,26 @@ def test_a5_knows_which_codes_the_source_still_emits(capsys):
 # ---------------------------------------------------------------------------
 
 def test_the_generator_is_idempotent(docs):
-    gen = importlib.import_module("gen_api_facts")
-    assert gen.main([]) == 0
-    once = io.open(docs / "API_REFERENCE.md", encoding="utf-8").read()
-    assert gen.main([]) == 0
-    assert io.open(docs / "API_REFERENCE.md", encoding="utf-8").read() == once
+    """The generator writes the reference it is pointed at: a stale block comes
+    back current, nothing outside the blocks moves, and a second run changes no
+    byte.
+
+    The copy starts stale and every assertion reads the copy, so a generator that
+    writes anywhere else fails here. Until 2026-09-25 this test compared a copy
+    nothing had written with itself: the generator bound the real path at import,
+    the control test above imported it first, and a generator that appended to
+    the file on every run still passed in suite order. The real reference is
+    guarded separately, in tests/conftest.py.
+    """
+    path = docs / "API_REFERENCE.md"
+    current = io.open(path, encoding="utf-8").read()
+    assert "| `max_phases` | `int` | no | `2` |" in current
+    io.open(path, "w", encoding="utf-8", newline="\n").write(
+        current.replace("| `max_phases` | `int` | no | `2` |", "| `max_phases` | `int` | no | `7` |"))
+
+    assert gen_api_facts.main([]) == 0
+    once = path.read_bytes()
+    assert once.decode("utf-8") == current, "the stale block is regenerated and nothing else moves"
+
+    assert gen_api_facts.main([]) == 0
+    assert path.read_bytes() == once, "a second run changes no byte"
