@@ -20,7 +20,7 @@
 5. [Quick-Win Items (QW)](#5-quick-win-items-qw)
 6. [Release A — Wire Compatibility & Observability](#6-release-a--wire-compatibility--observability)
 7. [Release B — Reasoning Configuration & Engine Plumbing](#7-release-b--reasoning-configuration--engine-plumbing)
-8. [Open Decisions](#8-open-decisions)
+8. [Decisions (ruled 2026-07-13)](#8-decisions-ruled-2026-07-13)
 9. [Documentation Items](#9-documentation-items)
 10. [Implementation Plan (Phased)](#10-implementation-plan-phased)
 11. [Definition of Done (per phase)](#11-definition-of-done-per-phase)

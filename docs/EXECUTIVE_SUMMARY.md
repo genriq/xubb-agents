@@ -176,8 +176,9 @@ for insight in response.insights:
     display_to_user(insight)
 ```
 
-For a complete, runnable example (including a no-key offline variant), see the
-[README quickstart](../README.md#quickstart-copy-paste-runnable).
+For complete, runnable examples, see the README: its
+[Run it now (no API key)](../README.md#run-it-now-no-api-key) example runs the real
+engine offline, and a model-backed version of this snippet follows it.
 
 ---
 
