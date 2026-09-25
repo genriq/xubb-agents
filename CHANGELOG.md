@@ -15,6 +15,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed — the provider projection no longer invites what local validation always rejects
 
+Released on the 3.1 maintenance line as [3.1.7](https://github.com/genriq/xubb-agents/releases/tag/v3.1.7) (2026-09-24), which carries only this change; on `main` it ships in the next release.
+
 [`SPEC_PROVIDER_PROJECTION_ALIGNMENT`](docs/SPEC_PROVIDER_PROJECTION_ALIGNMENT.md), APPROVED at
 review round 2. A downstream host's rehearsal with production prompts and current models saw most
 typed insights rejected with `only_for_hypothesis`, `subtype_on_non_observation`,
